@@ -207,3 +207,20 @@ This package is a **Pi host extension**, not a standalone app or server — ther
 - **Node is compliant by default.** In Cloud the `.cursor/Dockerfile` bakes Node `22.19.0` at `/usr/local/bin/node` (pinned by digest so the image is reproducible), so even bare shells resolve a compliant `node`. As defense-in-depth (and for local/non-Docker runs), `scripts/cursor-cloud-lib.sh` treats `.nvmrc` as a **minimum**: it accepts any ambient Node `>= .nvmrc`, and only installs the exact `.nvmrc` version via `nvm` when the ambient Node is missing or older. When bumping Node, change `.nvmrc` **and** the `.cursor/Dockerfile` `FROM` (tag + digest) together. Do not hardcode absolute NVM/exec-daemon paths.
 - **The Pi host loads the built extension.** The smoke test runs `pi --mode rpc --no-session -e ./dist/index.js` (credential-free) and asserts the host registered the extension's commands from `dist/index.js`. No model API key is required to prove loading.
 - **Artifacts must never modify tracked docs.** Generate the dashboard via `scripts/cursor-cloud-artifacts.sh` (writes to the Cursor artifact dir or `.cloud-artifacts/`). Do **not** use `npm run screenshots` for artifacts — that overwrites the tracked `docs/images/dashboard_preview.svg`. Artifact generation asserts a clean working tree.
+
+## Learned User Preferences
+
+- For merge readiness on this repo, treat only `Required CI gate` and `Quality gate` as branch-protection required checks; Super-Linter `Lint Code Base` is not required and must not drive auto-merge decisions.
+- When rolling out `@onlinechefgroep/pi-agent-orchestrator`, update **sofie** (path install of the local checkout) and **jan** (npm package); do not treat `chefgroep-vps` / `chefgroep` or offline jump hosts as active deploy targets.
+
+## Learned Workspace Facts
+
+- `chefgroep-vps` / `chefgroep` is heavily deprecated: SSH may still exist via ProxyJump `weg54`, but do not probe or update it as live infrastructure.
+- `weg54` is expected offline (former workstation / original control node); fleet inventory and Tailscale both treat it as stale.
+- `chef-control-01` and `chef-runner-01` are real Tailscale Linux peers (SSH Host entries exist); they are not local Docker containers on sofie and may be offline independently.
+- `joep` / ProBook uses MagicDNS `joep.tail86a8f2.ts.net` (`Host joep`); Tailscale can show it active even when plain SSH previously timed out.
+- `sofie-dev` is in the utrecht-data-os SSH fleet block (`100.120.188.59`) and may be offline independently of `sofie`.
+- Reachable `bc-scan-*` / `bc-monitor` hosts usually have no orchestrator checkout; they are not primary orch update targets.
+- On `jan`, `~/.npmrc` may scope `@onlinechefgroep` to GitHub Packages (older caps); this package publishes to npmjs.org (`publishConfig.registry`), so `pi update` may need `--@onlinechefgroep:registry=https://registry.npmjs.org`.
+- Dependency CVE SSOT for merges is `dependency-review` inside `Required CI gate` plus Dependabot — not Super-Linter Trivy (`VALIDATE_TRIVY` must not be treated as a required merge signal).
+- Binary showcase media lives in sibling repo `OnlineChefGroep/pi-agent-orchestrator-assets`; consume via `npm run assets:link` or `ORCHESTRATOR_MEDIA_DIR` (see `docs/assets-layout.md` when present).

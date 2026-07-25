@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "workspace": "/home/sofie/OrgChefgroep/pi-agent-orchestrator",
+  "updatedAt": "2026-07-25T14:00:26+0200",
+  "transcripts": {
+    "0d9d40e3-cb0b-4dfa-99cd-08ca7f793f52": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/0d9d40e3-cb0b-4dfa-99cd-08ca7f793f52/0d9d40e3-cb0b-4dfa-99cd-08ca7f793f52.jsonl",
+      "mtimeMs": 1784980814520,
+      "size": 11835
+    },
+    "2c7f9b83-12bb-4c57-8dc5-bc0f0cd53ecd": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/2c7f9b83-12bb-4c57-8dc5-bc0f0cd53ecd/2c7f9b83-12bb-4c57-8dc5-bc0f0cd53ecd.jsonl",
+      "mtimeMs": 1784980824916,
+      "size": 6882
+    },
+    "3cc6e447-2a20-4c46-8b51-262a8bdff9d8": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/3cc6e447-2a20-4c46-8b51-262a8bdff9d8/3cc6e447-2a20-4c46-8b51-262a8bdff9d8.jsonl",
+      "mtimeMs": 1784980787020,
+      "size": 235250
+    },
+    "69e39e0e-c37b-4949-8a84-f2370c9f5120": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/69e39e0e-c37b-4949-8a84-f2370c9f5120/69e39e0e-c37b-4949-8a84-f2370c9f5120.jsonl",
+      "mtimeMs": 1784974412013,
+      "size": 59515
+    },
+    "7d93588d-4af0-4aa8-bc0d-0e0a12a90851": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/7d93588d-4af0-4aa8-bc0d-0e0a12a90851/7d93588d-4af0-4aa8-bc0d-0e0a12a90851.jsonl",
+      "mtimeMs": 1784974339080,
+      "size": 42840
+    },
+    "b411e512-b753-4c97-8da1-471f71067d87": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/b411e512-b753-4c97-8da1-471f71067d87/b411e512-b753-4c97-8da1-471f71067d87.jsonl",
+      "mtimeMs": 1784979664306,
+      "size": 25824
+    },
+    "ba7d43ce-0f13-4513-8322-d14d15f569fd": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/ba7d43ce-0f13-4513-8322-d14d15f569fd/ba7d43ce-0f13-4513-8322-d14d15f569fd.jsonl",
+      "mtimeMs": 1784974259951,
+      "size": 39413
+    },
+    "bb168411-1ccf-47d1-b2c0-b594a9b1149e": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/bb168411-1ccf-47d1-b2c0-b594a9b1149e/bb168411-1ccf-47d1-b2c0-b594a9b1149e.jsonl",
+      "mtimeMs": 1784979757755,
+      "size": 21499
+    },
+    "c5015cde-1bba-414b-9b03-0f2bd1aae034": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/c5015cde-1bba-414b-9b03-0f2bd1aae034/c5015cde-1bba-414b-9b03-0f2bd1aae034.jsonl",
+      "mtimeMs": 1784979874876,
+      "size": 27307
+    },
+    "ff0a16f6-9e61-4b76-889f-0d3f83930c07": {
+      "path": "/home/sofie/.cursor/projects/home-sofie-OrgChefgroep-pi-agent-orchestrator/agent-transcripts/ff0a16f6-9e61-4b76-889f-0d3f83930c07/ff0a16f6-9e61-4b76-889f-0d3f83930c07.jsonl",
+      "mtimeMs": 1784974310816,
+      "size": 51044
+    }
+  }
+}
