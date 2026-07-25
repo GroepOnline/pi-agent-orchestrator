@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { TerminalShowcase } from "@/components/terminal-showcase";
 import { Badge } from "@/components/ui/badge";

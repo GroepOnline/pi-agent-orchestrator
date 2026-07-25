@@ -1,4 +1,4 @@
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
