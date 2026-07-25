@@ -29,6 +29,7 @@ import {
   runAdversarialValidation,
 } from "./agent-runner-validator.js";
 import { type EffectiveConfig, getAgentConfig, getConfig, getMemoryToolNames, getReadOnlyMemoryToolNames, getToolNamesForType } from "./agent-types.js";
+import { loadChefGroepPreflight } from "./chefgroep-preflight.js";
 import { buildParentContext, extractText } from "./context.js";
 import { buildCtxInjection } from "./context-mode-bridge.js";
 import { DEFAULT_AGENTS } from "./default-agents.js";
@@ -497,6 +498,34 @@ export async function runAgent(
       );
     }
     systemPrompt = buildAgentPrompt({ ...fallback, name: type }, effectiveCwd, env, parentSystemPrompt, extras, compressionLevel);
+  }
+
+  // ChefGroep OS operational context is injected unconditionally when present.
+  // This removes per-agent prompting and keeps every subagent on the same fleet,
+  // datastore and mutation-logging contract. Ordinary installations fail open
+  // when ChefGroep OS is not installed; malformed/oversized state is visible.
+  const chefPreflight = loadChefGroepPreflight({ agentId: options.agentId });
+  if (chefPreflight.status === "loaded" && chefPreflight.systemPromptAddition) {
+    systemPrompt = `${systemPrompt}
+
+${chefPreflight.systemPromptAddition}`;
+    logger.debug("ChefGroep operational preflight injected", {
+      agentId: options.agentId ?? "unknown",
+      path: chefPreflight.path,
+    });
+  } else if (chefPreflight.status === "invalid" || chefPreflight.status === "oversize") {
+    logger.warn("ChefGroep operational preflight rejected", {
+      agentId: options.agentId ?? "unknown",
+      path: chefPreflight.path,
+      status: chefPreflight.status,
+      error: chefPreflight.error,
+    });
+  } else {
+    logger.debug("ChefGroep operational preflight unavailable", {
+      agentId: options.agentId ?? "unknown",
+      path: chefPreflight.path,
+      status: chefPreflight.status,
+    });
   }
 
   // Context-mode injection
