@@ -131,6 +131,17 @@ describe("Node.js version consistency", () => {
     expect(qualityJob).toMatch(/node-version:\s*22\.19/);
     expect(qualityJob).not.toMatch(/node-version:\s*22\s*$/m);
   });
+
+  it("Required CI gate skips (not fails) when a run is cancelled via concurrency", () => {
+    const ci = readRoot(".github/workflows/ci.yml");
+    const gate = ci.match(/\n {2}required-gate:[\s\S]*$/)?.[0] ?? "";
+    expect(gate).toContain("name: Required CI gate");
+    // always() makes the gate FAIL on concurrency-cancelled runs, leaving a
+    // spurious required-check failure that stalls auto-merge. !cancelled()
+    // skips the gate on cancellation while still catching genuine failures.
+    expect(gate).toMatch(/if:\s*\$\{\{\s*!cancelled\(\)\s*\}\}/);
+    expect(gate).not.toMatch(/if:\s*always\(\)/);
+  });
 });
 
 // ── Frozen release train ─────────────────────────────────────────────────────
@@ -295,6 +306,11 @@ describe("transactional release workflow", () => {
     expect(linter).toContain("github.event_name == 'workflow_dispatch'");
     expect(linter).toContain("SAVE_SUPER_LINTER_OUTPUT: true");
     expect(linter).toContain("Upload Super-Linter diagnostics");
+    // Dependency CVEs stay in the Required CI gate (dependency-review), not
+    // Super-Linter Trivy — otherwise unrelated PRs go UNSTABLE for site lockfile
+    // findings and auto-merge stalls.
+    expect(linter).not.toContain("VALIDATE_TRIVY");
+    expect(readRoot(".github/workflows/ci.yml")).toContain("dependency-review");
   });
 
   it("legacy publish workflows remain removed", () => {

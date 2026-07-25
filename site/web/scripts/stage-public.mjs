@@ -10,6 +10,23 @@ const publicRoot = path.join(webRoot, "public");
 const assetsDir = path.join(publicRoot, "assets");
 const wellKnownDir = path.join(publicRoot, ".well-known");
 
+/**
+ * Binary showcase media may live outside this repo (symlink or sibling assets
+ * checkout). Prefer ORCHESTRATOR_MEDIA_DIR, then docs/images (local or symlink).
+ */
+function resolveImagesDir() {
+  const fromEnv = process.env.ORCHESTRATOR_MEDIA_DIR?.trim();
+  if (fromEnv) {
+    const abs = path.isAbsolute(fromEnv) ? fromEnv : path.resolve(repoRoot, fromEnv);
+    const nested = path.join(abs, "images");
+    if (existsSync(nested)) return nested;
+    return abs;
+  }
+  return path.join(repoRoot, "docs", "images");
+}
+
+const imagesDir = resolveImagesDir();
+
 /** Copied before every dev/build; missing required files fail fast. */
 const requiredAssets = [
   "dashboard_preview.mp4",
@@ -56,9 +73,13 @@ mkdirSync(assetsDir, { recursive: true });
 mkdirSync(wellKnownDir, { recursive: true });
 
 function copyAsset(file, required) {
-  const source = path.join(repoRoot, "docs/images", file);
+  const source = path.join(imagesDir, file);
   if (!existsSync(source)) {
-    if (required) throw new Error(`Missing required showcase asset: ${source}`);
+    if (required) {
+      throw new Error(
+        `Missing required showcase asset: ${source} (set ORCHESTRATOR_MEDIA_DIR or run npm run assets:link)`,
+      );
+    }
     return false;
   }
   cpSync(source, path.join(assetsDir, file));

@@ -230,7 +230,13 @@ jobs:
 
   required-gate:
     name: Required CI gate
-    if: always()
+    # Run whenever the workflow itself was not cancelled. Using always() here
+    # makes the gate FAIL when a run is superseded via concurrency (upstream
+    # jobs report "cancelled"), leaving a spurious "Required CI gate" failure on
+    # every cancelled run and stalling auto-merge. !cancelled() still runs the
+    # gate on genuine upstream failures so real regressions are caught, but
+    # skips it when the run was cancelled.
+    if: ${{ !cancelled() }}
     needs:
       - quality
       - compatibility

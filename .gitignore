@@ -99,3 +99,11 @@ _site/
 
 # Removed Qodana config (was a Python linter, wrong for this TS project); keep it from being re-added
 qodana.yaml
+
+# Staged copies from site/web/scripts/stage-public.mjs (SSOTs live at repo root)
+site/web/public/llms.txt
+site/web/public/llms-full.txt
+site/web/public/sitemap.md
+site/web/public/AGENTS.md
+site/web/public/agent-permissions.json
+site/web/public/.well-known/
