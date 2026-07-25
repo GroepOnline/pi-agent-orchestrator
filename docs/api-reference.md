@@ -184,6 +184,7 @@ interface SubagentsSettings {
   defaultJoinMode?: JoinMode;          // Agent join topology (default: "smart")
   schedulingEnabled?: boolean;         // Master switch for cron scheduling (default: true)
   tracingEnabled?: boolean;           // Master switch for OpenTelemetry span emission in agent-runner (default: true). When false, every span helper in telemetry-otel.ts short-circuits to a shared no-op span.
+  posthog?: { key?: string; host?: string; distinctId?: string };  // Optional PostHog product-analytics bridge. Inert unless `key` is persisted in `.pi/subagents.json` (ambient `POSTHOG_KEY`/`POSTHOG_HOST`/`POSTHOG_DISTINCT_ID` env vars are read only once on first run to seed that config), so a default install ships zero outbound analytics. When enabled, agent lifecycle events (spawned, completed, dispatch decisions, validation failures, unknown-tool telemetry) are captured to your own PostHog project.
   animationStyle?: "braille" | "dots" | "lines" | "classic" | "none";  // Spinner style (default: "braille")
   uiStyle?: "premium" | "retro" | "plain";  // UI theme (default: "premium")
   showActivityStream?: boolean;        // Show real-time activity stream in widget (default: true)

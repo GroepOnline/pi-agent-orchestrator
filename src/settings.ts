@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AnimationStyle, OrchestrationMode } from "./agent-registry.js";
 import { logger } from "./logger.js";
+import type { PostHogConfig } from "./posthog-bridge.js";
 import type { JoinMode, PromptCompressionLevel } from "./types.js";
 import type { DashboardKeybindingsOverride } from "./ui/dashboard-keybindings.js";
 import { sanitizeDashboardKeybindings } from "./ui/dashboard-keybindings.js";
@@ -32,6 +33,13 @@ export interface SubagentsSettings {
   defaultJoinMode?: JoinMode;
   schedulingEnabled?: boolean;
   tracingEnabled?: boolean;
+  /**
+   * Optional PostHog product-analytics bridge. Inert unless `posthog.key`
+   * (or `POSTHOG_KEY`) is set, so a default install ships zero outbound
+   * analytics. When enabled, agent lifecycle events are captured to the
+   * configured project.
+   */
+  posthog?: PostHogConfig;
   /** Persisted motion profile; legacy single-spinner values remain valid. */
   animationStyle?: AnimationStyle;
   uiStyle?: "premium" | "retro" | "plain";
@@ -214,6 +222,22 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const footerStatus = sanitizeFooterStatusConfig(source.footerStatus);
   if (footerStatus) settings.footerStatus = footerStatus;
+
+  // PostHog bridge config: preserve explicitly set string fields so a saved
+  // `posthog.key` survives sanitization and reaches the bridge at activation.
+  const rawPostHog = source.posthog;
+  if (rawPostHog && typeof rawPostHog === "object" && !Array.isArray(rawPostHog)) {
+    const phSource = rawPostHog as Record<string, unknown>;
+    const posthog: PostHogConfig = {};
+    if (typeof phSource.key === "string" && phSource.key) posthog.key = phSource.key;
+    if (typeof phSource.host === "string" && phSource.host) posthog.host = phSource.host;
+    if (typeof phSource.distinctId === "string" && phSource.distinctId) {
+      posthog.distinctId = phSource.distinctId;
+    }
+    if (posthog.key !== undefined || posthog.host !== undefined || posthog.distinctId !== undefined) {
+      settings.posthog = posthog;
+    }
+  }
 
   return settings;
 }

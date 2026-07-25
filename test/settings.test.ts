@@ -318,6 +318,39 @@ describe("settings persistence", () => {
       writeProject({ showActivityStream: 1, showTokenUsage: null, showTurnProgress: "true" } as any);
       expect(loadSettings(projectDir)).toEqual({});
     });
+
+    it("preserves a configured posthog block through sanitization", () => {
+      writeProject({
+        posthog: { key: "phc_abc", host: "https://eu.posthog.com", distinctId: "node-1" },
+      });
+      expect(loadSettings(projectDir)).toEqual({
+        posthog: { key: "phc_abc", host: "https://eu.posthog.com", distinctId: "node-1" },
+      });
+    });
+
+    it("preserves a partial posthog block (key only)", () => {
+      writeProject({ posthog: { key: "phc_abc" } });
+      expect(loadSettings(projectDir)).toEqual({ posthog: { key: "phc_abc" } });
+    });
+
+    it("drops non-string and empty posthog fields", () => {
+      writeProject({ posthog: { key: 42, host: true, distinctId: "" } });
+      expect(loadSettings(projectDir)).toEqual({});
+    });
+
+    it("drops a malformed posthog value (array / non-object)", () => {
+      writeProject({ posthog: ["phc_abc"] as any });
+      expect(loadSettings(projectDir)).toEqual({});
+      writeProject({ posthog: "phc_abc" as any });
+      expect(loadSettings(projectDir)).toEqual({});
+    });
+
+    it("round-trips a saved posthog config so the bridge can enable on load", () => {
+      saveSettings({ posthog: { key: "phc_roundtrip", distinctId: "node-9" } }, projectDir);
+      expect(loadSettings(projectDir)).toEqual({
+        posthog: { key: "phc_roundtrip", distinctId: "node-9" },
+      });
+    });
   });
 
   describe("save result + corrupt-file warning", () => {
