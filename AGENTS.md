@@ -8,7 +8,7 @@ Pi extension — runs inside the pi coding agent host, not standalone. Orchestra
 
 | Rule | Detail |
 |------|--------|
-| **Spawn SSOT** | `src/default-agents.ts` (built-ins), `.pi/agents/*.md` (custom overrides), `src/settings.ts` + `.pi/subagent-settings.json` (runtime) |
+| **Spawn SSOT** | `src/default-agents.ts` (built-ins), `.pi/agents/*.md` (custom overrides), `src/settings.ts` + `.pi/subagents.json` (runtime) |
 | **Never** | Import `@earendil-works/pi-*` as direct deps; treat YAML booleans as truthy strings; sort agent lists (Map insertion order is intentional) |
 | **Peer extensions** | `@onlinechef/context-mode` → `ctx_*` tools (optional, feature-gated) |
 
@@ -28,7 +28,7 @@ For dashboard and animation work:
 
 ## Spawn rules
 
-**Config SSOT (edit order):** `src/default-agents.ts` → `.pi/agents/<name>.md` override → `src/custom-agents.ts` frontmatter → `/agents → Settings` (`.pi/subagent-settings.json`).
+**Config SSOT (edit order):** `src/default-agents.ts` → `.pi/agents/<name>.md` override → `src/custom-agents.ts` frontmatter → `/agents → Settings` (`.pi/subagents.json`).
 
 | Built-in type | Mode | Use when |
 |---------------|------|----------|
@@ -135,9 +135,9 @@ const mock: AgentRecord = { id: "x", /* all required fields */ };
 
 `test/*.benchmark.test.ts` files should assert performance with `expect(elapsed).toBeLessThan(threshold)`. `console.log` + `toContain` is a CodeRabbit-flagged anti-pattern in this repo.
 
-### 10. Settings persist to `.pi/subagent-settings.json`
+### 10. Settings persist to `.pi/subagents.json`
 
-Not to `package.json`, not to env vars (except at first-run). The schema lives in `src/settings.ts` (`SubagentsSettings` interface). When adding a setting: update the interface, defaults, validation, snapshot (`buildSettingsSnapshot` in `output-handler.ts`), AND the settings menu.
+Not to `package.json`, not to env vars (except at first-run), and not to the obsolete `.pi/subagent-settings.json` name. Project settings live at `<cwd>/.pi/subagents.json`; user-global settings at `$PI_CODING_AGENT_DIR/subagents.json` (default `~/.pi/agent/subagents.json`). The schema lives in `src/settings.ts` (`SubagentsSettings` interface). When adding a setting: update the interface, defaults, validation, snapshot (`buildSettingsSnapshot` in `output-handler.ts`), AND the settings menu.
 
 ### 11. Pre-commit hook runs biome + tsc only, NOT tests
 

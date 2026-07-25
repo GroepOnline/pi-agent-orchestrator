@@ -181,7 +181,7 @@ When working in `OnlineChefGroep/pi-agent-orchestrator`, preserve these invarian
 - Biome is the only linter; formatting is disabled; strings use double quotes.
 - Schema imports use the pinned `@sinclair/typebox` family from `package.json`, not the newer bare `typebox` package, unless an explicit migration is underway.
 - Tests use Vitest and live in `test/`.
-- Settings persist to `.pi/subagent-settings.json` and must be surfaced through the settings snapshot/menu and API documentation.
+- Settings persist to `.pi/subagents.json` (project: `<cwd>/.pi/subagents.json`; user: `$PI_CODING_AGENT_DIR/subagents.json`) and must be surfaced through the settings snapshot/menu and API documentation.
 - Built-in agent changes update defaults, focused tests, and the README.
 - The package entry remains `package.json` → `pi.extensions` → `./dist/index.js`.
 - Keep read-only discovery agents read-only and preserve permission inheritance.
