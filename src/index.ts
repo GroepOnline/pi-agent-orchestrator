@@ -12,6 +12,8 @@ import { logger } from "./logger.js";
  */
 
 
+import { randomUUID } from "node:crypto";
+
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AgentManager } from "./agent-manager.js";
 import {
@@ -40,7 +42,11 @@ import { BatchOrchestrator } from "./batch-orchestrator.js";
 import { registerAgentsCommand } from "./commands/agents.js";
 import { registerHooksCommand } from "./commands/hooks.js";
 import { registerTemplatesCommand } from "./commands/templates.js";
-import { registerRpcHandlers } from "./cross-extension-rpc.js";
+import {
+  createTokenAuthProvider,
+  PROTOCOL_VERSION,
+  registerRpcHandlers,
+} from "./cross-extension-rpc.js";
 import {
   appendAgentEvent,
   appendError,
@@ -383,7 +389,14 @@ export default async function (pi: ExtensionAPI) {
       onTelemetry("agent:spawned", (p) => posthogBridge.capture("agent_spawned", p)),
       onTelemetry("agent:completed", (p) => posthogBridge.capture("agent_completed", p)),
       onTelemetry("subagent:dispatch_decision", (p) =>
-        posthogBridge.capture("subagent_dispatch", p),
+        // Redact task text — only lengths/enums leave the host when PostHog is opted in.
+        posthogBridge.capture("subagent_dispatch", {
+          kind: p.kind,
+          configuredMode: p.configuredMode,
+          source: p.source,
+          promptLength: p.promptLength,
+          descriptionLength: typeof p.description === "string" ? p.description.length : 0,
+        }),
       ),
       onTelemetry("agent:validation-failed", (p) =>
         posthogBridge.capture("agent_validation_failed", p),
@@ -441,13 +454,18 @@ export default async function (pi: ExtensionAPI) {
     pi.sendMessage({ customType: "subagent-notification", content: `${prefix} Session ${threshold}. ${advice}`, display: true });
   });
 
+  // Host-issued RPC capability token. Peers must present this via
+  // authContext.authToken; trust-on-claim extensionId alone is rejected.
+  const rpcAuthToken = randomUUID();
+
   // Publish the typed public API on `globalThis` so peer extensions and tests
   // can discover and consume it. See `src/public-api.ts` for the contract.
-  // This supersedes the old read-only `pi-subagents:hooks` mirror: the new
-  // publication hands out the real `HookRegistry` instance, a typed RPC
-  // client, the typed event subscription helpers, and a read-only
-  // `SubagentManagerHandle` (published under `pi-subagents:manager`).
-  registerSubagentsApi(pi.events, hookRegistry, manager);
+  // Hands out the real HookRegistry, a token-wired RPC client, typed event
+  // helpers, and a read-only SubagentManagerHandle (`pi-subagents:manager`).
+  registerSubagentsApi(pi.events, hookRegistry, manager, {
+    extensionId: "pi-agent-orchestrator",
+    authToken: rpcAuthToken,
+  });
 
   // Expose widget render metrics via Symbol.for() global registry for dashboard access.
   // The dashboard reads this lazily via getWidgetMetrics() from global-registry.ts.
@@ -507,8 +525,8 @@ export default async function (pi: ExtensionAPI) {
     scheduler.stop();
   });
 
-    // Auth provider validates caller identity using authContext provided in the payload.
-  // Using the payload ensures each calling extension has its own rate-limit bucket.
+  // Token-bound auth: authProvider overrides spoofed payload identifiers unless the
+  // host-issued rpcAuthToken is present (see docs/api-reference.md security constraints).
   const { unsubPing: unsubPingRpc, unsubSpawn: unsubSpawnRpc, unsubStop: unsubStopRpc, unsubSessionUsage: unsubSessionUsageRpc, unsubSwarmHealth: unsubSwarmHealthRpc } = registerRpcHandlers({
     events: pi.events,
     pi,
@@ -516,17 +534,11 @@ export default async function (pi: ExtensionAPI) {
     manager,
     sessionManager: manager,
     swarmCoordinator: swarmJoin,
-    authProvider: (_requestId, payload) => {
-      const extensionId = payload?.authContext?.extensionId;
-      if (extensionId && typeof extensionId === "string") {
-        return { extensionId, extensionName: payload?.authContext?.extensionName };
-      }
-      return undefined; // Will throw UNAUTHORIZED in cross-extension-rpc.ts if undefined
-    },
+    authProvider: createTokenAuthProvider(rpcAuthToken),
   });
 
-  // Broadcast readiness so extensions loaded after us can discover us
-  pi.events.emit("subagents:ready", {});
+  // Broadcast readiness so extensions loaded after us can discover us (includes RPC token).
+  pi.events.emit("subagents:ready", { rpcAuthToken, protocolVersion: PROTOCOL_VERSION });
 
   // On shutdown, abort all agents immediately and clean up.
   // If the session is going down, there's nothing left to consume agent results.

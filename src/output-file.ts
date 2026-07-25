@@ -5,6 +5,7 @@
  * matching Claude Code's task output file format.
  */
 
+import { createHash } from "node:crypto";
 import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,10 +24,45 @@ export function encodeCwd(cwd: string): string {
     .replace(/^-+/, "");           // strip leading dashes (POSIX root, UNC)
 }
 
+const MAX_OUTPUT_SEGMENT_LENGTH = 200;
+/** Hex length of the collision-resistance suffix appended to lossy segments. */
+const SEGMENT_HASH_LENGTH = 8;
+
+/** Sanitize sessionId / agentId segments so they cannot escape the tasks directory.
+ *
+ * Sanitization is lossy: separator variants (`a/b` vs `a-b`), dropped characters,
+ * and values differing only past the truncation boundary can all collapse to the
+ * same string. Since these segments become session directories and agent
+ * filenames, a collision would let distinct jobs write to the same location. When
+ * the cleaned value no longer matches the raw input we therefore append a short
+ * stable hash of the raw input, keeping distinct inputs on distinct paths while
+ * leaving already-safe segments untouched and human-readable. */
+export function sanitizeOutputPathSegment(name: string): string {
+  if (!name) return "_";
+  const cleaned = name
+    .replace(/\0/g, "")
+    .replace(/[\\/]/g, "-")
+    .replace(/[:*?"<>|]/g, "-")
+    // Drop bare "." / ".." path segments (including after separator neutralization).
+    .split("-")
+    .filter((part) => part !== "" && part !== "." && part !== "..")
+    .join("-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  // Fast path: already a safe, non-truncated segment — keep it verbatim.
+  if (cleaned === name && name.length <= MAX_OUTPUT_SEGMENT_LENGTH) return cleaned;
+  const suffix = createHash("sha256").update(name).digest("hex").slice(0, SEGMENT_HASH_LENGTH);
+  const room = MAX_OUTPUT_SEGMENT_LENGTH - SEGMENT_HASH_LENGTH - 1;
+  const base = (cleaned || "_").slice(0, Math.max(1, room));
+  return `${base}-${suffix}`;
+}
+
 /** Create the output file path, ensuring the directory exists.
  *  Mirrors Claude Code's layout: /tmp/{prefix}-{uid}/{encoded-cwd}/{sessionId}/tasks/{agentId}.output */
 export function createOutputFilePath(cwd: string, agentId: string, sessionId: string): string {
   const encoded = encodeCwd(cwd);
+  const safeSessionId = sanitizeOutputPathSegment(sessionId);
+  const safeAgentId = sanitizeOutputPathSegment(agentId);
   const root = join(tmpdir(), `pi-subagents-${process.getuid?.() ?? 0}`);
   mkdirSync(root, { recursive: true, mode: 0o700 });
   // chmod is a no-op on Windows and throws on some Windows filesystems.
@@ -36,9 +72,9 @@ export function createOutputFilePath(cwd: string, agentId: string, sessionId: st
   } catch (err) {
     if (process.platform !== "win32") throw err;
   }
-  const dir = join(root, encoded, sessionId, "tasks");
+  const dir = join(root, encoded, safeSessionId, "tasks");
   mkdirSync(dir, { recursive: true });
-  return join(dir, `${agentId}.output`);
+  return join(dir, `${safeAgentId}.output`);
 }
 
 /** Write the initial user prompt entry. */

@@ -59,6 +59,17 @@ export interface NewJobInput {
 export class SubagentScheduler {
   private jobs = new Map<string, Cron>();
   private intervals = new Map<string, NodeJS.Timeout>();
+  /** Job ids currently executing — prevents overlap stacking under short cadences. */
+  private inflight = new Set<string>();
+  /** Last successful fire start (ms) per job — enforces MIN_INTERVAL for cron too. */
+  private lastFireAt = new Map<string, number>();
+  /**
+   * Monotonic scheduler generation, bumped on every stop(). An in-flight
+   * execution captures the generation at fire time and only cleans up its own
+   * markers while that generation is still active, so a stop()/start() cycle
+   * can never let a stale run evict a newer run's in-flight marker.
+   */
+  private generation = 0;
   private store: ScheduleStore | undefined;
   private pi: ExtensionAPI | undefined;
   private ctx: ExtensionContext | undefined;
@@ -78,10 +89,15 @@ export class SubagentScheduler {
 
   /** Stop all timers; drop refs. Safe to call repeatedly. */
   stop(): void {
+    // Invalidate the current generation so any still-running execution's
+    // later cleanup cannot touch markers owned by a subsequent start().
+    this.generation++;
     for (const cron of this.jobs.values()) cron.stop();
     this.jobs.clear();
     for (const t of this.intervals.values()) clearTimeout(t);
     this.intervals.clear();
+    this.inflight.clear();
+    this.lastFireAt.clear();
     this.store = undefined;
     this.pi = undefined;
     this.ctx = undefined;
@@ -198,6 +214,10 @@ export class SubagentScheduler {
     const store = this.requireStore();
     if (!store.get(id)) return false;
     this.unscheduleJob(id);
+    // Permanent removal: drop the overlap-guard timestamp so removed jobs
+    // don't retain an entry for the scheduler's lifetime across add/remove
+    // cycles. (updateJob re-arms the same id, so it intentionally keeps it.)
+    this.lastFireAt.delete(id);
     const ok = await store.remove(id);
     if (ok) this.emit({ type: "removed", jobId: id });
     return ok;
@@ -318,6 +338,17 @@ export class SubagentScheduler {
     const job = store.get(id);
     if (!job?.enabled) return;
 
+    // Skip overlapping fires for the same job (short interval/cron cadences).
+    if (this.inflight.has(id)) return;
+    const last = this.lastFireAt.get(id);
+    if (last !== undefined && Date.now() - last < MIN_INTERVAL) return;
+
+    // Capture the generation this run belongs to; used below so a run whose
+    // scheduler was stop()ed mid-flight does not evict a newer run's marker.
+    const generation = this.generation;
+    this.inflight.add(id);
+    this.lastFireAt.set(id, Date.now());
+
     try {
       await store.update(id, { lastStatus: "running" });
 
@@ -393,6 +424,10 @@ export class SubagentScheduler {
     }
     } catch (err) {
       this.emit({ type: "error", jobId: id, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      // Only clear our own marker: if stop() bumped the generation while we
+      // ran, a newer start() now owns this id's inflight entry — leave it be.
+      if (generation === this.generation) this.inflight.delete(id);
     }
   }
 

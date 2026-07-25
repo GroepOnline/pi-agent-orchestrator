@@ -71,6 +71,68 @@ export interface SwarmCapable {
 export interface AuthContext {
   extensionId: string;
   extensionName?: string;
+  /**
+   * Host-issued capability token. Required by {@link createTokenAuthProvider}.
+   * Peers obtain it from `subagents:ready` or via `registerSubagentsApi` options.
+   */
+  authToken?: string;
+}
+
+/** Safe extension id for rate-limit buckets (no path separators / traversal). */
+export const SAFE_EXTENSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * Allowlisted spawn option keys for cross-extension RPC.
+ * Privilege escalators (`bypassQueue`, callbacks, `cwd`, `signal`) are excluded.
+ */
+const RPC_SPAWN_OPTION_KEYS = new Set([
+  "description",
+  "model",
+  "maxTurns",
+  "isolated",
+  "inheritContext",
+  "thinkingLevel",
+  "isBackground",
+  "isolation",
+  "currentLevel",
+]);
+
+/**
+ * Build an authProvider that requires a host-issued token and only then
+ * accepts a sanitized caller `extensionId` for rate-limit attribution.
+ * Spoofed extensionIds without the token are rejected.
+ */
+export function createTokenAuthProvider(
+  expectedToken: string,
+): (requestId: string, payload: unknown) => AuthContext | undefined {
+  return (_requestId, payload) => {
+    if (!payload || typeof payload !== "object") return undefined;
+    const authContext = (payload as { authContext?: unknown }).authContext;
+    if (!authContext || typeof authContext !== "object") return undefined;
+    const ctx = authContext as Record<string, unknown>;
+    if (typeof ctx.authToken !== "string" || ctx.authToken !== expectedToken) {
+      return undefined;
+    }
+    if (typeof ctx.extensionId !== "string" || !SAFE_EXTENSION_ID.test(ctx.extensionId)) {
+      return undefined;
+    }
+    const result: AuthContext = { extensionId: ctx.extensionId };
+    if (typeof ctx.extensionName === "string" && ctx.extensionName.length > 0 && ctx.extensionName.length <= 200) {
+      result.extensionName = ctx.extensionName;
+    }
+    return result;
+  };
+}
+
+/** Strip non-allowlisted keys from an RPC spawn `options` object. */
+export function sanitizeRpcSpawnOptions(options: unknown): Record<string, unknown> {
+  if (!options || typeof options !== "object" || Array.isArray(options)) return {};
+  const src = options as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of RPC_SPAWN_OPTION_KEYS) {
+    if (Object.hasOwn(src, key)) out[key] = src[key];
+  }
+  return out;
 }
 
 export interface SpawnRpcRequest {
@@ -283,16 +345,20 @@ function requestRpc<T>(
 
 export function createSubagentsRpcClient(
   events: EventBus,
-  options: { timeoutMs?: number; extensionId?: string } = {},
+  options: { timeoutMs?: number; extensionId?: string; authToken?: string } = {},
 ): SubagentsRpcClient {
   const timeoutMs = options.timeoutMs ?? 30_000;
+  const authContext: AuthContext = {
+    extensionId: options.extensionId ?? "legacy",
+    ...(options.authToken ? { authToken: options.authToken } : {}),
+  };
   return {
-    ping: () => requestRpc<PingRpcReply>(events, "subagents:rpc:ping", { authContext: { extensionId: options.extensionId ?? "legacy" } }, timeoutMs),
-    spawn: (request) => requestRpc<{ id: string }>(events, "subagents:rpc:spawn", { ...request, authContext: { extensionId: options.extensionId ?? "legacy" } }, timeoutMs),
+    ping: () => requestRpc<PingRpcReply>(events, "subagents:rpc:ping", { authContext }, timeoutMs),
+    spawn: (request) => requestRpc<{ id: string }>(events, "subagents:rpc:spawn", { ...request, authContext }, timeoutMs),
     stop: async (request) => {
-      await requestRpc<void>(events, "subagents:rpc:stop", { ...request, authContext: { extensionId: options.extensionId ?? "legacy" } }, timeoutMs);
+      await requestRpc<void>(events, "subagents:rpc:stop", { ...request, authContext }, timeoutMs);
     },
-    sessionUsage: () => requestRpc<SessionUsageRpcReply>(events, "subagents:rpc:sessionUsage", { authContext: { extensionId: options.extensionId ?? "legacy" } }, timeoutMs),
+    sessionUsage: () => requestRpc<SessionUsageRpcReply>(events, "subagents:rpc:sessionUsage", { authContext }, timeoutMs),
   };
 }
 
@@ -390,8 +456,8 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
   const unsubPing = handleRpc(
     events,
     "subagents:rpc:ping",
-    auditedRpc<{ requestId: string }>(deps, "ping", ({ requestId }) => {
-      const auth = resolveAuth(deps, requestId, { requestId });
+    auditedRpc<{ requestId: string; authContext?: AuthContext }>(deps, "ping", (params) => {
+      const auth = resolveAuth(deps, params.requestId, params);
       return { auth, result: { version: PROTOCOL_VERSION } };
     }),
   );
@@ -402,13 +468,15 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
     auditedRpc<{ requestId: string; type: string; prompt: string; options?: any; authContext?: AuthContext }>(
       deps,
       "spawn",
-      ({ requestId, type, prompt, options }) => {
+      (params) => {
+        const { requestId, type, prompt, options } = params;
         const ctx = getCtx();
         if (!ctx) {
           throw new Error(`No active session for rpc:spawn (type=${type}, requestId=${requestId})`);
         }
 
-        const auth = authorizeRpcMutation(deps, requestId, "spawn", { requestId, type, prompt, options });
+        // Forward the full params (including authContext) so token auth can validate.
+        const auth = authorizeRpcMutation(deps, requestId, "spawn", params);
 
         // Cross-extension RPC callers (e.g. pi-tasks TaskExecute) naturally
         // forward serializable values, so options.model can be a string like
@@ -416,7 +484,7 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
         // — same pattern the scheduler path already uses — so the spawned
         // agent's auth lookup doesn't crash with "No API key found for
         // undefined".
-        let normalizedOptions = options ?? {};
+        let normalizedOptions = sanitizeRpcSpawnOptions(options);
         if (typeof normalizedOptions.model === "string") {
           const registry = (ctx as { modelRegistry?: ModelRegistry }).modelRegistry;
           if (!registry) {
@@ -437,12 +505,12 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
     ),
   );
 
-  const unsubStop = handleRpc<{ requestId: string; agentId: string }>(
+  const unsubStop = handleRpc<{ requestId: string; agentId: string; authContext?: AuthContext }>(
     events,
     "subagents:rpc:stop",
-    auditedRpc<{ requestId: string; agentId: string }>(deps, "stop", ({ requestId, agentId }) => {
-      const auth = authorizeRpcMutation(deps, requestId, "stop", { requestId, agentId });
-      if (!manager.abort(agentId)) throw new Error("Agent not found");
+    auditedRpc<{ requestId: string; agentId: string; authContext?: AuthContext }>(deps, "stop", (params) => {
+      const auth = authorizeRpcMutation(deps, params.requestId, "stop", params);
+      if (!manager.abort(params.agentId)) throw new Error("Agent not found");
       return { auth, result: undefined };
     }),
   );
@@ -451,8 +519,8 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
     ? handleRpc(
         events,
         "subagents:rpc:sessionUsage",
-        auditedRpc<{ requestId: string }>(deps, "sessionUsage", ({ requestId }) => {
-          const auth = resolveAuth(deps, requestId, { requestId });
+        auditedRpc<{ requestId: string; authContext?: AuthContext }>(deps, "sessionUsage", (params) => {
+          const auth = resolveAuth(deps, params.requestId, params);
           return {
             auth,
             result: {
@@ -471,8 +539,8 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
     ? handleRpc(
         events,
         "subagents:rpc:swarmHealth",
-        auditedRpc<{ requestId: string }>(deps, "swarmHealth", ({ requestId }) => {
-          const auth = resolveAuth(deps, requestId, { requestId });
+        auditedRpc<{ requestId: string; authContext?: AuthContext }>(deps, "swarmHealth", (params) => {
+          const auth = resolveAuth(deps, params.requestId, params);
           return {
             auth,
             result: {

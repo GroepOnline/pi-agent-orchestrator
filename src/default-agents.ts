@@ -202,7 +202,7 @@ export const DEFAULT_AGENTS: Map<string, AgentConfig> = new Map([
       description: "Fast codebase exploration agent (read-only)",
       builtinToolNames: READ_ONLY_TOOLS,
       disallowedTools: ["write", "edit"],
-      extensions: true,
+      extensions: false,
       skills: true,
       model: "anthropic/claude-haiku-4-5",
       systemPrompt: createReadOnlyPrompt({
@@ -223,7 +223,7 @@ export const DEFAULT_AGENTS: Map<string, AgentConfig> = new Map([
       description: "Software architect for implementation planning (read-only)",
       builtinToolNames: READ_ONLY_TOOLS,
       disallowedTools: ["write", "edit"],
-      extensions: true,
+      extensions: false,
       skills: true,
       systemPrompt: createReadOnlyPrompt({
         role: "a software architect and planning specialist",

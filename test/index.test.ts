@@ -91,6 +91,9 @@ vi.mock("../src/commands/hooks.js", () => ({ registerHooksCommand: vi.fn() }));
 // Mock cross-extension-rpc
 vi.mock("../src/cross-extension-rpc.js", () => ({
   PROTOCOL_VERSION: 2,
+  createTokenAuthProvider: vi.fn(() => vi.fn()),
+  sanitizeRpcSpawnOptions: vi.fn((options: unknown) => options ?? {}),
+  SAFE_EXTENSION_ID: /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/,
   createSubagentsRpcClient: vi.fn(() => ({
     ping: vi.fn(async () => ({ version: 2 })),
     spawn: vi.fn(async () => ({ id: "mock-agent" })),
@@ -233,10 +236,16 @@ describe("extension entry point", () => {
     expect(names).toContain("steer_subagent");
   });
 
-  it("emits subagents:ready after init", async () => {
+  it("emits subagents:ready after init with RPC auth token", async () => {
     const pi = buildPiMock();
     await extensionInit(pi);
-    expect(pi.events.emit).toHaveBeenCalledWith("subagents:ready", {});
+    expect(pi.events.emit).toHaveBeenCalledWith(
+      "subagents:ready",
+      expect.objectContaining({
+        rpcAuthToken: expect.any(String),
+        protocolVersion: expect.any(Number),
+      }),
+    );
   });
 
   it("registers message renderer for subagent-notification", async () => {

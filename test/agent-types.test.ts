@@ -503,7 +503,7 @@ describe("agent type registry", () => {
       // This tests the backward-compatible path
       const withoutParent = getConfig("Explore");
       expect(withoutParent.builtinToolNames).toEqual(READ_ONLY_TOOLS);
-      expect(withoutParent.extensions).toBe(true);
+      expect(withoutParent.extensions).toBe(false);
       expect(withoutParent.skills).toBe(true);
 
       const gp = getConfig("general-purpose");

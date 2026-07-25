@@ -31,7 +31,7 @@ import {
 import { type EffectiveConfig, getAgentConfig, getConfig, getMemoryToolNames, getReadOnlyMemoryToolNames, getToolNamesForType } from "./agent-types.js";
 import { loadChefGroepPreflight } from "./chefgroep-preflight.js";
 import { buildParentContext, extractText } from "./context.js";
-import { buildCtxInjection } from "./context-mode-bridge.js";
+import { resolveCtxInjectionForAgent } from "./context-mode-bridge.js";
 import { DEFAULT_AGENTS } from "./default-agents.js";
 import { detectEnv } from "./env.js";
 import { buildEnvFromContext } from "./env-context.js";
@@ -528,12 +528,23 @@ ${chefPreflight.systemPromptAddition}`;
     });
   }
 
-  // Context-mode injection
-  const ctxInjection = buildCtxInjection();
+  // Context-mode injection — only for agents that opt in via useContextMode,
+  // and only when getConfig kept ctx_* tools in the effective allowlist.
+  const ctxInjection = resolveCtxInjectionForAgent(agentConfig?.useContextMode);
   if (ctxInjection) {
-    systemPrompt = `${systemPrompt}\n\n${ctxInjection.systemPromptAddition}`;
-    toolNames = [...toolNames, ...ctxInjection.toolAllowList];
-    logger.debug("context-mode tools injected", { agentId: options.agentId ?? "unknown" });
+    const allowed = new Set(config.builtinToolNames);
+    // Exclude tools the agent denies via disallowedTools, matching the active-tool
+    // filter below (Lines 614-634). Otherwise an opted-in agent that denies a ctx_*
+    // tool would still get the context-mode prompt/log for a tool the session removes.
+    const denied = agentConfig?.disallowedTools ? new Set(agentConfig.disallowedTools) : undefined;
+    const injectable = ctxInjection.toolAllowList.filter(
+      (t) => allowed.has(t) && !toolNames.includes(t) && !denied?.has(t),
+    );
+    if (injectable.length > 0) {
+      systemPrompt = `${systemPrompt}\n\n${ctxInjection.systemPromptAddition}`;
+      toolNames = [...toolNames, ...injectable];
+      logger.debug("context-mode tools injected", { agentId: options.agentId ?? "unknown" });
+    }
   }
 
   const noSkills = skills === false || Array.isArray(skills);

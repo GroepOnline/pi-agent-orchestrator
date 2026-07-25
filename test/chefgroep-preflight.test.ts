@@ -144,6 +144,6 @@ describe("agent runner integration", () => {
     const runner = readFileSync(new URL("../src/agent-runner.ts", import.meta.url), "utf8");
     expect(runner).toContain("loadChefGroepPreflight({ agentId: options.agentId })");
     expect(runner).toContain("ChefGroep operational preflight injected");
-    expect(runner.indexOf("loadChefGroepPreflight")).toBeLessThan(runner.indexOf("buildCtxInjection()"));
+    expect(runner.indexOf("loadChefGroepPreflight")).toBeLessThan(runner.indexOf("resolveCtxInjectionForAgent("));
   });
 });

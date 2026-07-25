@@ -13,4 +13,4 @@
 # sources where whole-file skip is inappropriate.
 check-hidden =
 skip = *package-lock.json,*go.mod,*go.sum,*.log,.git,*CHANGELOG.md
-ignore-words-list = acceptabel,actieve,afterAll,als,alle,architectuur,beforeAll,beter,checkt,doen,extreem,implementors,methode,Methode,Nd,openen,tabel,te,Wil
+ignore-words-list = acceptabel,actieve,afterAll,als,alle,architectuur,beforeAll,beter,checkt,doen,extreem,implementors,methode,Methode,Nd,openen,statics,tabel,te,Wil

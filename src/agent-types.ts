@@ -317,7 +317,7 @@ function applyPartitionFilter(
  * This is the main entry point for agent config resolution. It performs:
  * 1. Lookup of the agent config (custom agents override defaults)
  * 2. Parent permission inheritance via {@link PermissionUtils.applyParentRestrictions}
- * 3. Context-mode tool injection (if `useContextMode` is true and ctx module available)
+ * 3. Context-mode tool injection when `useContextMode` is set (skipped under a RO parent floor)
  * 4. Partition-based tool filtering via {@link applyPartitionFilter}
  *
  * Falls back to "general-purpose" config if the type is unknown or disabled.
@@ -344,18 +344,32 @@ export function getConfig(
 
 
   if (config && config.enabled !== false) {
+    // Expand `*` before parent restrictions so wildcards intersect correctly.
+    const baseTools = normalizeBuiltinToolNames(config.builtinToolNames) ?? BUILTIN_TOOL_NAMES;
+
     const restricted = applyParentRestrictions({
-      // Expand `*` to the full built-in list (audit A1) BEFORE parent
-      // restrictions are applied, so a wildcard child is intersected with
-      // the parent's concrete list rather than yielding an empty set.
-      builtinToolNames: normalizeBuiltinToolNames(config.builtinToolNames) ?? BUILTIN_TOOL_NAMES,
+      builtinToolNames: baseTools,
       extensions: config.extensions === true || config.extensions === false ? config.extensions : [...config.extensions],
       skills: config.skills === true || config.skills === false ? config.skills : [...config.skills],
     }, parentConfig);
 
-    // Inject ctx_* tools when context-mode is installed and agent opts in
-    const builtinToolNames = config.useContextMode && isContextModeAvailable()
-      ? [...restricted.builtinToolNames, ...CTX_TOOL_NAMES]
+    // Context-mode tools are additive for opted-in agents, but a read-only
+    // parent floor must still be able to deny them (do not append under RO parents).
+    const parentIsReadOnlyFloor = Boolean(
+      parentConfig?.builtinToolNames.every((t) => (READ_ONLY_TOOLS as readonly string[]).includes(t))
+      && !parentConfig.builtinToolNames.some((t) => (CTX_TOOL_NAMES as readonly string[]).includes(t)),
+    );
+    // When the parent explicitly lists some (but not all) ctx_* tools, only the
+    // parent-approved subset is additive — otherwise a parent allowing just
+    // `ctx_search` would leak `ctx_execute` et al. to the child. A parent that
+    // lists none (undefined parent or a full parent, since ctx_* are additive
+    // and never part of the base allowlist) still grants the full set.
+    const parentContextTools = parentConfig?.builtinToolNames.filter((t) =>
+      (CTX_TOOL_NAMES as readonly string[]).includes(t),
+    );
+    const contextTools = parentContextTools?.length ? parentContextTools : CTX_TOOL_NAMES;
+    const builtinToolNames = config.useContextMode && isContextModeAvailable() && !parentIsReadOnlyFloor
+      ? [...restricted.builtinToolNames, ...contextTools]
       : restricted.builtinToolNames;
 
     return {

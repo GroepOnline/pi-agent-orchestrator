@@ -362,7 +362,7 @@ export function registerSubagentsApi(
   events: EventBus,
   hooks: HookRegistry,
   manager: SubagentManagerLike,
-  options: { extensionId?: string; timeoutMs?: number } = {},
+  options: { extensionId?: string; timeoutMs?: number; authToken?: string } = {},
 ): SubagentsPublicApi {
   const managerHandle = buildManagerHandle(manager);
   const api: SubagentsPublicApi = {
@@ -423,11 +423,13 @@ export function getSubagentsManager(): SubagentManagerHandle | undefined {
 export {
   type AuthContext,
   createSubagentsRpcClient,
+  createTokenAuthProvider,
   type EventBus,
   type PingRpcReply,
   PROTOCOL_VERSION,
   type RateLimitConfig,
   type RpcReply,
+  SAFE_EXTENSION_ID,
   type SessionCapable,
   type SessionUsageRpcReply,
   type SpawnCapable,
@@ -435,6 +437,7 @@ export {
   type StopRpcRequest,
   type SubagentsRpcClient,
   type SwarmCapable,
+  sanitizeRpcSpawnOptions,
 } from "./cross-extension-rpc.js";
 
 export {

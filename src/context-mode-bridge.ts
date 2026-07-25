@@ -95,3 +95,16 @@ export function buildCtxInjection(): CtxInjection | null {
     toolAllowList: getCtxToolNames(),
   };
 }
+
+/**
+ * Resolve context-mode injection for a specific agent.
+ * Returns null unless the agent opted in via `useContextMode` AND the peer is installed.
+ * Callers must still intersect `toolAllowList` with the agent's effective allowlist so
+ * parent permission inheritance is not bypassed.
+ */
+export function resolveCtxInjectionForAgent(
+  useContextMode: boolean | undefined,
+): CtxInjection | null {
+  if (!useContextMode) return null;
+  return buildCtxInjection();
+}

@@ -764,7 +764,7 @@ Standardized request-reply event structure over the `pi.events` bus. Designed fo
 
 **PROTOCOL VERSION:** `2`
 
-Mutating parameters (`spawn`, `stop`) are hardware-authenticated when `authProvider` is defined. Unauthenticated requests strictly rejected unless legacy fallback is enabled.
+Mutating parameters (`spawn`, `stop`) require a host-issued `rpcAuthToken` when `authProvider` is configured (`createTokenAuthProvider`). Requests without a matching token are rejected. When no `authProvider` is registered, identity falls back to `extensionId: "legacy"` (test/legacy mode only).
 
 ### // RPC PAYLOAD ENVELOPE
 
@@ -846,7 +846,7 @@ const handlers = hooks.getHandlers();
 
 Event bus emission standards for external monitoring.
 
-- **`subagents:ready`** — Boot sequence complete.
+- **`subagents:ready`** — Boot sequence complete. Payload: `{ rpcAuthToken: string; protocolVersion: number }`. Peer extensions must pass `rpcAuthToken` as `authContext.authToken` on RPC calls (or obtain a pre-wired client via `registerSubagentsApi` / `getSubagentsApi().rpc`).
 - **`subagents:scheduler_ready`** — Job registry loaded.
 - **`subagents:started`** — Execution unblocked.
 - **`subagents:completed`** — Clean termination.
@@ -857,6 +857,7 @@ Event bus emission standards for external monitoring.
 ### // SECURITY CONSTRAINTS
 
 - **Rate execution limits:** Hard throttle at 10/min per ID for destructive parameters.
-- **Authentication checks:** `authProvider` overrides explicit payload identifiers.
+- **Authentication checks:** Host issues a per-process `rpcAuthToken`. `createTokenAuthProvider` rejects callers that omit or mismatch the token; a matching token then attributes rate limits to a sanitized `extensionId`. Spoofed `extensionId` alone is never sufficient.
+- **Spawn option allowlist:** RPC `options` may include `description`, `model`, `maxTurns`, `isolated`, `inheritContext`, `thinkingLevel`, `isBackground`, `isolation`, `currentLevel` only. Privilege escalators such as `bypassQueue`, `cwd`, and callbacks are stripped.
 - **Read-only execution:** Symbol mapping provides immutable pointers to memory maps.
 - **Model boundary enforcement:** String resolution blocks external credential injections.
