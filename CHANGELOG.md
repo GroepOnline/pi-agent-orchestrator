@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Packaged `real-product-showcase` skill for real terminal, browser, and app
+  demo capture, plus post and quality-gate references.
+
 ### Fixed
 
 - **Duration quota no longer crashes the host**: `checkDurationQuota` threw

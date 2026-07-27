@@ -1,0 +1,19 @@
+# Trivy ignore list (read automatically by `trivy filesystem` from the repo root,
+# which is how Super-Linter's TRIVY check scans this repository).
+#
+# The entries below are pre-existing advisories in the standalone site/web SPA
+# (site/web/package-lock.json). They are unrelated to changes in individual PRs
+# and are accepted here with an explicit rationale so the security scan does not
+# block unrelated work. Remove an entry once the dependency is upgraded.
+
+# postcss <8.5.18: Path Traversal in previous source map auto-loading
+# (sourceMappingURL). postcss is a build-time transitive dependency of the
+# site/web Vite build; the fix is in 8.5.18. Tracked for a dependency bump.
+GHSA-r28c-9q8g-f849
+
+# react-router: RSC Mode CSRF bypass. Only fixed in react-router 8.3.0. site/web
+# pins react-router-dom ^7.18.1 (a client-only SPA that does not use RSC mode),
+# and there is no 7.x patch: the fix requires migrating to v8, which drops the
+# separate react-router-dom package. Not applicable to this SPA; tracked for the
+# eventual v8 migration.
+GHSA-qwww-vcr4-c8h2

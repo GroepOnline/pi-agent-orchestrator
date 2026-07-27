@@ -78,6 +78,13 @@ for (const resourcePath of REQUIRED_RESOURCE_FILES) {
       "TypeScript extension engineering skill frontmatter name is invalid",
     );
   }
+
+  if (resourcePath === "skills/real-product-showcase/SKILL.md") {
+    assert(
+      /(?:^|\r?\n)name:\s*real-product-showcase\s*(?:\r?\n|$)/.test(frontmatterBody),
+      "Real product showcase skill frontmatter name is invalid",
+    );
+  }
 }
 
 const preview = packageJson.pi?.video;

@@ -84,19 +84,21 @@ The Pi footer can expose live running and queued counts through the `subagents` 
 
 ## Packaged skills and Orchestra workflows
 
-The npm package includes two skills and three prompt templates. Pi loads only each skill description into the system prompt; the full workflow is read on demand.
+The npm package includes three skills and three prompt templates. Pi loads only each skill description into the system prompt; the full workflow is read on demand.
 
 | Command | Use |
 | --- | --- |
 | `/skill:pi-orchestra` | Load the complete evidence-first orchestration operating model |
 | `/skill:pi-typescript-extension-engineering` | Engineer and review strict TypeScript across Pi tools, sessions, TUI, persistence, tests, and package boundaries |
+| `/skill:real-product-showcase` | Record real terminal, browser, or app demos and check framing plus media gates |
 | `/orchestra-audit [scope]` | Run three parallel read-only audits and synthesize ranked findings |
 | `/orchestra-plan <goal>` | Gather evidence in parallel and produce a mechanically verifiable plan |
 | `/orchestra-implement <goal>` | Discover, plan, implement in one isolated writer, and independently verify |
 
-Install only the TypeScript skill into Cursor, Codex, Claude Code, or another Agent Skills-compatible client:
+Install skills into Cursor, Codex, Claude Code, or another Agent Skills-compatible client:
 
 ```bash
+npx skills add https://github.com/OnlineChefGroep/pi-agent-orchestrator --skill real-product-showcase
 npx skills add https://github.com/OnlineChefGroep/pi-agent-orchestrator --skill pi-typescript-extension-engineering
 ```
 
@@ -138,6 +140,7 @@ Default orchestration mode is `single`; multi-agent modes are opt-in.
 - [Troubleshooting](docs/troubleshooting.md) — common operator fixes.
 - [Orchestra skill](skills/pi-orchestra/SKILL.md) — evidence-first multi-agent operating model.
 - [Pi TypeScript extension engineering skill](skills/pi-typescript-extension-engineering/SKILL.md) — strict host-compatible TypeScript for extensions and SDK orchestration.
+- [Real product showcase skill](skills/real-product-showcase/SKILL.md) — real terminal/browser/app capture, post, and media checks. No fake hero UI.
 - [AGENTS.md](AGENTS.md) — repository invariants for contributors and coding agents.
 - [CHANGELOG.md](CHANGELOG.md) — release history.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution workflow.

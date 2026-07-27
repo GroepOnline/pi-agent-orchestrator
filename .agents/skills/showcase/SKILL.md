@@ -37,14 +37,16 @@ export SHOWCASE_FONT=/path/to/font.ttf   # override auto-detected font
 export SHOWCASE_NO_TITLES=1              # skip drawtext overlays (CI)
 ```
 
-## What You Must Do When Invoked
+## What you must do
 
-### Step 0 — Load detailed pipeline reference
+### Step 0. Realism rules
 
-Read [references/details.md](references/details.md) for pipeline implementation details, asset map, update workflow, and troubleshooting.
+If the user wants a real, complete, or multi-surface demo (terminal, browser, apps), open [`skills/real-product-showcase/SKILL.md`](../../../skills/real-product-showcase/SKILL.md) and follow its chrome, marker, and quality-gate rules. Programmatic GIFs are not a stand-in for a real hero take.
 
-Execute the pipeline from that reference file as appropriate for the user's request.
+### Step 1. Pipeline details
 
-### Step 1 — Final output
+Read [references/details.md](references/details.md) for commands, asset map, update flow, and troubleshooting. Run the pipeline that matches the request.
 
-After the pipeline completes, report what was generated and where assets live (`docs/images/`). If the user asked for a specific pipeline, confirm success and show file sizes.
+### Step 2. Final output
+
+Report what landed under `docs/images/` and the file sizes.
