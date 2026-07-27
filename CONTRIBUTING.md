@@ -32,6 +32,37 @@ npm install
 npm run setup:hooks   # optional: pre-commit biome+tsc, pre-push full test
 ```
 
+## Running the dev version
+
+The host loads this extension from `dist/index.js` (declared in
+`package.json` → `pi.extensions`), so a source edit is only visible to pi
+after a rebuild. Two ways to run your working copy:
+
+```bash
+npm run dev            # tsc --watch, rebuilds dist/ on every save
+npm run dev:run        # build if needed, then launch pi with this checkout only
+npm run dev:run -- -c  # extra arguments are forwarded to pi
+```
+
+`dev:run` uses the host's `--extension` flag, so it affects that one
+session and never touches your settings. To load the checkout in *every*
+pi session instead:
+
+```bash
+npm run dev:link       # register this checkout as a pi package
+npm run dev:status     # show link state, resolved agent dir, dist freshness
+npm run dev:unlink     # go back to the published version
+```
+
+`dev:link` writes to the user-level agent directory
+(`$PI_CODING_AGENT_DIR`, default `~/.pi/agent`). Add `-- --local` to
+register it in the project's `.pi/settings.json` instead. Both commands
+are idempotent and `dev:unlink` removes exactly the entry `dev:link`
+added.
+
+Run `npm run dev:status` first when pi seems to ignore your changes — it
+reports whether `dist/` is stale.
+
 ## Verifying a change
 
 ```bash

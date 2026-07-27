@@ -78,6 +78,11 @@
   },
   "scripts": {
     "build": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc",
+    "dev": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc --watch --preserveWatchOutput",
+    "dev:status": "node scripts/dev.mjs status",
+    "dev:link": "node scripts/dev.mjs link",
+    "dev:unlink": "node scripts/dev.mjs unlink",
+    "dev:run": "node scripts/dev.mjs run",
     "prepublishOnly": "npm run verify:release-policy:publish && npm run build && npm run typecheck && npm run lint && npm test && npm run verify:package",
     "test": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --retry=2",
     "test:watch": "vitest",

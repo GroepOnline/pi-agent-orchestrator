@@ -57,8 +57,13 @@ function makeCtx() {
   } as any;
 }
 
-/** Wait for a predicate, polling at 5ms intervals, with a deadline. */
-async function waitFor(predicate: () => boolean, timeoutMs = 1500): Promise<void> {
+/**
+ * Wait for a predicate, polling at 5ms intervals, with a deadline. The default
+ * deadline is generous because these are real-timer tests: a loaded Windows CI
+ * runner can delay a scheduled setTimeout well past a second, so a tight
+ * deadline flakes even though the firing path is correct.
+ */
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
   const start = Date.now();
   while (!predicate()) {
     if (Date.now() - start > timeoutMs) {
@@ -113,7 +118,7 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
     expect(final.runCount).toBe(1);
     expect(final.enabled).toBe(false);  // one-shot auto-disabled
     expect(final.lastRun).toBeDefined();
-  });
+  }, 20_000);
 
   it("one-shot job that errors: store records lastStatus error (regression — bug #1)", async () => {
     const manager = makeFaithfulManager("error");  // Agent terminates with error status
@@ -134,7 +139,7 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
 
     expect(scheduler.list().find(j => j.id === job.id)?.lastStatus).toBe("error");
     expect(scheduler.list().find(j => j.id === job.id)?.runCount).toBe(1);
-  });
+  }, 20_000);
 
   it("interval job: fires repeatedly, runCount grows", async () => {
     const manager = makeFaithfulManager("completed");
@@ -161,7 +166,7 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
     expect(final.enabled).toBe(true);  // intervals don't auto-disable
 
     await scheduler.removeJob(job.id);
-  });
+  }, 20_000);
 
   it("persistence: schedules survive re-instantiating the store on the same file", async () => {
     const manager = makeFaithfulManager("completed");
@@ -222,6 +227,12 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
     });
 
     await waitFor(() => manager.spawn.mock.calls.length === 1);
+    // Let the one-shot's finalize settle before removing. removeJob reads the
+    // in-memory cache synchronously (store.get), and the concurrent
+    // lock-protected finalize reload transiently clears that cache mid-read on
+    // slower Windows I/O — which otherwise makes removeJob miss the job and skip
+    // the "removed" event. Mirrors the settle-wait in the one-shot success test.
+    await waitFor(() => scheduler.list().find(j => j.id === job.id)?.lastStatus === "success");
 
     const eventTypes = pi.events.emit.mock.calls
       .filter((c: any[]) => c[0] === "subagents:scheduled")
@@ -235,5 +246,5 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
       .filter((c: any[]) => c[0] === "subagents:scheduled")
       .map((c: any[]) => c[1].type);
     expect(after).toContain("removed");
-  });
+  }, 20_000);
 });
