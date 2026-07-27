@@ -241,7 +241,15 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
     expect(eventTypes).toContain("added");
     expect(eventTypes).toContain("fired");
 
-    await scheduler.removeJob(job.id);
+    // Wait for one-shot finalize (disables the job) before remove — on Windows
+    // the store lock can still be held by finalize when spawn has already returned.
+    await waitFor(() => {
+      const current = store.get(job.id);
+      return current?.enabled === false || (current?.runCount ?? 0) >= 1;
+    });
+
+    const removed = await scheduler.removeJob(job.id);
+    expect(removed).toBe(true);
     const after = pi.events.emit.mock.calls
       .filter((c: any[]) => c[0] === "subagents:scheduled")
       .map((c: any[]) => c[1].type);

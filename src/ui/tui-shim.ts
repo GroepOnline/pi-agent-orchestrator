@@ -5,7 +5,8 @@
  * it declares structurally compatible local declarations for the subset of
  * the framework that its UI components consume: `Component` (interface),
  * `TUI` (interface), `Text` (class), and the text helpers `visibleWidth`,
- * `truncateToWidth`, `wrapTextWithAnsi`, `matchesKey`.
+ * `truncateToWidth`, `wrapTextWithAnsi`, plus `matchesKey` (implemented in
+ * `./keys.ts` against raw terminal bytes — the host does not pre-normalise).
  *
  * The host continues to supply a runtime that uses the upstream package
  * internally. We deliberately do not reach into it — we only declare the
@@ -28,6 +29,15 @@
  * If the host ever introduces a related symbol we need to consume, add it
  * here as a new local declaration, not as an import.
  */
+
+import { matchesKey } from "./keys.js";
+
+export {
+  decodePrintableKey,
+  matchesKey,
+  parseKey,
+  setKittyProtocolActive,
+} from "./keys.js";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Layout constants — visible-cell width semantics (ANSI-agnostic).
@@ -315,42 +325,14 @@ export function wrapTextWithAnsi(text: string, width: number): string[] {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// matchesKey — lightweight key matcher.
+// matchesKey — re-exported from ./keys.ts (see import block at top).
 //
-// The host's input layer normalises raw terminal bytes into a canonical
-// key string ("q", "up", "shift+up", "ctrl+c", "escape", etc.) before
-// invoking our `handleInput(data)`. In most cases this means we can rely
-// on strict equality: `data === keyId`.
-//
-// However, some hosts or terminal environments may send the raw Escape
-// byte (`\u001b`) instead of the canonical name "escape" or the short
-// form "esc". This matcher normalises all three variants at the utility
-// level so every consumer benefits without needing to remember extra
-// aliases at each call site.
+// IMPORTANT: the host does NOT normalise key events before calling
+// `handleInput(data)`. Arrow keys arrive as ANSI (`\x1b[A`), Space as `" "`,
+// Enter as `"\r"`, and Kitty terminals may send CSI-u for printable keys.
+// The matcher in `./keys.ts` mirrors host `@earendil-works/pi-tui` so these
+// raw sequences match keyIds like "up", "space", and "enter".
 // ────────────────────────────────────────────────────────────────────────────
-
-export function matchesKey(data: string, keyId: string): boolean {
-  // Fast path: direct match handles most keys.
-  if (data === keyId) return true;
-
-  // Escape key: normalise "escape" ↔ "esc" ↔ raw \u001b byte.
-  // The host may send any of these; we accept all three.
-  if ((keyId === "escape" || keyId === "esc") &&
-      (data === "escape" || data === "esc" || data === "\u001b")) {
-    return true;
-  }
-
-  // Ctrl+letter: host may send "ctrl+c" or the raw control character (\x03 for c).
-  if (keyId.startsWith("ctrl+") && keyId.length >= 6) {
-    const letter = keyId.slice(5).toLowerCase();
-    if (letter.length === 1 && letter >= "a" && letter <= "z") {
-      const ctrlChar = String.fromCharCode(letter.charCodeAt(0) - 96);
-      if (data === ctrlChar) return true;
-    }
-  }
-
-  return false;
-}
 
 /** True when `data` matches any key id in `keyIds`. */
 export function matchesAnyKey(data: string, keyIds: readonly string[]): boolean {

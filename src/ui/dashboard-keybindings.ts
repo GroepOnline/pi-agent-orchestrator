@@ -85,7 +85,8 @@ export const DEFAULT_DASHBOARD_KEYBINDINGS: DashboardKeybindings = {
   pageLeft: ["left", "shift+left"],
   pageRight: ["right", "shift+right"],
   toggleSelect: ["space"],
-  openConversation: ["enter"],
+  // "enter" and "return" are aliases in matchesKey; both listed so help/overrides stay clear.
+  openConversation: ["enter", "return"],
   kill: ["shift+k", "K"],
   steer: ["s", "shift+s"],
   permissions: ["p", "shift+p"],

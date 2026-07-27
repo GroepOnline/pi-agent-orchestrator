@@ -215,6 +215,50 @@ describe("AgentDashboard swarm interaction", () => {
     expect(swarmCalls[0].ids.length).toBe(2);
   });
 
+  it("handles raw host key bytes for arrows, space, enter, and steer", () => {
+    const manager = new SwarmMockManager();
+    manager.agents = swarmAgents(3);
+    const activity = new Map<string, AgentActivity>();
+    const steered: string[] = [];
+    let viewed: string | undefined;
+    let closed = false;
+
+    const dash = new AgentDashboard(
+      mockTui() as never,
+      {
+        manager: manager as never,
+        agentActivity: activity,
+        onSteer: async (id) => { steered.push(id); },
+        onViewConversation: async (rec) => { viewed = rec.id; },
+      },
+      () => { closed = true; },
+    );
+
+    // Arrow-down (raw ANSI) then vim j — both move selection
+    dash.handleInput("\x1b[B");
+    dash.handleInput("j");
+    // Literal space toggles multi-select on current row
+    dash.handleInput(" ");
+    // Steer with plain s (closes dashboard)
+    dash.handleInput("s");
+    expect(closed).toBe(true);
+    expect(steered).toEqual(["swarm-agent-3"]);
+
+    closed = false;
+    const dash2 = new AgentDashboard(
+      mockTui() as never,
+      {
+        manager: manager as never,
+        agentActivity: activity,
+        onViewConversation: async (rec) => { viewed = rec.id; },
+      },
+      () => { closed = true; },
+    );
+    dash2.handleInput("\r");
+    expect(closed).toBe(true);
+    expect(viewed).toBe("swarm-agent-1");
+  });
+
   it("kills selected swarm agent with shift+k", () => {
     const manager = new SwarmMockManager();
     manager.agents = swarmAgents(3);

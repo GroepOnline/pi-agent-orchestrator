@@ -48,6 +48,7 @@ import {
 } from "./theme.js";
 import {
   type Component,
+  decodePrintableKey,
   type TUI,
 } from "./tui-shim.js";
 
@@ -454,16 +455,24 @@ export class AgentDashboard implements Component {
         this.requestRender();
         return;
       }
-      // Shift+letter → map to uppercase
+      // Shift+letter → map to uppercase (canonical form used in some tests)
       if (data.startsWith("shift+") && data.length === 7) {
         this.commandBuffer += data.charAt(6).toUpperCase();
         this.dirty = true;
         this.requestRender();
         return;
       }
-      // Single character → append to buffer
+      // Single character → append to buffer (legacy terminals)
       if (data.length === 1 && !data.includes("+")) {
         this.commandBuffer += data;
+        this.dirty = true;
+        this.requestRender();
+        return;
+      }
+      // Kitty CSI-u / modifyOtherKeys printable (host sends raw sequences)
+      const printable = decodePrintableKey(data);
+      if (printable !== undefined && printable.length > 0) {
+        this.commandBuffer += printable;
         this.dirty = true;
         this.requestRender();
         return;
