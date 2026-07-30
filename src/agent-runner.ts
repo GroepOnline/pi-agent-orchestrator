@@ -318,6 +318,12 @@ export interface RunResult {
   handoff?: AgentHandoff;
   /** Execution metrics. */
   metrics: RunMetrics;
+  /**
+   * Set when the run ended because the model/provider errored on its final
+   * turn (no thrown exception). Callers that key off status should treat a
+   * non-empty `error` as a failure even though `session.prompt` resolved.
+   */
+  error?: string;
 }
 
 export interface RunMetrics {
@@ -356,6 +362,28 @@ function getLastAssistantText(session: AgentSession): string {
     if (text) return text;
   }
   return "";
+}
+
+/**
+ * Return the most recent assistant turn's model/provider error, if any.
+ *
+ * The host surfaces a model or provider failure (401 auth, unavailable model,
+ * rate limit, etc.) as an AssistantMessage with `stopReason: "error"` and an
+ * `errorMessage`. The run loop does not throw for these — the session simply
+ * ends — so without this check the error is silently dropped and the agent
+ * appears to complete with empty output.
+ */
+function getLastAssistantError(session: AgentSession): string | undefined {
+  for (let i = session.messages.length - 1; i >= 0; i--) {
+    const msg = session.messages[i];
+    if (msg.role !== "assistant") continue;
+    // Only the most recent assistant turn reflects the run's final outcome.
+    // An earlier errored turn is stale once a later assistant turn exists
+    // (e.g. a retry/revision that produced an empty-but-non-error turn), so we
+    // do not scan past the latest assistant message.
+    return msg.stopReason === "error" && msg.errorMessage ? msg.errorMessage : undefined;
+  }
+  return undefined;
 }
 
 function forwardAbortSignal(session: AgentSession, signal?: AbortSignal): () => void {
@@ -907,9 +935,20 @@ ${chefPreflight.systemPromptAddition}`;
       const maxAttempts = revisionBudget + 1;
 
       while (true) {
+        // Resolve end status from the *current* session state before publishing.
+        // A model/provider failure (stopReason "error", empty content) must not
+        // advertise status "completed" — that lied to hooks/telemetry even though
+        // the manager later stored the run as failed.
+        const endModelError = getLastAssistantError(session);
+        const endStatus =
+          aborted ? "aborted"
+          : softLimitReached ? "steered"
+          : (!gatedResponseText && endModelError) ? "error"
+          : "completed";
         const endDecision = normalizeHookResponse(
           await options.hooks.dispatch("subagent:end", options.agentId ?? "unknown", {
-            status: "completed",
+            status: endStatus,
+            ...(endStatus === "error" && endModelError ? { error: endModelError } : {}),
             tokensIn,
             tokensOut,
             turns: turnCount,
@@ -985,6 +1024,25 @@ ${chefPreflight.systemPromptAddition}`;
   }
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);
+  let runError: string | undefined;
+  const modelError = getLastAssistantError(session);
+  if (!responseText && modelError) {
+    // The run produced no text because the model/provider errored on its final
+    // turn (e.g. 401 auth, unavailable model). Surface it instead of returning
+    // an empty "completed" result that hides the failure from the caller, and
+    // record it on the result so the manager finalizes the agent as failed.
+    logger.warn("Subagent stopped with a model/provider error", {
+      agentId: options.agentId ?? "unknown",
+      error: modelError,
+    });
+    responseText = `Agent stopped with a model/provider error: ${modelError}`;
+    runError = modelError;
+    options.hooks
+      ?.dispatch("subagent:error", options.agentId ?? "unknown", { error: modelError })
+      .catch((hookErr) => {
+        logger.debug(`Hook dispatch error: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}`);
+      });
+  }
   const duration = performance.now() - startTime;
 
   // Structured handoff parsing
@@ -1035,10 +1093,17 @@ ${chefPreflight.systemPromptAddition}`;
 
   // End OpenTelemetry agent span. `timedOut` implies `aborted`, but we record
   // the cause in the span so the trace still distinguishes a quota timeout.
-  const finalStatus = aborted ? "aborted" : softLimitReached ? "steered" : "completed";
+  // A surfaced model/provider error must also land as "error" — never "completed".
+  const finalStatus =
+    runError ? "error"
+    : aborted ? "aborted"
+    : softLimitReached ? "steered"
+    : "completed";
   endAgentSpan(agentSpan, {
     status: finalStatus,
-    ...(timedOut ? { error: `Duration quota exceeded (${quotas.maxDurationMs}ms)` } : {}),
+    ...(timedOut ? { error: `Duration quota exceeded (${quotas.maxDurationMs}ms)` }
+    : runError ? { error: runError }
+    : {}),
     durationMs: duration,
     turns: turnCount,
     toolCalls: toolCallCount,
@@ -1058,7 +1123,7 @@ ${chefPreflight.systemPromptAddition}`;
     latencyToFirstTokenMs: latencyToFirstToken,
   };
 
-  return { responseText, session, aborted, timedOut, steered: softLimitReached, validationResults, validated, handoff, metrics };
+  return { responseText, session, aborted, timedOut, steered: softLimitReached, validationResults, validated, handoff, metrics, error: runError };
 }
 
 // ============================================================================

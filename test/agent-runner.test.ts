@@ -103,6 +103,86 @@ function createSession(finalText: string): {
   return { session, listeners };
 }
 
+function createSessionWithError(errorMessage: string): {
+  session: AgentSession;
+  listeners: Array<(event: AgentSessionEvent) => void>;
+} {
+  const listeners: Array<(event: AgentSessionEvent) => void> = [];
+  const session = {
+    messages: [] as AgentSession["messages"],
+    subscribe: vi.fn((listener: (event: AgentSessionEvent) => void) => {
+      listeners.push(listener);
+      return () => {};
+    }),
+    prompt: vi.fn(async () => {
+      // Simulate a host-surfaced model/provider failure: an assistant turn
+      // with stopReason "error", an errorMessage, and no text content. This is
+      // exactly how a 401 "User not found" or "model unavailable" surfaces.
+      session.messages.push({
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage,
+      } as AgentSession["messages"][number]);
+    }),
+    abort: vi.fn(),
+    steer: vi.fn(),
+    getActiveToolNames: vi.fn(() => ["read"]),
+    setActiveToolsByName: vi.fn(),
+    setSessionName: vi.fn(),
+    bindExtensions: vi.fn(async () => {}),
+  } as unknown as AgentSession;
+  return { session, listeners };
+}
+
+/**
+ * Simulate a run that recovered from an earlier provider error: the first
+ * turn errors, then a revision produces a later assistant turn that is
+ * non-error (but empty). The stale error must not be surfaced as the final
+ * outcome. See the "Recovered Run Reuses Stale Error" review thread.
+ */
+function createSessionWithRecoveredError(errorMessage: string): {
+  session: AgentSession;
+  listeners: Array<(event: AgentSessionEvent) => void>;
+} {
+  const listeners: Array<(event: AgentSessionEvent) => void> = [];
+  let call = 0;
+  const session = {
+    messages: [] as AgentSession["messages"],
+    subscribe: vi.fn((listener: (event: AgentSessionEvent) => void) => {
+      listeners.push(listener);
+      return () => {};
+    }),
+    prompt: vi.fn(async () => {
+      call++;
+      if (call === 1) {
+        // First turn: provider error, no text.
+        session.messages.push({
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage,
+        } as AgentSession["messages"][number]);
+        return;
+      }
+      // Later turn: non-error recovery that still produced no text. The stale
+      // error from turn 1 must not be reported as the final outcome.
+      session.messages.push({
+        role: "assistant",
+        content: [],
+        stopReason: "end_turn",
+      } as AgentSession["messages"][number]);
+    }),
+    abort: vi.fn(),
+    steer: vi.fn(),
+    getActiveToolNames: vi.fn(() => ["read"]),
+    setActiveToolsByName: vi.fn(),
+    setSessionName: vi.fn(),
+    bindExtensions: vi.fn(async () => {}),
+  } as unknown as AgentSession;
+  return { session, listeners };
+}
+
 const ctx = {
   cwd: "/tmp",
   model: { provider: "test", id: "test-model" },
@@ -129,6 +209,87 @@ describe("agent-runner final output capture", () => {
     const result = await runAgent(ctx, "Explore", "Say LOCKED", { pi });
 
     expect(result.responseText).toBe("LOCKED");
+  });
+
+  it("surfaces a model/provider error instead of returning empty output", async () => {
+    // Regression: when the configured model errors on the only turn (e.g. 401
+    // auth, unavailable model), the host ends the session with stopReason
+    // "error" + errorMessage and no text. Previously runAgent returned an
+    // empty "completed" result, hiding the failure from the caller.
+    const { session } = createSessionWithError('401: {"message":"User not found.","code":401}');
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "audit the PRs", { pi });
+
+    expect(result.responseText).not.toBe("");
+    expect(result.responseText).toContain("model/provider error");
+    expect(result.responseText).toContain("User not found");
+    // The run must be recorded as a failure so the manager finalizes the agent
+    // with status "error" rather than "completed".
+    expect(result.error).toBe('401: {"message":"User not found.","code":401}');
+  });
+
+  it("publishes subagent:end with status error before recording a model/provider failure", async () => {
+    // Regression (hook ordering): runAgent used to dispatch subagent:end with
+    // status "completed" *before* detecting the model/provider error, so hooks
+    // and observers saw a false success and only later a subagent:error. The
+    // end payload must carry status "error" (and the error message) on the
+    // first publication.
+    const errorMessage = '401: {"message":"User not found.","code":401}';
+    const { session } = createSessionWithError(errorMessage);
+    createAgentSession.mockResolvedValue({ session });
+    const hooks = new HookRegistry();
+    const endPayloads: Array<Record<string, unknown>> = [];
+    const errorPayloads: Array<Record<string, unknown>> = [];
+    hooks.register("subagent:end", async (payload) => {
+      endPayloads.push({ ...(payload.data ?? {}) });
+      return "allow";
+    });
+    hooks.register("subagent:error", async (payload) => {
+      errorPayloads.push({ ...(payload.data ?? {}) });
+      return "allow";
+    });
+
+    const result = await runAgent(ctx, "Explore", "audit the PRs", {
+      pi,
+      hooks,
+      agentId: "agent-hook-order",
+    });
+
+    expect(endPayloads).toHaveLength(1);
+    expect(endPayloads[0]?.status).toBe("error");
+    expect(endPayloads[0]?.error).toBe(errorMessage);
+    expect(endPayloads.every((payload) => payload.status !== "completed")).toBe(true);
+    expect(errorPayloads).toHaveLength(1);
+    expect(errorPayloads[0]?.error).toBe(errorMessage);
+    expect(result.error).toBe(errorMessage);
+  });
+
+  it("does not surface a stale provider error after a later non-error turn", async () => {
+    // Regression ("Recovered Run Reuses Stale Error"): getLastAssistantError
+    // previously scanned the full history, so an earlier failed turn stayed
+    // eligible after a revision added a later non-error (but empty) assistant
+    // turn. The final outcome must not be misreported as a provider error.
+    const { session } = createSessionWithRecoveredError('401: {"message":"User not found.","code":401}');
+    createAgentSession.mockResolvedValue({ session });
+    const hooks = new HookRegistry();
+    let endCalls = 0;
+    hooks.register("subagent:end", async () => {
+      endCalls++;
+      if (endCalls === 1) return { action: "block" as const, feedback: "retry" };
+      return "allow";
+    });
+
+    const result = await runAgent(ctx, "Explore", "go", {
+      pi,
+      hooks,
+      agentId: "agent-recovered",
+      maxEndHookRevisions: 1,
+    });
+
+    expect(session.prompt).toHaveBeenCalledTimes(2);
+    expect(result.error).toBeUndefined();
+    expect(result.responseText).not.toContain("model/provider error");
   });
 
   it("binds extensions before prompting", async () => {

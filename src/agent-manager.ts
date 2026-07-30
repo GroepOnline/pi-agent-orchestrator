@@ -517,10 +517,13 @@ export class AgentManager {
         },
       });
     })
-      .then(({ responseText, session, aborted, timedOut, steered, validationResults, validated }) => {
+      .then(({ responseText, session, aborted, timedOut, steered, validationResults, validated, error }) => {
         record.result = responseText;
         record.session = session;
-        const status = aborted ? "aborted" : steered ? "steered" : "completed";
+        // A surfaced model/provider error (no thrown exception) is still a
+        // failure: record it as an error status so dashboards and automation
+        // do not treat a model-less run as completed.
+        const status = error ? "error" : aborted ? "aborted" : steered ? "steered" : "completed";
 
         // Surface a quota-timeout cause so the UI/dashboard can show *why* the
         // agent was aborted, instead of a bare "aborted" with no explanation.
@@ -552,7 +555,7 @@ export class AgentManager {
           }
         }
 
-        this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, status);
+        this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, status, error);
         return responseText;
       })
       .catch((err) => {
