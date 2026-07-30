@@ -30,6 +30,7 @@ import {
 } from "./agent-runner-validator.js";
 import { type EffectiveConfig, getAgentConfig, getConfig, getMemoryToolNames, getReadOnlyMemoryToolNames, getToolNamesForType } from "./agent-types.js";
 import { loadChefGroepPreflight } from "./chefgroep-preflight.js";
+import { buildCompactionSnapshot, type CompactionSnapshot } from "./compaction-snapshot.js";
 import { buildParentContext, extractText } from "./context.js";
 import { resolveCtxInjectionForAgent } from "./context-mode-bridge.js";
 import { DEFAULT_AGENTS } from "./default-agents.js";
@@ -275,7 +276,7 @@ export interface RunOptions {
   onSessionCreated?: (session: AgentSession) => void;
   onTurnEnd?: (turnCount: number) => void;
   onAssistantUsage?: (usage: { input: number; output: number; cacheWrite: number }) => void;
-  onCompaction?: (info: { reason: "manual" | "threshold" | "overflow"; tokensBefore: number }) => void;
+  onCompaction?: (info: CompactionSnapshot) => void;
   skipValidators?: boolean;
   onValidationComplete?: (results: ValidationResult[]) => void;
   currentLevel?: number;
@@ -590,6 +591,8 @@ ${chefPreflight.systemPromptAddition}`;
     // the model catalog match, and `model` is passed explicitly above.
     model,
     tools: toolNames,
+    // Keep orchestration tools out of the initial active set (Pi 0.81+).
+    excludeTools: [...EXCLUDED_TOOL_NAMES],
     resourceLoader: loader,
   };
   if (thinkingLevel) {
@@ -819,25 +822,62 @@ ${chefPreflight.systemPromptAddition}`;
       }
     }
 
-    if (event.type === "compaction_end" && !event.aborted) {
-      const tokensBefore = event.result?.tokensBefore ?? 0;
-      options.onCompaction?.({ reason: event.reason, tokensBefore });
-      const compactionSpan = startCompactionSpan(
-        options.agentId ?? "unknown",
-        event.reason,
-        tokensBefore,
-        agentCtx,
-      );
-      endCompactionSpan(compactionSpan);
+    if (event.type === "compaction_end") {
+      const snapshot = buildCompactionSnapshot(event);
+      options.onCompaction?.(snapshot);
+      if (!event.aborted) {
+        const compactionSpan = startCompactionSpan(
+          options.agentId ?? "unknown",
+          event.reason,
+          snapshot.tokensBefore,
+          agentCtx,
+        );
+        endCompactionSpan(compactionSpan);
 
-      options.hooks
-        ?.dispatch("compaction:end", options.agentId ?? "unknown", {
-          reason: event.reason,
-          tokensBefore: tokensBefore,
-        })
-        .catch((err) => {
-          logger.debug(`Hook dispatch error: ${err instanceof Error ? err.message : String(err)}`);
-        });
+        options.hooks
+          ?.dispatch("compaction:end", options.agentId ?? "unknown", {
+            reason: event.reason,
+            tokensBefore: snapshot.tokensBefore,
+            tokensAfter: snapshot.tokensAfter,
+            reductionPercent: snapshot.reductionPercent,
+            aborted: false,
+            willRetry: snapshot.willRetry,
+          })
+          .catch((err) => {
+            logger.debug(`Hook dispatch error: ${err instanceof Error ? err.message : String(err)}`);
+          });
+      } else {
+        logger.debug(
+          `Compaction aborted for ${options.agentId ?? "unknown"}: ${event.errorMessage ?? event.reason}` +
+            (event.willRetry ? " (will retry)" : ""),
+        );
+      }
+    }
+
+    if (
+      event.type === "summarization_retry_scheduled" ||
+      event.type === "summarization_retry_attempt_start" ||
+      event.type === "summarization_retry_finished"
+    ) {
+      const attempt = event.type === "summarization_retry_scheduled" ? event.attempt : undefined;
+      const maxAttempts = event.type === "summarization_retry_scheduled" ? event.maxAttempts : undefined;
+      const detail =
+        event.type === "summarization_retry_scheduled"
+          ? `: ${event.errorMessage}`
+          : event.type === "summarization_retry_attempt_start"
+            ? ` source=${event.source}`
+            : "";
+      logger.debug(
+        `Summarization retry (${event.type}) for ${options.agentId ?? "unknown"}` +
+          (attempt !== undefined ? ` attempt=${attempt}/${maxAttempts}` : "") +
+          detail,
+      );
+      emitTelemetry("subagent:summarization_retry", {
+        agentId: options.agentId ?? "unknown",
+        phase: event.type,
+        attempt,
+        maxAttempts,
+      });
     }
 
     if (event.type === "compaction_start") {
@@ -1033,7 +1073,7 @@ export async function resumeAgent(
     hooks?: HookRegistry;
     onToolActivity?: (activity: ToolActivity) => void;
     onAssistantUsage?: (usage: { input: number; output: number; cacheWrite: number }) => void;
-    onCompaction?: (info: { reason: "manual" | "threshold" | "overflow"; tokensBefore: number }) => void;
+    onCompaction?: (info: CompactionSnapshot) => void;
     signal?: AbortSignal;
     inheritContext?: boolean;
     ctx?: ExtensionContext;
@@ -1059,14 +1099,38 @@ export async function resumeAgent(
               logger.debug(`Hook dispatch error: ${err instanceof Error ? err.message : String(err)}`);
             });
         }
-        if (event.type === "compaction_end" && !event.aborted) {
-          const tokensBefore = event.result?.tokensBefore ?? 0;
-          options.onCompaction?.({ reason: event.reason, tokensBefore });
-          options.hooks
-            ?.dispatch("compaction:end", agentId, { reason: event.reason, tokensBefore })
-            .catch((err) => {
-              logger.debug(`Hook dispatch error: ${err instanceof Error ? err.message : String(err)}`);
-            });
+        if (event.type === "compaction_end") {
+          const snapshot = buildCompactionSnapshot(event);
+          options.onCompaction?.(snapshot);
+          if (!event.aborted) {
+            options.hooks
+              ?.dispatch("compaction:end", agentId, {
+                reason: event.reason,
+                tokensBefore: snapshot.tokensBefore,
+                tokensAfter: snapshot.tokensAfter,
+                reductionPercent: snapshot.reductionPercent,
+                aborted: false,
+                willRetry: snapshot.willRetry,
+              })
+              .catch((err) => {
+                logger.debug(`Hook dispatch error: ${err instanceof Error ? err.message : String(err)}`);
+              });
+          }
+        }
+        if (
+          event.type === "summarization_retry_scheduled" ||
+          event.type === "summarization_retry_attempt_start" ||
+          event.type === "summarization_retry_finished"
+        ) {
+          const attempt = event.type === "summarization_retry_scheduled" ? event.attempt : undefined;
+          const maxAttempts = event.type === "summarization_retry_scheduled" ? event.maxAttempts : undefined;
+          logger.debug(`Summarization retry (${event.type}) for ${agentId}`);
+          emitTelemetry("subagent:summarization_retry", {
+            agentId,
+            phase: event.type,
+            attempt,
+            maxAttempts,
+          });
         }
       })
     : () => {};

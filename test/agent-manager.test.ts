@@ -418,15 +418,22 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     });
   });
 
-  it("onCompaction from runAgent increments record.compactionCount", async () => {
+  it("onCompaction from runAgent increments record.compactionCount and stores lastCompaction", async () => {
     manager = new AgentManager();
-    const compactSeen: any[] = [];
+    const compactSeen: Array<{ count: number; reason: string }> = [];
 
-    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, opts: any) => {
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, opts) => {
       // Compaction fires while the agent is still running — the record passed to
       // onCompact should reflect the just-incremented count.
-      opts.onCompaction?.({ reason: "threshold", tokensBefore: 12345 });
-      opts.onCompaction?.({ reason: "manual", tokensBefore: 22222 });
+      opts?.onCompaction?.({
+        reason: "threshold",
+        tokensBefore: 12345,
+        tokensAfter: 4000,
+        usage: { input: 11, output: 7, cacheWrite: 2 },
+        aborted: false,
+      });
+      opts?.onCompaction?.({ reason: "manual", tokensBefore: 22222, aborted: true, willRetry: true });
+      opts?.onCompaction?.({ reason: "manual", tokensBefore: 22222, aborted: false });
       return { responseText: "done", session: mockSession(), aborted: false, steered: false };
     });
 
@@ -440,11 +447,17 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     });
     await manager.getRecord(id)!.promise;
 
+    // Successful, aborted (no count bump), then successful again.
     expect(compactSeen).toEqual([
       { count: 1, reason: "threshold" },
+      { count: 1, reason: "manual" },
       { count: 2, reason: "manual" },
     ]);
-    expect(manager.getRecord(id)!.compactionCount).toBe(2);
+    const record = manager.getRecord(id)!;
+    expect(record.compactionCount).toBe(2);
+    expect(record.lastCompaction).toMatchObject({ reason: "manual", tokensBefore: 22222, aborted: false });
+    // Summarization usage from the first successful compaction is folded in.
+    expect(record.lifetimeUsage).toEqual({ input: 11, output: 7, cacheWrite: 2 });
   });
 
   it("resume() also accumulates usage and increments compactions on the same record", async () => {

@@ -26,7 +26,7 @@ export function addUsage(into: LifetimeUsage, delta: LifetimeUsage): void {
 
 /** Minimal shape we read from upstream `getSessionStats()`. */
 export interface SessionStatsLike {
-    tokens: { input: number; output: number; cacheWrite: number };
+    tokens: { input: number; output: number; cacheWrite: number; cacheRead?: number; total?: number };
     contextUsage?: { percent: number | null };
 }
 
@@ -36,9 +36,11 @@ export interface SessionLike {
 
 /**
  * Session-scoped token count: input + output + cacheWrite as reported by
- * upstream `getSessionStats().tokens` for the *current* session window.
+ * upstream `getSessionStats().tokens`.
  *
- * RESETS at compaction. For a lifetime total, use `getLifetimeTotal`.
+ * On Pi 0.81+, these totals aggregate assistant, toolResult, compaction, and
+ * branch-summary usage across the session (they do not reset at compaction).
+ * For the orchestrator's own accumulator, use `getLifetimeTotal`.
  */
 export function getSessionTokens(session?: SessionLike): number {
     try {

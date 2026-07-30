@@ -130,6 +130,15 @@ export interface CompactionEndData {
   reason: string;
   /** Estimated tokens before the successful compaction summary. */
   tokensBefore: number;
+  /** Estimated tokens after summarization when Pi reports them (0.81+). */
+  tokensAfter?: number;
+  /** Percent reduction from tokensBefore → tokensAfter when both known. */
+  reductionPercent?: number;
+  /** Always false for successful `compaction:end` hook dispatches. */
+  aborted?: boolean;
+  /** Whether Pi will retry a failed summarization (0.81.1 resilient compaction). */
+  willRetry?: boolean;
+  errorMessage?: string;
 }
 
 export interface TurnStartData {

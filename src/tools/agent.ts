@@ -521,9 +521,21 @@ Guidelines:
         }),
       ),
       thinking: Type.Optional(
-        Type.String({
-          description: "Thinking level: off, minimal, low, medium, high, xhigh, max. Overrides agent default. max requires a supporting model.",
-        }),
+        Type.Union(
+          [
+            Type.Literal("off"),
+            Type.Literal("minimal"),
+            Type.Literal("low"),
+            Type.Literal("medium"),
+            Type.Literal("high"),
+            Type.Literal("xhigh"),
+            Type.Literal("max"),
+          ],
+          {
+            description:
+              "Thinking level: off, minimal, low, medium, high, xhigh, max. Overrides agent default. max requires a supporting model (Pi 0.81+).",
+          },
+        ),
       ),
       max_turns: Type.Optional(
         Type.Number({

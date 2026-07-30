@@ -62,10 +62,11 @@ describe("usage", () => {
       expect(getLifetimeTotal({ input: 100, output: 200, cacheWrite: 50 })).toBe(350);
     });
 
-    // getSessionTokens reads upstream session stats (resets at compaction);
-    // getLifetimeTotal reads our independent accumulator (survives compaction).
-    // They agree pre-compaction, diverge after — both legitimate signals.
-    it("agrees with getSessionTokens pre-compaction, diverges after", () => {
+    // getSessionTokens reads upstream session stats; getLifetimeTotal reads our
+    // independent accumulator. On Pi 0.81+, host session totals aggregate
+    // assistant + tool + compaction usage (they do not reset at compaction).
+    // The two series can still diverge when we fold different sources.
+    it("tracks session stats and lifetime totals independently", () => {
       let sessionStatsTokens = { input: 100, output: 200, cacheWrite: 50 };
       const session = {
         getSessionStats: () => ({ tokens: sessionStatsTokens }),
@@ -75,19 +76,12 @@ describe("usage", () => {
       expect(getSessionTokens(session)).toBe(350);
       expect(getLifetimeTotal(lifetime)).toBe(350);
 
-      // Compaction: upstream replaces session.state.messages, so stats reset.
-      // Our accumulator is independent — it keeps growing.
-      sessionStatsTokens = { input: 0, output: 0, cacheWrite: 0 };
+      // Host totals keep growing across compaction (incl. summarization usage).
+      sessionStatsTokens = { input: 180, output: 350, cacheWrite: 80 };
+      lifetime.input += 20; lifetime.output += 40; lifetime.cacheWrite += 10;
 
-      expect(getSessionTokens(session)).toBe(0);            // reset
-      expect(getLifetimeTotal(lifetime)).toBe(350);          // preserved
-
-      // Subsequent message_end events feed both: session re-fills, accumulator continues
-      sessionStatsTokens = { input: 80, output: 150, cacheWrite: 30 };
-      lifetime.input += 80; lifetime.output += 150; lifetime.cacheWrite += 30;
-
-      expect(getSessionTokens(session)).toBe(260);           // post-compaction window
-      expect(getLifetimeTotal(lifetime)).toBe(610);          // 350 + 260, monotone
+      expect(getSessionTokens(session)).toBe(610);
+      expect(getLifetimeTotal(lifetime)).toBe(420);
     });
 
     // The accumulator survives compaction because it lives on AgentActivity /

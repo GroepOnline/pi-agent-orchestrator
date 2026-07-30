@@ -29,7 +29,7 @@ For a project-local install:
 pi install npm:@onlinechefgroep/pi-agent-orchestrator -l
 ```
 
-Requires Node.js 22.19.0 or newer and `@earendil-works/pi-coding-agent` 0.80.10 or newer.
+Requires Node.js 22.19.0 or newer and `@earendil-works/pi-coding-agent` 0.81.1 or newer.
 Use `pi install`; running `npm install` alone does not register the package resources with Pi.
 
 ## Why this package

@@ -297,24 +297,29 @@ describe("agent-runner usage callback wiring", () => {
     expect(seen).toEqual([{ input: 10, output: 20, cacheWrite: 5 }]);
   });
 
-  it("forwards compaction_end events to onCompaction (only when not aborted)", async () => {
+  it("forwards every compaction_end to onCompaction (incl. aborted + after metrics)", async () => {
     const { session, listeners } = createSession("OK");
     createAgentSession.mockResolvedValue({ session });
 
-    const seen: any[] = [];
+    const seen: Array<Record<string, unknown>> = [];
     session.prompt = vi.fn(async () => {
-      // Successful compaction — should fire
       for (const l of listeners) l({
         type: "compaction_end",
         aborted: false,
+        willRetry: false,
         reason: "threshold",
-        result: { tokensBefore: 12345 },
+        result: {
+          tokensBefore: 12345,
+          estimatedTokensAfter: 4000,
+          usage: { input: 10, output: 20, cacheWrite: 0 },
+        },
       });
-      // Aborted compaction — should NOT fire
       for (const l of listeners) l({
         type: "compaction_end",
         aborted: true,
+        willRetry: true,
         reason: "manual",
+        errorMessage: "cancelled",
         result: { tokensBefore: 99999 },
       });
       session.messages.push({ role: "assistant", content: [{ type: "text", text: "OK" }] });
@@ -325,7 +330,24 @@ describe("agent-runner usage callback wiring", () => {
       onCompaction: (info) => seen.push(info),
     });
 
-    expect(seen).toEqual([{ reason: "threshold", tokensBefore: 12345 }]);
+    expect(seen).toEqual([
+      {
+        reason: "threshold",
+        tokensBefore: 12345,
+        tokensAfter: 4000,
+        reductionPercent: 68,
+        usage: { input: 10, output: 20, cacheWrite: 0 },
+        aborted: false,
+        willRetry: false,
+      },
+      {
+        reason: "manual",
+        tokensBefore: 99999,
+        aborted: true,
+        willRetry: true,
+        errorMessage: "cancelled",
+      },
+    ]);
   });
 
   it("dispatches compaction:start/{reason} and compaction:end/{reason,tokensBefore} hooks", async () => {
@@ -363,7 +385,14 @@ describe("agent-runner usage callback wiring", () => {
 
     await vi.waitFor(() => {
       expect(starts).toEqual([{ reason: "threshold" }]);
-      expect(ends).toEqual([{ reason: "threshold", tokensBefore: 12345 }]);
+      expect(ends).toEqual([{
+        reason: "threshold",
+        tokensBefore: 12345,
+        tokensAfter: undefined,
+        reductionPercent: undefined,
+        aborted: false,
+        willRetry: undefined,
+      }]);
     });
   });
 
@@ -399,7 +428,14 @@ describe("agent-runner usage callback wiring", () => {
 
     await vi.waitFor(() => {
       expect(starts).toEqual([{ reason: "overflow" }]);
-      expect(ends).toEqual([{ reason: "overflow", tokensBefore: 42 }]);
+      expect(ends).toEqual([{
+        reason: "overflow",
+        tokensBefore: 42,
+        tokensAfter: undefined,
+        reductionPercent: undefined,
+        aborted: false,
+        willRetry: undefined,
+      }]);
     });
   });
 });

@@ -4,10 +4,29 @@
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import type { CompactResult } from "./compaction.js";
+import type { CompactionSnapshot } from "./compaction-snapshot.js";
 import type { LifetimeUsage } from "./usage.js";
 
-export type { ThinkingLevel };
+export type { CompactionSnapshot, ThinkingLevel };
+
+/** Canonical ThinkingLevel allowlist (matches `@earendil-works/pi-agent-core`). */
+export const THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies readonly ThinkingLevel[];
+
+/** Parse a thinking level string; returns undefined for unknown values. */
+export function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
+  if (typeof value !== "string") return undefined;
+  return (THINKING_LEVELS as readonly string[]).includes(value)
+    ? (value as ThinkingLevel)
+    : undefined;
+}
 
 /** Agent type: any string name (built-in defaults or user-defined). */
 export type SubagentType = string;
@@ -148,18 +167,19 @@ export interface AgentRecord {
     /** Cleanup function for the output file stream subscription. */
     outputCleanup?: () => void;
     /**
-     * Lifetime usage breakdown, accumulated via `message_end` events. Survives compaction.
+     * Lifetime usage breakdown: assistant `message_end` usage plus summarization
+     * usage from successful upstream compaction (Pi 0.81+). Survives compaction.
      * Total = input + output + cacheWrite. Initialized to zeros at spawn.
      */
     lifetimeUsage: LifetimeUsage;
-    /** Number of times this agent's session has compacted. Initialized to 0 at spawn. */
+    /** Number of successful upstream compactions observed. Initialized to 0 at spawn. */
     compactionCount: number;
     /**
-     * Metrics from the most recent local prune helper (`src/compaction.ts`).
-     * Not populated by the live runner — only `compactionCount` / hook
-     * `tokensBefore` are observed from upstream Pi compaction (#325).
+     * Snapshot of the most recent upstream Pi `compaction_end` event
+     * (success or aborted). Local prune helpers in `src/compaction.ts` are
+     * not on the live subagent path (#325).
      */
-    lastCompaction?: CompactResult;
+    lastCompaction?: CompactionSnapshot;
     /** Resolved spawn params, captured for UI display. Fixed at spawn time. */
     invocation?: AgentInvocation;
     /** Validation results if validators were configured */

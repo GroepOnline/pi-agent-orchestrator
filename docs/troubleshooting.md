@@ -177,9 +177,9 @@ npm install --legacy-peer-deps
 **SYMPTOM:** Saturation metric significantly exceeds projection.
 
 **VALIDATION MATRIX:**
-1. `compactionCount` incrementing (pruning active)?
+1. `compactionCount` incrementing (upstream Pi auto-compaction fired)? Check `lastCompaction.tokensBefore` / `tokensAfter`.
 2. Parent payload injection excessive? Enforce `levelLimit`.
-3. Tool block caching failing? Validate `DEFAULT_KEEP_TURNS`.
+3. Host compaction settings in `.pi/settings.json` (`compaction.enabled`, `reserveTokens`, `keepRecentTokens`) — not the inactive local prune helper / `DEFAULT_KEEP_TURNS`.
 4. Concurrency limit saturated? Validate `maxConcurrent`.
 
 **MITIGATION DIRECTIVES:**

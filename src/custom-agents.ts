@@ -8,7 +8,7 @@ import { basename, join } from "node:path";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { BUILTIN_TOOL_NAMES, getDefaultAgentNames } from "./agent-types.js";
 import { emitTelemetry, hashContentSync } from "./telemetry.js";
-import type { AgentConfig, MemoryScope, PromptCompressionLevel, ThinkingLevel } from "./types.js";
+import { type AgentConfig, type MemoryScope, type PromptCompressionLevel, parseThinkingLevel, } from "./types.js";
 
 // CVE-002 FIX: Validation patterns for agent configs
 const UNSAFE_NAME_PATTERN = /[/\\]|\.\.|[\x00-\x1F]/;
@@ -154,7 +154,7 @@ async function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source
       extensions: parseInheritField(fm.extensions ?? fm.inherit_extensions),
       skills: parseInheritField(fm.skills ?? fm.inherit_skills),
       model: parseString(fm.model),
-      thinking: parseString(fm.thinking) as ThinkingLevel | undefined,
+      thinking: parseThinkingLevel(parseString(fm.thinking)),
       maxTurns: parseNonNegativeInt(fm.max_turns),
       systemPrompt: body.trim(),
       promptMode: fm.prompt_mode === "append" ? "append" : "replace",

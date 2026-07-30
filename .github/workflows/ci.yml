@@ -165,8 +165,8 @@ jobs:
         run: |
           npm ci
           npm install --no-save --package-lock=false --include=dev \
-            @earendil-works/pi-ai@0.80.10 \
-            @earendil-works/pi-coding-agent@0.80.10
+            @earendil-works/pi-ai@0.81.1 \
+            @earendil-works/pi-coding-agent@0.81.1
           npm ls @earendil-works/pi-ai @earendil-works/pi-coding-agent
 
       - name: Typecheck

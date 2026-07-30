@@ -16,6 +16,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
 import { getConfig } from "./agent-types.js";
+import type { CompactionSnapshot } from "./compaction-snapshot.js";
 import { type HookRegistry } from "./hooks.js";
 import { generateCorrelationId } from "./telemetry-otel.js";
 import type { AgentInvocation, AgentRecord, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
@@ -24,8 +25,9 @@ import { cleanupWorktree, createWorktree, pruneWorktrees, } from "./worktree.js"
 
 export type OnAgentComplete = (record: AgentRecord) => void;
 export type OnAgentStart = (record: AgentRecord) => void;
+/** Observed upstream compaction metrics (Pi `compaction_end`). */
+export type CompactionInfo = CompactionSnapshot;
 export type OnAgentCompact = (record: AgentRecord, info: CompactionInfo) => void;
-export type CompactionInfo = { reason: "manual" | "threshold" | "overflow"; tokensBefore: number };
 
 export type BudgetWarningType = "agents_at_80" | "turns_at_80" | "agents_at_90" | "turns_at_90";
 export type OnBudgetWarning = (type: BudgetWarningType, usage: { spawnedAgents: number; totalTurns: number }, limits: { maxAgents: number; maxTurns: number }) => void;
@@ -494,7 +496,11 @@ export class AgentManager {
           options.onAssistantUsage?.(usage);
         },
         onCompaction: (info) => {
-          record.compactionCount++;
+          record.lastCompaction = info;
+          if (!info.aborted) {
+            record.compactionCount++;
+            if (info.usage) addUsage(record.lifetimeUsage, info.usage);
+          }
           this.onCompact?.(record, info);
           options.onCompaction?.(info);
         },
@@ -684,7 +690,11 @@ export class AgentManager {
           addUsage(record.lifetimeUsage, usage);
         },
         onCompaction: (info) => {
-          record.compactionCount++;
+          record.lastCompaction = info;
+          if (!info.aborted) {
+            record.compactionCount++;
+            if (info.usage) addUsage(record.lifetimeUsage, info.usage);
+          }
           this.onCompact?.(record, info);
         },
         signal,

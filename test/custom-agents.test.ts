@@ -164,16 +164,21 @@ Custom tools.`);
     }
   });
 
-  it("passes through thinking level as-is (no validation)", async () => {
+  it("drops unknown thinking levels and keeps the Pi allowlist (incl. max)", async () => {
     writeAgent("anythink", `---
 thinking: turbo
 ---
 
 Any thinking.`);
+    writeAgent("maxthink", `---
+thinking: max
+---
+
+Max thinking.`);
 
     const result = await loadCustomAgents(tmpDir);
-    // Pi validates at session creation — we just pass through
-    expect(result.get("anythink")!.thinking).toBe("turbo");
+    expect(result.get("anythink")!.thinking).toBeUndefined();
+    expect(result.get("maxthink")!.thinking).toBe("max");
   });
 
   it("accepts max_turns: 0 as unlimited", async () => {

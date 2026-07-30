@@ -119,6 +119,20 @@ describe("resolveAgentInvocationConfig", () => {
     expect(resolved.runInBackground).toBe(false);
     expect(resolved.isolated).toBe(false);
   });
+
+  it("drops unknown thinking levels instead of casting garbage through", () => {
+    const resolved = resolveAgentInvocationConfig(
+      makeConfig({ thinking: "high" }),
+      { thinking: "ludicrous" },
+    );
+    expect(resolved.thinking).toBeUndefined();
+
+    const fromConfig = resolveAgentInvocationConfig(
+      makeConfig({ thinking: "max" }),
+      {},
+    );
+    expect(fromConfig.thinking).toBe("max");
+  });
 });
 
 describe("resolveJoinMode", () => {

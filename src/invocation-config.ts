@@ -1,4 +1,4 @@
-import type { AgentConfig, IsolationMode, JoinMode, ThinkingLevel } from "./types.js";
+import { type AgentConfig, type IsolationMode, type JoinMode, parseThinkingLevel, type ThinkingLevel } from "./types.js";
 
 interface AgentInvocationParams {
   model?: string;
@@ -23,10 +23,11 @@ export function resolveAgentInvocationConfig(
   isolated: boolean;
   isolation?: IsolationMode;
 } {
+  const rawThinking = params.thinking ?? agentConfig?.thinking;
   return {
     modelInput: params.model ?? agentConfig?.model,
     modelFromParams: params.model != null,
-    thinking: (params.thinking ?? agentConfig?.thinking) as ThinkingLevel | undefined,
+    thinking: parseThinkingLevel(rawThinking),
     maxTurns: agentConfig?.maxTurns ?? params.max_turns,
     inheritContext: agentConfig?.inheritContext ?? params.inherit_context ?? false,
     runInBackground: agentConfig?.runInBackground ?? params.run_in_background ?? false,

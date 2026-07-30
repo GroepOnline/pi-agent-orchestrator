@@ -22,6 +22,7 @@
 
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { CompactionSnapshot } from "./compaction-snapshot.js";
 import type { HookRegistry } from "./hooks.js";
 import type { AgentConfig, ValidationResult } from "./types.js";
 import {
@@ -65,7 +66,7 @@ export type RunAgentFn = (
 export interface ValidatorResumeOptions {
   onToolActivity?: (activity: { type: "start" | "end"; toolName: string }) => void;
   onAssistantUsage?: (usage: { input: number; output: number; cacheWrite: number }) => void;
-  onCompaction?: (info: { reason: "manual" | "threshold" | "overflow"; tokensBefore: number }) => void;
+  onCompaction?: (info: CompactionSnapshot) => void;
   signal?: AbortSignal;
 }
 
@@ -86,7 +87,7 @@ export interface ValidationDeps {
   resumeAgent: ResumeAgentFn;
   onToolActivity?: (activity: { type: "start" | "end"; toolName: string }) => void;
   onAssistantUsage?: (usage: { input: number; output: number; cacheWrite: number }) => void;
-  onCompaction?: (info: { reason: "manual" | "threshold" | "overflow"; tokensBefore: number }) => void;
+  onCompaction?: (info: CompactionSnapshot) => void;
   onValidationComplete?: (results: ValidationResult[]) => void;
 }
 

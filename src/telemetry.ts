@@ -46,6 +46,17 @@ export interface TelemetryEvents {
     promptLength: number;
     description: string;
   };
+  /** Pi 0.81+ resilient compaction summarization retries. */
+  "subagent:summarization_retry": {
+    agentId: string;
+    phase:
+      | "summarization_retry_scheduled"
+      | "summarization_retry_attempt_start"
+      | "summarization_retry_finished";
+    attempt?: number;
+    maxAttempts?: number;
+    success?: boolean;
+  };
 }
 
 /** Event names as a union type */
