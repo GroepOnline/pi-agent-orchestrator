@@ -139,6 +139,8 @@ let animationStyle: AnimationStyle = "orchestrator";
 let showActivityStream = true;
 let showTokenUsage = true;
 let showTurnProgress = true;
+/** Persistent AGENT TOP strip above the editor (not a fullscreen overlay). */
+let showAgentTopWidget = true;
 
 export function getAnimationStyle(): AnimationStyle {
   return animationStyle;
@@ -178,6 +180,14 @@ export function isShowTurnProgress(): boolean {
 
 export function setShowTurnProgress(enabled: boolean): void {
   showTurnProgress = enabled;
+}
+
+export function isShowAgentTopWidget(): boolean {
+  return showAgentTopWidget;
+}
+
+export function setShowAgentTopWidget(enabled: boolean): void {
+  showAgentTopWidget = enabled;
 }
 
 // ---- Prompt compression level ----

@@ -22,6 +22,7 @@ vi.mock("../src/agent-registry.js", () => ({
   getOrchestrationMode: vi.fn(),
   getPromptCompressionLevel: vi.fn(),
   getUiStyle: vi.fn(),
+  isShowAgentTopWidget: vi.fn(() => true),
   getFooterStatusConfig: () => DEFAULT_FOOTER_STATUS_CONFIG,
   getDashboardKeybindings: () => DEFAULT_DASHBOARD_KEYBINDINGS,
 }));
@@ -278,6 +279,7 @@ describe("buildSettingsSnapshot — snapshot shape", () => {
       "sessionMaxSpawns",
       "sessionMaxTurns",
       "promptCompressionLevel",
+      "showAgentTopWidget",
     ];
     for (const key of expectedKeys) {
       expect(snapshot).toHaveProperty(key);

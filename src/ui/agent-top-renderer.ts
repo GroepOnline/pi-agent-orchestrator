@@ -1,7 +1,18 @@
-/** Live, responsive top-like resource view for orchestrated agents. */
+/**
+ * agent-top-renderer.ts — Live top-like resource table for orchestrated agents.
+ *
+ * Layout contract:
+ * - Every cell is padded/truncated with ANSI-aware helpers (`visibleWidth`,
+ *   `padAndTruncate`) so colored spinners never shift columns.
+ * - Column set is responsive at 60 / 80 / 100 / 140 terminal columns.
+ * - Row visible width equals the content budget (gutter + columns + separators).
+ * - `mode: "widget"` is a compact strip for the persistent above-editor widget;
+ *   `"full"` is used by the interactive dashboard top view.
+ */
+
 import type { AgentRecord } from "../types.js";
 import { getLifetimeTotal } from "../usage.js";
-import { formatMs, formatTokens, formatTurns, getDisplayName } from "./agent-format.js";
+import { getDisplayName } from "./agent-format.js";
 import type { AgentActivity } from "./agent-ui-types.js";
 import { ANIMATION_INTERVAL, getAgentSpinnerFrame } from "./animation.js";
 import { type DashboardTheme, fastTruncate, padAndTruncate } from "./theme.js";
@@ -11,7 +22,8 @@ export type SortKey = "tokens" | "turns" | "duration" | "toolUses" | "name" | "l
 
 export interface AgentTopEntry {
   id: string;
-  type: string;
+  /** Agent type id when known (from live records); optional in synthetic test fixtures. */
+  type?: string;
   name: string;
   status: string;
   tokens: number;
@@ -21,9 +33,16 @@ export interface AgentTopEntry {
   lastSeenMs: number | undefined;
 }
 
+export type TopRenderMode = "full" | "widget";
+
 type TopTheme = ReturnType<typeof createTopThemeAdapter>;
 type ColumnKey = "name" | "status" | "tokens" | "turns" | "toolUses" | "duration" | "lastSeen" | "load";
 type TopColumn = { key: ColumnKey; label: string; width: number; align: "left" | "right" };
+
+/** Visible cells for the column separator ` │ `. */
+const SEP_WIDTH = 3;
+/** Leading gutter so the table is not flush against the left edge. */
+const GUTTER = 1;
 
 export function getAgentTopEntries(
   agents: AgentRecord[],
@@ -86,6 +105,25 @@ export function createTopThemeAdapter(th: DashboardTheme): {
   };
 }
 
+/** Compact token count for table cells (no "token" suffix — column label carries the unit). */
+export function formatCellTokens(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  return String(count);
+}
+
+/** Human runtime: `12.3s` / `4m41s` / `1h05m`. */
+export function formatCellRuntime(ms: number): string {
+  const clamped = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  const totalSec = Math.floor(clamped / 1000);
+  if (totalSec < 60) return `${(clamped / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = totalSec % 60;
+  if (minutes < 60) return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h${String(minutes % 60).padStart(2, "0")}m`;
+}
+
 function formatLastSeen(lastSeenMs: number | undefined): string {
   if (lastSeenMs === undefined) return "—";
   const seconds = Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000));
@@ -100,7 +138,7 @@ function formatLastSeen(lastSeenMs: number | undefined): string {
 
 function statusText(entry: AgentTopEntry, theme: TopTheme): string {
   const frame = Math.floor(Date.now() / ANIMATION_INTERVAL);
-  const withGlyph = (glyph: string, label: string): string => glyph ? `${glyph} ${label}` : label;
+  const withGlyph = (glyph: string, label: string): string => (glyph ? `${glyph} ${label}` : label);
   if (entry.status === "running") {
     return theme.fg("accent", withGlyph(getAgentSpinnerFrame(entry.id, frame, "agent", entry.type), "RUN"));
   }
@@ -113,15 +151,19 @@ function statusText(entry: AgentTopEntry, theme: TopTheme): string {
   return theme.fg("dim", `■ ${entry.status.toUpperCase()}`);
 }
 
-function buildColumns(width: number): TopColumn[] {
+/**
+ * Build responsive columns. Drop order matches AGENTS.md / existing tests:
+ * load <102, SEEN <92, TOOLS <78, TURNS <68.
+ */
+export function buildColumns(width: number): TopColumn[] {
   const columns: TopColumn[] = [
-    { key: "name", label: "AGENT", width: 20, align: "left" },
-    { key: "status", label: "STATE", width: 10, align: "left" },
-    { key: "tokens", label: "TOKENS", width: 10, align: "right" },
-    { key: "turns", label: "TURNS", width: 9, align: "right" },
-    { key: "toolUses", label: "TOOLS", width: 8, align: "right" },
-    { key: "duration", label: "RUNTIME", width: 11, align: "right" },
-    { key: "lastSeen", label: "SEEN", width: 7, align: "right" },
+    { key: "name", label: "AGENT", width: 0, align: "left" },
+    { key: "status", label: "STATE", width: 8, align: "left" },
+    { key: "tokens", label: "TOKENS", width: 8, align: "right" },
+    { key: "turns", label: "TURNS", width: 6, align: "right" },
+    { key: "toolUses", label: "TOOLS", width: 6, align: "right" },
+    { key: "duration", label: "RUNTIME", width: 8, align: "right" },
+    { key: "lastSeen", label: "SEEN", width: 5, align: "right" },
     { key: "load", label: "LOAD", width: 8, align: "left" },
   ];
 
@@ -130,10 +172,23 @@ function buildColumns(width: number): TopColumn[] {
   if (width < 78) columns.splice(columns.findIndex((column) => column.key === "toolUses"), 1);
   if (width < 68) columns.splice(columns.findIndex((column) => column.key === "turns"), 1);
 
-  const separators = Math.max(0, columns.length - 1) * 3;
+  // Widen numeric columns on very wide terminals.
+  if (width >= 140) {
+    for (const column of columns) {
+      if (column.key === "tokens") column.width = 9;
+      if (column.key === "duration") column.width = 9;
+      if (column.key === "load") column.width = 10;
+      if (column.key === "status") column.width = 9;
+    }
+  }
+
+  const separators = Math.max(0, columns.length - 1) * SEP_WIDTH;
   const fixedWidth = columns.reduce((sum, column) => sum + (column.key === "name" ? 0 : column.width), 0);
   const nameColumn = columns.find((column) => column.key === "name");
-  if (nameColumn) nameColumn.width = Math.max(12, width - fixedWidth - separators - 2);
+  const contentBudget = Math.max(40, width - GUTTER);
+  if (nameColumn) {
+    nameColumn.width = Math.max(10, contentBudget - fixedWidth - separators);
+  }
   return columns;
 }
 
@@ -145,21 +200,36 @@ function columnSortKey(key: ColumnKey): SortKey | undefined {
   return undefined;
 }
 
+/** Pad/truncate a (possibly ANSI-colored) cell to an exact visible width. */
 function renderCell(content: string, column: TopColumn): string {
   const truncated = fastTruncate(content, column.width);
   if (column.align === "right") {
-    return `${" ".repeat(Math.max(0, column.width - visibleWidth(truncated)))}${truncated}`;
+    const pad = Math.max(0, column.width - visibleWidth(truncated));
+    return `${" ".repeat(pad)}${truncated}`;
   }
   return padAndTruncate(truncated, column.width);
 }
 
-function renderLoadBar(tokens: number, maximum: number, theme: TopTheme): string {
-  const width = 6;
-  const filled = maximum <= 0 ? 0 : Math.max(0, Math.min(width, Math.round((tokens / maximum) * width)));
-  return `${theme.fg("accent", "■".repeat(filled))}${theme.fg("dim", "·".repeat(width - filled))}`;
+function separator(theme: TopTheme): string {
+  return ` ${theme.fg("border", "│")} `;
 }
 
-function renderSummary(entries: AgentTopEntry[], theme: TopTheme): string {
+function joinCells(cells: string[], theme: TopTheme): string {
+  return cells.join(separator(theme));
+}
+
+function contentWidth(columns: TopColumn[]): number {
+  return columns.reduce((sum, column) => sum + column.width, 0)
+    + Math.max(0, columns.length - 1) * SEP_WIDTH;
+}
+
+function renderLoadBar(tokens: number, maximum: number, width: number, theme: TopTheme): string {
+  const barWidth = Math.max(4, width);
+  const filled = maximum <= 0 ? 0 : Math.max(0, Math.min(barWidth, Math.round((tokens / maximum) * barWidth)));
+  return `${theme.fg("accent", "■".repeat(filled))}${theme.fg("dim", "·".repeat(barWidth - filled))}`;
+}
+
+function renderSummary(entries: AgentTopEntry[], theme: TopTheme, mode: TopRenderMode): string {
   let running = 0;
   let queued = 0;
   let totalTokens = 0;
@@ -172,13 +242,41 @@ function renderSummary(entries: AgentTopEntry[], theme: TopTheme): string {
     totalTurns += entry.turns;
     totalTools += entry.toolUses;
   }
-  return [
+  const sep = theme.fg("dim", mode === "widget" ? " · " : " │ ");
+  const parts = [
     theme.fg("accent", `${running} active`),
     theme.fg("warning", `${queued} queued`),
-    theme.fg("muted", `${formatTokens(totalTokens)}`),
+    theme.fg("muted", formatCellTokens(totalTokens)),
     theme.fg("muted", `${totalTurns} turns`),
     theme.fg("muted", `${totalTools} tools`),
-  ].join(` ${theme.fg("border", "│")} `);
+  ];
+  return parts.join(sep);
+}
+
+function renderTitleLine(
+  theme: TopTheme,
+  sortKey: SortKey,
+  sortAsc: boolean,
+  currentPage: number,
+  totalPages: number,
+  helpLine: string | undefined,
+  mode: TopRenderMode,
+  width: number,
+): string {
+  const direction = sortAsc ? "↑" : "↓";
+  const glyph = getAgentSpinnerFrame("agent-top-header", Math.floor(Date.now() / ANIMATION_INTERVAL), "header");
+  const title = theme.fg("title", theme.bold("AGENT TOP"));
+  const meta = theme.fg("dim", `sort ${sortKey} ${direction} · ${currentPage + 1}/${totalPages}`);
+  const help = helpLine ? theme.fg("dim", helpLine) : "";
+  const core = mode === "widget"
+    ? `${theme.fg("accent", glyph)} ${title}  ${meta}`
+    : ` ${theme.fg("accent", glyph)} ${title}  ${meta}${help ? `  ${help}` : ""}`;
+  return padAndTruncate(core, width);
+}
+
+export interface RenderTopTableOptions {
+  mode?: TopRenderMode;
+  helpLine?: string;
 }
 
 export function renderTopTable(
@@ -189,11 +287,18 @@ export function renderTopTable(
   pageSize: number,
   th: DashboardTheme,
   width: number,
-  helpLine?: string,
+  helpLineOrOptions?: string | RenderTopTableOptions,
 ): string[] {
+  const options: RenderTopTableOptions = typeof helpLineOrOptions === "string"
+    ? { helpLine: helpLineOrOptions, mode: "full" }
+    : (helpLineOrOptions ?? {});
+  const mode = options.mode ?? "full";
+  const helpLine = options.helpLine;
+
   const theme = createTopThemeAdapter(th);
-  const safeWidth = Math.max(60, width - 2);
+  const safeWidth = Math.max(40, width);
   const columns = buildColumns(safeWidth);
+  const tableWidth = contentWidth(columns);
   const safePageSize = Math.max(1, pageSize);
   const totalPages = Math.max(1, Math.ceil(entries.length / safePageSize));
   const currentPage = Math.max(0, Math.min(page, totalPages - 1));
@@ -202,23 +307,32 @@ export function renderTopTable(
   const maximumTokens = Math.max(0, ...entries.map((entry) => entry.tokens));
   const direction = sortAsc ? "↑" : "↓";
   const lines: string[] = [];
+  const gutter = " ".repeat(GUTTER);
 
-  lines.push(
-    `${theme.fg("title", theme.bold(" AGENT TOP "))}  ${theme.fg("dim", `sort ${sortKey} ${direction} · page ${currentPage + 1}/${totalPages}`)}` +
-    (helpLine ? `  ${theme.fg("dim", helpLine)}` : ""),
-  );
-  lines.push(` ${renderSummary(entries, theme)}`);
+  lines.push(renderTitleLine(
+    theme, sortKey, sortAsc, currentPage, totalPages, helpLine, mode, safeWidth,
+  ));
 
-  const header = columns.map((column) => {
+  const summary = `${gutter}${renderSummary(entries, theme, mode)}`;
+  lines.push(padAndTruncate(summary, safeWidth));
+
+  const headerCells = columns.map((column) => {
     const mappedSortKey = columnSortKey(column.key);
     const marker = mappedSortKey === sortKey ? direction : " ";
-    return renderCell(theme.fg(mappedSortKey === sortKey ? "highlight" : "muted", `${marker}${column.label}`), column);
-  }).join(` ${theme.fg("border", "│")} `);
-  lines.push(header);
-  lines.push(theme.fg("border", "─".repeat(safeWidth - 2)));
+    const label = `${marker}${column.label}`;
+    const colored = theme.fg(mappedSortKey === sortKey ? "highlight" : "muted", label);
+    return renderCell(colored, column);
+  });
+  lines.push(padAndTruncate(`${gutter}${joinCells(headerCells, theme)}`, safeWidth));
+
+  const rule = theme.fg("border", "─".repeat(Math.min(safeWidth - GUTTER, tableWidth)));
+  lines.push(padAndTruncate(`${gutter}${rule}`, safeWidth));
 
   if (entries.length === 0) {
-    lines.push(theme.fg("muted", "  No agents have entered this session yet."));
+    lines.push(padAndTruncate(
+      `${gutter}${theme.fg("muted", "No agents in this session yet.")}`,
+      safeWidth,
+    ));
     return lines;
   }
 
@@ -226,18 +340,35 @@ export function renderTopTable(
     const cells = columns.map((column) => {
       if (column.key === "name") return renderCell(theme.fg("accent", entry.name), column);
       if (column.key === "status") return renderCell(statusText(entry, theme), column);
-      if (column.key === "tokens") return renderCell(theme.fg("muted", formatTokens(entry.tokens)), column);
-      if (column.key === "turns") return renderCell(theme.fg("muted", formatTurns(entry.turns)), column);
-      if (column.key === "toolUses") return renderCell(theme.fg("muted", `${entry.toolUses}`), column);
-      if (column.key === "duration") return renderCell(theme.fg("dim", formatMs(entry.durationMs)), column);
+      if (column.key === "tokens") {
+        return renderCell(theme.fg("muted", formatCellTokens(entry.tokens)), column);
+      }
+      if (column.key === "turns") {
+        return renderCell(theme.fg("muted", String(entry.turns)), column);
+      }
+      if (column.key === "toolUses") {
+        return renderCell(theme.fg("muted", String(entry.toolUses)), column);
+      }
+      if (column.key === "duration") {
+        return renderCell(theme.fg("dim", formatCellRuntime(entry.durationMs)), column);
+      }
       if (column.key === "lastSeen") {
         const lastSeen = formatLastSeen(entry.lastSeenMs);
         const color = lastSeen === "now" ? "success" : lastSeen === "—" ? "dim" : "muted";
         return renderCell(theme.fg(color, lastSeen), column);
       }
-      return renderCell(renderLoadBar(entry.tokens, maximumTokens, theme), column);
+      return renderCell(renderLoadBar(entry.tokens, maximumTokens, column.width, theme), column);
     });
-    lines.push(cells.join(` ${theme.fg("border", "│")} `));
+    lines.push(padAndTruncate(`${gutter}${joinCells(cells, theme)}`, safeWidth));
+  }
+
+  // Widget footer hint when truncated
+  if (mode === "widget" && entries.length > safePageSize) {
+    const remaining = entries.length - safePageSize;
+    lines.push(padAndTruncate(
+      `${gutter}${theme.fg("dim", `+${remaining} more · open dashboard (t) for full top`)}`,
+      safeWidth,
+    ));
   }
 
   return lines;

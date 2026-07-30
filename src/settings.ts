@@ -46,6 +46,8 @@ export interface SubagentsSettings {
   showActivityStream?: boolean;
   showTokenUsage?: boolean;
   showTurnProgress?: boolean;
+  /** Persistent AGENT TOP strip above the editor when agents are active (default: true). */
+  showAgentTopWidget?: boolean;
   orchestrationMode?: OrchestrationMode;
   dashboardRefreshInterval?: number;
   sessionMaxSpawns?: number;
@@ -73,6 +75,7 @@ export interface SettingsAppliers {
   setShowActivityStream: (enabled: boolean) => void;
   setShowTokenUsage: (enabled: boolean) => void;
   setShowTurnProgress: (enabled: boolean) => void;
+  setShowAgentTopWidget: (enabled: boolean) => void;
   setOrchestrationMode: (mode: OrchestrationMode) => void;
   setDashboardRefreshInterval: (interval: number) => void;
   setSessionMaxSpawns: (value: number) => void;
@@ -202,6 +205,7 @@ function sanitize(raw: unknown): SubagentsSettings {
     "showActivityStream",
     "showTokenUsage",
     "showTurnProgress",
+    "showAgentTopWidget",
     "debugCapture",
   ] as const;
   for (const key of booleanFields) {
@@ -300,6 +304,7 @@ export function applySettings(settings: SubagentsSettings, appliers: SettingsApp
   if (typeof settings.showActivityStream === "boolean") appliers.setShowActivityStream(settings.showActivityStream);
   if (typeof settings.showTokenUsage === "boolean") appliers.setShowTokenUsage(settings.showTokenUsage);
   if (typeof settings.showTurnProgress === "boolean") appliers.setShowTurnProgress(settings.showTurnProgress);
+  if (typeof settings.showAgentTopWidget === "boolean") appliers.setShowAgentTopWidget(settings.showAgentTopWidget);
   if (settings.orchestrationMode) appliers.setOrchestrationMode(settings.orchestrationMode);
   if (typeof settings.dashboardRefreshInterval === "number") {
     appliers.setDashboardRefreshInterval(settings.dashboardRefreshInterval);

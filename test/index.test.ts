@@ -31,8 +31,10 @@ vi.mock("../src/agent-registry.js", () => ({
   setPromptCompressionLevel: vi.fn(),
   setSchedulingEnabled: vi.fn(),
   setShowActivityStream: vi.fn(),
+  setShowAgentTopWidget: vi.fn(),
   setShowTokenUsage: vi.fn(),
   setShowTurnProgress: vi.fn(),
+  isShowAgentTopWidget: vi.fn(() => true),
   setTracingEnabled: vi.fn(),
   setUiStyle: vi.fn(),
   setDebugCapture: vi.fn(),
@@ -176,6 +178,18 @@ vi.mock("../src/ui/agent-widget.js", () => ({
   }),
 }));
 
+vi.mock("../src/ui/agent-top-widget.js", () => ({
+  AgentTopWidget: vi.fn(function (this: any) {
+    this.update = vi.fn();
+    this.markFinished = vi.fn();
+    this.setUICtx = vi.fn();
+    this.ensureTimer = vi.fn();
+    this.onTurnStart = vi.fn();
+    this.forceRefresh = vi.fn();
+    this.dispose = vi.fn();
+  }),
+}));
+
 vi.mock("../src/ui/animation.js", () => ({ setSpinnerStyle: vi.fn() }));
 vi.mock("../src/ui/notification-renderer.js", () => ({
   createNotificationRenderer: vi.fn(() => vi.fn()),
@@ -183,6 +197,7 @@ vi.mock("../src/ui/notification-renderer.js", () => ({
 
 const extensionInit = (await import("../src/index.js")).default;
 const { AgentWidget } = await import("../src/ui/agent-widget.js");
+const { AgentTopWidget } = await import("../src/ui/agent-top-widget.js");
 
 function buildPiMock() {
   return {
@@ -307,6 +322,10 @@ describe("extension entry point", () => {
     expect((globalThis as any)[Symbol.for("pi-subagents:manager")]).toBeUndefined();
     expect((globalThis as any)[Symbol.for("pi-subagents:hooks")]).toBeUndefined();
     expect(widget.dispose).toHaveBeenCalledOnce();
+    const topWidget = vi.mocked(AgentTopWidget).mock.results.at(-1)?.value as {
+      dispose: ReturnType<typeof vi.fn>;
+    };
+    expect(topWidget.dispose).toHaveBeenCalledOnce();
   });
 
   it("registers session_start handler", async () => {
@@ -337,6 +356,14 @@ describe("extension entry point", () => {
     expect(widget.setUICtx).toHaveBeenCalledWith(uiCtx);
     expect(widget.ensureTimer).toHaveBeenCalledOnce();
     expect(widget.update).toHaveBeenCalled();
+    const topWidget = vi.mocked(AgentTopWidget).mock.results.at(-1)?.value as {
+      setUICtx: ReturnType<typeof vi.fn>;
+      ensureTimer: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    };
+    expect(topWidget.setUICtx).toHaveBeenCalledWith(uiCtx);
+    expect(topWidget.ensureTimer).toHaveBeenCalledOnce();
+    expect(topWidget.update).toHaveBeenCalled();
   });
 
   it("registers session_before_switch handler", async () => {

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/thermo-nuclear-file-size.sh",
+        "matcher": "Write|TabWrite"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/thermo-nuclear-prompt-gate.sh",
+        "matcher": "Write|Task"
+      }
+    ]
+  }
+}

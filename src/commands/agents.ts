@@ -38,6 +38,8 @@ export function registerAgentsCommand(
   scheduler: SubagentScheduler,
   agentActivity: Map<string, AgentActivity>,
   swarmJoin?: SwarmCoordinator | null,
+  /** Refresh AGENT TOP immediately after menu toggles (UI-layer, not registry). */
+  onAgentTopWidgetToggle?: () => void,
 ) {
   pi.registerCommand("agents", {
     description: "Manage agents",
@@ -50,6 +52,7 @@ export function registerAgentsCommand(
         swarmJoin: swarmJoin ?? null,
         settingsGetters,
         settingsSetters,
+        onAgentTopWidgetToggle,
       });
     },
   });

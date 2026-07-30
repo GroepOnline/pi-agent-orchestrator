@@ -98,13 +98,13 @@ npm install --legacy-peer-deps
 
 ## // UI / TELEMETRY VIEWS
 
-### Dashboard / AGENT TOP view squashed with Pi header text
+### AGENT TOP should sit above the session, not replace chat
 
-**SYMPTOM:** Opening `/agents` top view or pressing `t` shows `AGENT TOP` mixed with Pi startup lines (`Upd`, `New`, `Changelog`) — columns and borders overlap.
+**SYMPTOM:** `/agents → Agent top` used to open a fullscreen overlay that hid the session ("Esc/q: return to chat").
 
-**CAUSE:** The dashboard overlay was centered at 80–92% height, so Pi's header/footer rendered underneath and TUI compositing merged both layers.
+**CAUSE:** Top was implemented as `ctx.ui.custom({ overlay: true })` instead of a Pi `setWidget` strip.
 
-**RECOVERY:** Use a build with fullscreen overlay (`anchor: top-left`, `width/maxHeight: 100%`). Rebuild (`npm run build`), `pi install` the local path, then `/reload`.
+**RECOVERY:** Current builds expose a persistent **Agent top widget** (above the editor) that appears only while agents are active. Toggle via `/agents → Agent top widget: ON/OFF`. Full immersive top remains available inside the Interactive dashboard (`t`).
 
 ### Footer status bar missing after Pi reload
 

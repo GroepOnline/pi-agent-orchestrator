@@ -82,48 +82,48 @@ exports[`golden coverage across terminal widths > running card @ 140 1`] = `
 
 exports[`golden coverage across terminal widths > top table @ 60 1`] = `
 [
-  " AGENT TOP   sort tokens ↓ · page 1/1",
-  " 2 active │ 1 queued │ 16.8k token │ 25 turns │ 15 tools",
-  " AGENT             │  STATE     │    ↓TOKENS │     RUNTIME",
-  "──────────────────────────────────────────────────────────",
-  "Explore            │ ⊙ RUN      │ 4.0k token │       12.0s",
-  "Plan               │ ┅ QUEUE    │  800 token │        3.0s",
-  "Analysis           │ ⡐ RUN      │ 12.0k tok…[0m │       45.0s",
+  " ◉ AGENT TOP  sort tokens ↓ · 1/1                           ",
+  " 2 active │ 1 queued │ 16.8k │ 25 turns │ 15 tools          ",
+  "  AGENT                     │  STATE   │  ↓TOKENS │  RUNTIME",
+  " ───────────────────────────────────────────────────────────",
+  " Explore                    │ ⊙ RUN    │     4.0k │    12.0s",
+  " Plan                       │ ┅ QUEUE  │      800 │     3.0s",
+  " Analysis                   │ ⡐ RUN    │    12.0k │    45.0s",
 ]
 `;
 
 exports[`golden coverage across terminal widths > top table @ 80 1`] = `
 [
-  " AGENT TOP   sort tokens ↓ · page 1/1",
-  " 2 active │ 1 queued │ 16.8k token │ 25 turns │ 15 tools",
-  " AGENT        │  STATE     │    ↓TOKENS │     TURNS │    TOOLS │     RUNTIME",
-  "────────────────────────────────────────────────────────────────────────────",
-  "Explore       │ ⊙ RUN      │ 4.0k token │        ⟳8 │        5 │       12.0s",
-  "Plan          │ ┅ QUEUE    │  800 token │        ⟳2 │        1 │        3.0s",
-  "Analysis      │ ⡐ RUN      │ 12.0k tok…[0m │       ⟳15 │        9 │       45.0s",
+  " ◉ AGENT TOP  sort tokens ↓ · 1/1                                               ",
+  " 2 active │ 1 queued │ 16.8k │ 25 turns │ 15 tools                              ",
+  "  AGENT                       │  STATE   │  ↓TOKENS │  TURNS │  TOOLS │  RUNTIME",
+  " ───────────────────────────────────────────────────────────────────────────────",
+  " Explore                      │ ⊙ RUN    │     4.0k │      8 │      5 │    12.0s",
+  " Plan                         │ ┅ QUEUE  │      800 │      2 │      1 │     3.0s",
+  " Analysis                     │ ⡐ RUN    │    12.0k │     15 │      9 │    45.0s",
 ]
 `;
 
 exports[`golden coverage across terminal widths > top table @ 100 1`] = `
 [
-  " AGENT TOP   sort tokens ↓ · page 1/1",
-  " 2 active │ 1 queued │ 16.8k token │ 25 turns │ 15 tools",
-  " AGENT                  │  STATE     │    ↓TOKENS │     TURNS │    TOOLS │     RUNTIME │    SEEN",
-  "────────────────────────────────────────────────────────────────────────────────────────────────",
-  "Explore                 │ ⊙ RUN      │ 4.0k token │        ⟳8 │        5 │       12.0s │      5s",
-  "Plan                    │ ┅ QUEUE    │  800 token │        ⟳2 │        1 │        3.0s │      1m",
-  "Analysis                │ ⡐ RUN      │ 12.0k tok…[0m │       ⟳15 │        9 │       45.0s │      2m",
+  " ◉ AGENT TOP  sort tokens ↓ · 1/1                                                                   ",
+  " 2 active │ 1 queued │ 16.8k │ 25 turns │ 15 tools                                                  ",
+  "  AGENT                                   │  STATE   │  ↓TOKENS │  TURNS │  TOOLS │  RUNTIME │  SEEN",
+  " ───────────────────────────────────────────────────────────────────────────────────────────────────",
+  " Explore                                  │ ⊙ RUN    │     4.0k │      8 │      5 │    12.0s │    5s",
+  " Plan                                     │ ┅ QUEUE  │      800 │      2 │      1 │     3.0s │    1m",
+  " Analysis                                 │ ⡐ RUN    │    12.0k │     15 │      9 │    45.0s │    2m",
 ]
 `;
 
 exports[`golden coverage across terminal widths > top table @ 140 1`] = `
 [
-  " AGENT TOP   sort tokens ↓ · page 1/1",
-  " 2 active │ 1 queued │ 16.8k token │ 25 turns │ 15 tools",
-  " AGENT                                               │  STATE     │    ↓TOKENS │     TURNS │    TOOLS │     RUNTIME │    SEEN │  LOAD   ",
-  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-  "Explore                                              │ ⊙ RUN      │ 4.0k token │        ⟳8 │        5 │       12.0s │      5s │ ■■····  ",
-  "Plan                                                 │ ┅ QUEUE    │  800 token │        ⟳2 │        1 │        3.0s │      1m │ ······  ",
-  "Analysis                                             │ ⡐ RUN      │ 12.0k tok…[0m │       ⟳15 │        9 │       45.0s │      2m │ ■■■■■■  ",
+  " ◉ AGENT TOP  sort tokens ↓ · 1/1                                                                                                           ",
+  " 2 active │ 1 queued │ 16.8k │ 25 turns │ 15 tools                                                                                          ",
+  "  AGENT                                                           │  STATE    │   ↓TOKENS │  TURNS │  TOOLS │   RUNTIME │  SEEN │  LOAD     ",
+  " ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  " Explore                                                          │ ⊙ RUN     │      4.0k │      8 │      5 │     12.0s │    5s │ ■■■·······",
+  " Plan                                                             │ ┅ QUEUE   │       800 │      2 │      1 │      3.0s │    1m │ ■·········",
+  " Analysis                                                         │ ⡐ RUN     │     12.0k │     15 │      9 │     45.0s │    2m │ ■■■■■■■■■■",
 ]
 `;

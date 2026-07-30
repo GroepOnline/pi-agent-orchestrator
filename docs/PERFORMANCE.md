@@ -223,15 +223,15 @@ De `AgentActivity` map groeit alleen als agents actief zijn of net voltooid. Na 
 | Component | Timer | Debounce | Dirty check | Interval |
 |---|---|---|---|---|
 | Dashboard | Adaptief | Ja (16ms + microtask + coalesce) | Ja (snapshot) | 100–750ms |
-| Widget | Adaptief | Nee (al rate gelimiteerd door timer) | Ja (snapshot) | 200–1000ms |
+| AgentWidget | Adaptief (`AdaptiveTick`) | Spawn-batch 16ms | Ja (snapshot) | 160–1000ms |
+| AgentTopWidget | Adaptief (`AdaptiveTick`) | Nee | Ja (`buildSnapshotHash`) | 200–1000ms |
 | ConversationViewer | Event-driven | Ja (16ms + microtask + coalesce) | Nee | — |
-| AgentsTopComponent | Fixed 1s | Nee (al rate gelimiteerd) | Nee | 1000ms |
 
 ### Waarom conversation-viewer geen dirty check heeft
 De conversation viewer toont de _volledige_ agent conversation. Elke session event (text delta, tool call, tool result) verandert de visible state. Een dirty check zou altijd true zijn tijdens streaming. De rate limit alleen is voldoende.
 
-### Waarom AgentsTopComponent geen debounce heeft
-Het gebruikt een vaste 1s refresh interval. Dit is bewust gekozen: `/agents top` is een statische momentopname, geen live stream.
+### Waarom AgentTopWidget geen aparte debounce heeft
+De strip deelt `LiveWidgets` fan-out met `AgentWidget` en rate-limiteert via `AdaptiveTick`. Structurele changes gebruiken `buildSnapshotHash`; idle ticks blijven lopen zolang er UI-context is zodat settings-toggles zonder registry-callback worden opgepikt.
 
 ---
 

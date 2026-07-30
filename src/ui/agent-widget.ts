@@ -15,6 +15,7 @@
 import type { AgentManager } from "../agent-manager.js";
 import { getFooterStatusConfig } from "../agent-registry.js";
 import type { AgentRecord } from "../types.js";
+import { AdaptiveTick } from "./adaptive-tick.js";
 import type { AgentActivity, UICtx } from "./agent-ui-types.js";
 import { ERROR_STATUSES, renderAgentWidget } from "./agent-widget-renderer.js";
 import { formatFooterStatusText } from "./footer-status-config.js";
@@ -45,9 +46,7 @@ export class AgentWidget {
   private closed = false;
   private uiCtx: UICtx | undefined;
   private widgetFrame = 0;
-  private widgetInterval: ReturnType<typeof setTimeout> | undefined;
-  /** Current refresh interval in ms (for adaptive tracking). */
-  private currentIntervalMs = ACTIVE_REFRESH_MS;
+  private readonly tick: AdaptiveTick;
   /** Tracks how many turns each finished agent has survived. Key: agent ID, Value: turns since finished. */
   private finishedTurnAge = new Map<string, number>();
   /** How many extra turns errors/aborted agents linger (completed agents clear after 1 turn). */
@@ -107,7 +106,13 @@ export class AgentWidget {
   constructor(
     private manager: AgentManager,
     private agentActivity: Map<string, AgentActivity>,
-  ) {}
+  ) {
+    this.tick = new AdaptiveTick(
+      () => Boolean(this.uiCtx) && !this.closed,
+      () => this.update(),
+      ACTIVE_REFRESH_MS,
+    );
+  }
 
   /** Set the UI context (grabbed from first tool execution). */
   setUICtx(ctx: UICtx) {
@@ -142,28 +147,12 @@ export class AgentWidget {
 
   /** Ensure the widget update timer is running. */
   ensureTimer() {
-    if (!this.widgetInterval) {
-      this.scheduleNextTick(ACTIVE_REFRESH_MS);
-    }
+    this.tick.ensure(ACTIVE_REFRESH_MS);
   }
 
-  /**
-   * Schedule the next tick using setTimeout (self-rescheduling).
-   * Prevents render pileup that can occur with setInterval when a render
-   * takes longer than the interval period.
-   */
-  private scheduleNextTick(intervalMs: number): void {
-    if (this.widgetInterval) {
-      clearTimeout(this.widgetInterval);
-    }
-    this.widgetInterval = setTimeout(() => {
-      if (!this.uiCtx || this.closed) return;
-      this.update();
-      // Re-schedule after update completes (prevents pileup)
-      if (this.widgetInterval !== undefined) {
-        this.scheduleNextTick(this.currentIntervalMs);
-      }
-    }, intervalMs);
+  /** Current adaptive refresh interval (exposed for tests / metrics). */
+  get currentIntervalMs(): number {
+    return this.tick.currentIntervalMs;
   }
 
   /** Check if a finished agent should still be shown in the widget. */
@@ -372,9 +361,8 @@ private renderWidget(tui: TUI, theme: Theme): string[] {
       // Adapt refresh interval based on agent activity level.
       const hasRunning = runningCount > 0 || queuedCount > 0;
       const targetInterval = hasRunning ? ACTIVE_REFRESH_MS : IDLE_REFRESH_MS;
-      if (this.currentIntervalMs !== targetInterval) {
-        this.currentIntervalMs = targetInterval;
-        this.scheduleNextTick(targetInterval);
+      if (this.tick.currentIntervalMs !== targetInterval) {
+        this.tick.reschedule(targetInterval);
       }
     }
     const hasActive = runningCount > 0 || queuedCount > 0;
@@ -406,7 +394,7 @@ private renderWidget(tui: TUI, theme: Theme): string[] {
         this.lastStatusText = undefined;
         this.lastFooterSlot = undefined;
       }
-      if (this.widgetInterval) { clearTimeout(this.widgetInterval); this.widgetInterval = undefined; }
+      this.tick.stop();
       this.dirty = false;
       return;
     }
@@ -469,10 +457,7 @@ private renderWidget(tui: TUI, theme: Theme): string[] {
       clearTimeout(this.updateTimer);
       this.updateTimer = undefined;
     }
-    if (this.widgetInterval) {
-      clearTimeout(this.widgetInterval);
-      this.widgetInterval = undefined;
-    }
+    this.tick.stop();
     if (this.uiCtx) {
       this.uiCtx.setWidget("agents", undefined);
       const slot = getFooterStatusConfig().slot;

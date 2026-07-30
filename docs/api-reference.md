@@ -190,6 +190,7 @@ interface SubagentsSettings {
   showActivityStream?: boolean;        // Show real-time activity stream in widget (default: true)
   showTokenUsage?: boolean;            // Show token usage and context fill percentage (default: true)
   showTurnProgress?: boolean;          // Show turn progress (current/max) for running agents (default: true)
+  showAgentTopWidget?: boolean;        // Persistent AGENT TOP strip above the editor when agents are active (default: true). Not a fullscreen overlay.
   orchestrationMode?: "auto" | "single" | "swarm" | "crew";  // Execution topology (default: "single"; multi-agent modes are opt-in)
   dashboardRefreshInterval?: number;   // Dashboard refresh interval in ms (default: 750, min: 100, max: 60000)
   sessionMaxSpawns?: number;           // Guardrail: max agents spawned per session

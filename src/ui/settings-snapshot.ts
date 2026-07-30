@@ -1,5 +1,12 @@
 import type { AgentManager } from "../agent-manager.js";
-import { getAnimationStyle, getDashboardRefreshInterval, getOrchestrationMode, getPromptCompressionLevel, getUiStyle } from "../agent-registry.js";
+import {
+  getAnimationStyle,
+  getDashboardRefreshInterval,
+  getOrchestrationMode,
+  getPromptCompressionLevel,
+  getUiStyle,
+  isShowAgentTopWidget,
+} from "../agent-registry.js";
 import type { SettingsGetters, SubagentsSettings } from "../settings.js";
 
 /**
@@ -24,5 +31,6 @@ export function buildSettingsSnapshot(manager: AgentManager, getters: SettingsGe
     sessionMaxSpawns: manager.getSessionMaxSpawns(),
     sessionMaxTurns: manager.getSessionMaxTurns(),
     promptCompressionLevel: getPromptCompressionLevel(),
+    showAgentTopWidget: isShowAgentTopWidget(),
   };
 }

@@ -15,7 +15,11 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentManager } from "./agent-manager.js";
-import { getDashboardKeybindings, reloadCustomAgents } from "./agent-registry.js";
+import {
+  isShowAgentTopWidget,
+  reloadCustomAgents,
+  setShowAgentTopWidget,
+} from "./agent-registry.js";
 import { buildAgentTreeJson, buildAgentTreeMermaid, buildAgentTreeText } from "./agent-tree.js";
 import { getAllTypes } from "./agent-types.js";
 import { showTemplatesMenu } from "./commands/templates.js";
@@ -26,16 +30,12 @@ import type { AgentRecord } from "./types.js";
 import { showAgentDashboard } from "./ui/agent-dashboard.js";
 import { showAgentPermissions } from "./ui/agent-detail.js";
 import { showAllAgentsList, showRunningAgents } from "./ui/agent-list-views.js";
-import { getAgentTopEntries, renderTopTable, type SortKey, sortEntries } from "./ui/agent-top-renderer.js";
 import type { AgentActivity } from "./ui/agent-ui-types.js";
 import { viewAgentConversation } from "./ui/agent-viewer.js";
 import { showCreateWizard } from "./ui/agent-wizards.js";
-import { type DashboardAction, matchDashboardKey } from "./ui/dashboard-keybindings.js";
 import { showHealth } from "./ui/health-view.js";
 import { showSchedulesMenu } from "./ui/schedule-menu.js";
-import { showSettings } from "./ui/settings-menu.js";
-import { getThemeColors } from "./ui/theme.js";
-import { type Component } from "./ui/tui-shim.js";
+import { notifyApplied, showSettings } from "./ui/settings-menu.js";
 
 /** Dependencies injected into the agents menu so callers don't pass 11 positional args. */
 export interface AgentsMenuDeps {
@@ -62,6 +62,8 @@ export interface AgentsMenuDeps {
   settingsGetters: SettingsGetters;
   /** Write-side counterpart of `settingsGetters`. */
   settingsSetters: SettingsSetters;
+  /** UI-layer refresh after Agent top widget toggle (keeps registry free of UI hooks). */
+  onAgentTopWidgetToggle?: () => void;
 }
 
 /** Re-open the agents menu after a sub-flow completes. */
@@ -146,108 +148,6 @@ function buildExecutionTree(records: AgentRecord[], format: "text" | "mermaid" |
   return buildAgentTreeText(records);
 }
 
-/** TUI component for the live agent top view. */
-class AgentsTopComponent implements Component {
-  private closed = false;
-  private sortKey: SortKey = "tokens";
-  private sortAsc = false;
-  private page = 0;
-  private pageSize = 12;
-  private refreshTimer: ReturnType<typeof setInterval> | null = null;
-
-  constructor(
-    private readonly tui: { requestRender?: () => void; terminal: { rows: number; columns: number } },
-    private readonly manager: AgentManager,
-    private readonly activity: Map<string, AgentActivity>,
-    private readonly done: (r: undefined) => void,
-  ) {
-    this.refreshTimer = setInterval(() => {
-      if (!this.closed) this.tui.requestRender?.();
-    }, 1000);
-  }
-
-  handleInput(data: string): void {
-    const keys = getDashboardKeybindings();
-    const key = (action: DashboardAction): boolean => matchDashboardKey(data, action, keys);
-
-    if (key("quitKey") || key("escapeKey")) {
-      this.close();
-      return;
-    }
-    if (key("pageLeft")) {
-      this.page = Math.max(0, this.page - 1);
-    } else if (key("pageRight")) {
-      const entries = getAgentTopEntries(this.manager.listAgents(), this.activity);
-      const totalPages = Math.max(1, Math.ceil(entries.length / this.pageSize));
-      this.page = Math.min(totalPages - 1, this.page + 1);
-    } else if (key("sortTokens")) {
-      if (this.sortKey === "tokens") this.sortAsc = !this.sortAsc;
-      else { this.sortKey = "tokens"; this.sortAsc = false; }
-      this.page = 0;
-    } else if (key("sortTurns")) {
-      if (this.sortKey === "turns") this.sortAsc = !this.sortAsc;
-      else { this.sortKey = "turns"; this.sortAsc = false; }
-      this.page = 0;
-    } else if (key("sortDuration")) {
-      if (this.sortKey === "duration") this.sortAsc = !this.sortAsc;
-      else { this.sortKey = "duration"; this.sortAsc = false; }
-      this.page = 0;
-    } else if (key("sortTools")) {
-      if (this.sortKey === "toolUses") this.sortAsc = !this.sortAsc;
-      else { this.sortKey = "toolUses"; this.sortAsc = false; }
-      this.page = 0;
-    } else if (key("sortName")) {
-      if (this.sortKey === "name") this.sortAsc = !this.sortAsc;
-      else { this.sortKey = "name"; this.sortAsc = false; }
-      this.page = 0;
-    }
-  }
-
-  render(width: number): string[] {
-    const th = getThemeColors();
-    const entries = sortEntries(getAgentTopEntries(this.manager.listAgents(), this.activity), this.sortKey, this.sortAsc);
-    const rows = this.tui.terminal.rows;
-    this.pageSize = Math.max(5, rows - 6);
-    const lines = renderTopTable(entries, this.sortKey, this.sortAsc, this.page, this.pageSize, th, width, "Esc/q: return to chat");
-    while (lines.length < rows) {
-      lines.push("");
-    }
-    return lines;
-  }
-
-  invalidate(): void {
-    // No-op: this component has no cached theme to invalidate
-  }
-
-  dispose(): void {
-    if (this.refreshTimer) { clearInterval(this.refreshTimer); this.refreshTimer = null; }
-    this.closed = true;
-  }
-
-  private close(): void {
-    this.dispose();
-    this.done(undefined);
-  }
-}
-
-/** Launch the /agents top live stats view. */
-async function showAgentsTop(
-  ctx: ExtensionCommandContext,
-  manager: AgentManager,
-  activity: Map<string, AgentActivity>,
-): Promise<void> {
-  await ctx.ui.custom<undefined>((tui, _theme, _kb, done) => {
-    return new AgentsTopComponent(tui, manager, activity, done);
-  }, {
-    overlay: true,
-    overlayOptions: {
-      anchor: "top-left",
-      width: "100%",
-      maxHeight: "100%",
-    },
-  });
-}
-
 /**
  * Display the main agents menu with options for dashboard, agent types, scheduling, and settings.
  */
@@ -290,7 +190,12 @@ export async function showAgentsMenu(
   options.push("Agent templates (browse & install)");
   options.push("Health check (tracing, scheduler, swarm, agents, settings)");
   options.push("Settings");
-  options.push("Agent top (live stats — CPU, tokens, turns)");
+  const topOn = isShowAgentTopWidget();
+  options.push(
+    topOn
+      ? "Agent top widget: ON — live stats above session when agents run"
+      : "Agent top widget: OFF — enable persistent live stats strip",
+  );
 
   const noAgentsMsg = allNames.length === 0 && agents.length === 0
     ? "No agents found. Create specialized subagents that can be delegated to.\n\n" +
@@ -351,8 +256,19 @@ export async function showAgentsMenu(
       deps.settingsGetters, deps.settingsSetters,
     );
     await reopenMenu(ctx, deps);
-  } else if (choice === "Agent top (live stats — CPU, tokens, turns)") {
-    await showAgentsTop(ctx, deps.manager, deps.agentActivity);
+  } else if (choice.startsWith("Agent top widget:")) {
+    const next = !isShowAgentTopWidget();
+    setShowAgentTopWidget(next);
+    deps.onAgentTopWidgetToggle?.();
+    notifyApplied(
+      ctx,
+      deps.pi,
+      deps.manager,
+      deps.settingsGetters,
+      next
+        ? "Agent top widget enabled — appears above the session when agents run"
+        : "Agent top widget disabled",
+    );
     await reopenMenu(ctx, deps);
   }
 }
