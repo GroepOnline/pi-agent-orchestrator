@@ -238,7 +238,7 @@ export async function showAgentsMenu(
     await showSchedulesMenu(ctx, deps.scheduler);
     await reopenMenu(ctx, deps);
   } else if (choice === "Create new agent") {
-    await showCreateWizard(ctx, deps.pi, deps.manager);
+    await showCreateWizard(ctx, deps.pi, deps.manager, deps.scheduler);
   } else if (choice === "Agent templates (browse & install)") {
     await showTemplatesMenu(ctx);
     await reopenMenu(ctx, deps);
