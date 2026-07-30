@@ -1,12 +1,14 @@
 name: Publish maintenance baseline
 
-# Publishes an approved pre-train baseline already landed on main (e.g. 0.17.5).
-# The locked 0.18 transactional publisher remains separate — see release.yml.
+# Publishes an approved pre-train baseline already landed on main (e.g. 0.17.5,
+# 0.17.6). The version is validated against .release-policy.json#sourceBaselines
+# and must equal the package.json version currently on main. The locked 0.18
+# transactional publisher remains separate — see release.yml.
 on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: "Type the exact baseline version to publish (e.g. 0.17.5)"
+        description: "Type the exact baseline version to publish (must match package.json on main and be in sourceBaselines)"
         required: true
         type: string
 
@@ -19,7 +21,7 @@ concurrency:
 jobs:
   verify:
     name: Verify and build baseline artifact
-    if: github.ref == 'refs/heads/main' && inputs.confirm == '0.17.5'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -27,10 +29,33 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Validate confirm version format
+        env:
+          CONFIRM_VERSION: ${{ inputs.confirm }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Validate the whole CONFIRM_VERSION value as a single scalar. Piping to
+          # grep matches per line, so a multi-line value like "0.17.6\nextra text"
+          # would slip a valid version through on its own line. Reject any CR/LF
+          # first, then anchor strict semver against the entire string. The value
+          # arrives via the env block (never interpolated into this script), so the
+          # quoted expansion below is not a shell-injection surface.
+          case "$CONFIRM_VERSION" in
+            *[$'\r\n']*)
+              echo "::error::Confirm version must be a single line (no CR/LF)." >&2
+              exit 1
+              ;;
+          esac
+          if [[ ! "$CONFIRM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Confirm version must be strict semver (X.Y.Z)." >&2
+            exit 1
+          fi
 
       - name: Resolve baseline version
         id: version
@@ -40,7 +65,10 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
-          test "$VERSION" = "$CONFIRM_VERSION"
+          if ! printenv CONFIRM_VERSION | grep -Fxq "$VERSION"; then
+            echo "::error::Requested baseline does not match package.json version '$VERSION' on main." >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -95,7 +123,7 @@ jobs:
     env:
       RELEASE_VERSION: ${{ needs.verify.outputs.version }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -151,7 +179,7 @@ jobs:
     env:
       RELEASE_VERSION: ${{ needs.verify.outputs.version }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0

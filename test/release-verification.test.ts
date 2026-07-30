@@ -151,7 +151,7 @@ describe("0.18 release policy", () => {
     const policy = JSON.parse(readRoot(".release-policy.json"));
     expect(policy.releaseTrain).toBe("0.18");
     expect(policy.initialRelease).toBe("0.18.0");
-    expect(policy.sourceBaselines).toEqual(["0.17.1", "0.17.5"]);
+    expect(policy.sourceBaselines).toEqual(["0.17.1", "0.17.5", "0.17.6"]);
     expect(policy.allowPrerelease).toBe(false);
     expect(policy.blockedNextMinor).toBe("0.19.0");
     expect(policy.releaseCommitTitle).toBe("chore(release): v0.18.0");
@@ -189,10 +189,55 @@ describe("0.18 release policy", () => {
     expect(fileExists(".github/workflows/publish-baseline.yml")).toBe(true);
     const content = readRoot(".github/workflows/publish-baseline.yml");
     expect(content).toContain("workflow_dispatch:");
-    expect(content).toContain("inputs.confirm == '0.17.5'");
+    // The dispatch must validate the requested version against the package.json
+    // version currently on main, not a hardcoded literal, so any approved
+    // sourceBaseline (0.17.5, 0.17.6, ...) can be published.
+    expect(content).not.toContain("inputs.confirm == '0.17.5'");
+    // The confirm input is validated as a single scalar, not per line: reject
+    // any CR/LF, then anchor strict semver against the whole value so a
+    // multi-line "0.17.6\nextra" cannot smuggle a valid version through.
+    expect(content).toContain(String.raw`*[$'\r\n']*)`);
+    expect(content).toContain(String.raw`[[ ! "$CONFIRM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]`);
+    // The version-match step compares the full value against package.json on main.
+    expect(content).toContain("printenv CONFIRM_VERSION | grep -Fxq");
+    expect(content).not.toContain('REQUESTED="$CONFIRM_VERSION"');
     expect(content).toContain("node scripts/release-policy.mjs baseline");
     expect(content).toContain("npm publish");
   });
+
+  // The confirm-version guard is bash embedded in YAML; execute it directly so a
+  // multi-line value cannot regress into passing the per-line grep validation.
+  it.skipIf(process.platform === "win32")(
+    "rejects multi-line confirm versions in the publish-baseline guard",
+    () => {
+      const content = readRoot(".github/workflows/publish-baseline.yml");
+      const match = content.match(
+        /- name: Validate confirm version format[\s\S]*?\n {8}run: \|\n([\s\S]*?)\n {6}- /,
+      );
+      expect(match, "could not locate the confirm-version validation step").not.toBeNull();
+      const script = match![1]
+        .split("\n")
+        .map(line => line.replace(/^ {10}/, ""))
+        .join("\n");
+
+      const runGuard = (confirm: string) =>
+        spawnSync("bash", ["-c", script], {
+          encoding: "utf8",
+          env: { ...process.env, CONFIRM_VERSION: confirm },
+        });
+
+      // A clean single-line baseline passes.
+      expect(runGuard("0.17.6").status).toBe(0);
+      // A valid version followed by newline-separated extra text is rejected.
+      expect(runGuard("0.17.6\nextra text").status).not.toBe(0);
+      // Two versions on separate lines are rejected (no per-line escape hatch).
+      expect(runGuard("0.17.5\n0.18.0").status).not.toBe(0);
+      // A trailing CR/LF alone is still rejected as multi-line.
+      expect(runGuard("0.17.6\n").status).not.toBe(0);
+      // Non-semver garbage is rejected.
+      expect(runGuard("not-a-version").status).not.toBe(0);
+    },
+  );
 
   it("ships a non-empty v0.18.0 release record template", () => {
     const notes = readRoot("docs/releases/v0.18.0.md");

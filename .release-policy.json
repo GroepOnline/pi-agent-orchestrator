@@ -3,7 +3,7 @@
   "packageName": "@onlinechefgroep/pi-agent-orchestrator",
   "releaseTrain": "0.18",
   "initialRelease": "0.18.0",
-  "sourceBaselines": ["0.17.1", "0.17.5"],
+  "sourceBaselines": ["0.17.1", "0.17.5", "0.17.6"],
   "allowPrerelease": false,
   "blockedNextMinor": "0.19.0",
   "releaseBranch": "release/v0.18.0",
