@@ -44,7 +44,10 @@ export function renderSwarmSection(
 
   for (const [swarmId, members] of grouped) {
     const mode = members[0]?.joinMode ?? "group";
-    const running = members.filter((member) => member.status === "running").length;
+    let running = 0;
+    for (const member of members) {
+      if (member.status === "running") running++;
+    }
     const swarmGlyph = getAgentSpinnerFrame(swarmId, state.frame, "swarm");
     const header = ` ${swarmGlyph || "⌬"} ${swarmId} · ${mode} · ${running}/${members.length} live `;
     const dash = box.h.repeat(Math.max(2, cardWidth - visibleWidth(header) - 2));
