@@ -15,7 +15,7 @@ Generate polished terminal recordings and hero videos for README, PR description
 | **C** Programmatic | `npm run showcase:ci` | `showcase_*.gif`, programmatic hero | `agg`, `ffmpeg`, Node build |
 | **A** Live | `npm run showcase:live` | `showcase_live.gif`, `.mp4` | + `asciinema` |
 | **T** Tmux | `npm run showcase:tmux` | `showcase_tmux.gif`, `showcase_tmux.mp4` | + `tmux`, `asciinema` |
-| **B** Remotion | `npm run showcase:remotion` | `dashboard_preview.mp4` (hero) | + `pi-agent-control-extension` |
+| **B** Remotion | `npm run showcase:remotion -- session.cast` | 60fps master + scene clips | + real marked asciicast |
 | **D** VHS | `npm run showcase:vhs` | `showcase_vhs.gif`, `.mp4` | + `vhs` (Go) |
 
 **Run all:** `npm run showcase` (set `SKIP_LIVE=1` / `SKIP_REMOTION=1` / `SKIP_VHS=1` / `SKIP_TMUX=1` to skip steps).
@@ -23,7 +23,7 @@ Generate polished terminal recordings and hero videos for README, PR description
 ## When To Use Each Pipeline
 
 - **CI / PR checks:** `npm run showcase:ci` (Programmatic) — no external deps, fast, deterministic
-- **README hero:** Tmux or Remotion — polished, compressed, scene-labeled
+- **README hero:** Remotion from a real marked asciicast
 - **Quick demo GIF:** Programmatic — smallest files, CI-safe
 - **Full terminal recording:** Tmux — realistic typing, ANSI transitions, ~60s compressed output
 - **Social media / docs:** VHS — stylized terminal aesthetic

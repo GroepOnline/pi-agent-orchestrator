@@ -38,6 +38,10 @@ const requiredAssets = [
 const optionalAssets = [
   "dashboard_preview.png",
   "dashboard_preview_programmatic.gif",
+  "showcase_skill_creation.mp4",
+  "showcase_subagent_run.mp4",
+  "showcase_dashboard_top.mp4",
+  "showcase_handoff.mp4",
   "feature_tour.mp4",
   "architecture_overview.png",
   "promo_banner.png",

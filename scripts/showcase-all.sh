@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Full showcase pipeline: C (programmatic) → A (live) → B (remotion) → T (tmux) → D (vhs)
+# Full showcase pipeline. Legacy GIF pipelines remain optional; canonical Remotion
+# media requires an explicitly supplied real asciicast.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,9 +22,11 @@ else
 	echo "═══ A) Live capture skipped (SKIP_LIVE=1) ═══"
 fi
 
-if [[ -z "$SKIP_REMOTION" ]]; then
-	echo "═══ B) Remotion hero ═══"
-	bash "$ROOT/scripts/render-showcase-remotion.sh" || true
+if [[ -z "$SKIP_REMOTION" && -n "${SHOWCASE_CAST:-}" ]]; then
+	echo "═══ B) Real-capture Remotion master and clips ═══"
+	bash "$ROOT/scripts/render-showcase-remotion.sh" "$SHOWCASE_CAST"
+elif [[ -z "$SKIP_REMOTION" ]]; then
+	echo "═══ B) Remotion skipped (set SHOWCASE_CAST to a real asciicast) ═══"
 else
 	echo "═══ B) Remotion skipped (SKIP_REMOTION=1) ═══"
 fi

@@ -109,6 +109,8 @@
     "showcase:ci": "bash scripts/render-showcase-assets.sh --fidelity inspect",
     "showcase:live": "bash scripts/capture-live-showcase.sh",
     "showcase:remotion": "bash scripts/render-showcase-remotion.sh",
+    "showcase:label-scenes": "node scripts/label-showcase-scenes.mjs",
+    "showcase:verify-media": "node scripts/verify-showcase-media.mjs",
     "showcase:vhs": "bash scripts/render-showcase-vhs.sh",
     "screenshots": "npm run build && node scripts/render-screenshots.mjs"
   },
@@ -123,6 +125,8 @@
     "@earendil-works/pi-coding-agent": "^0.81.1",
     "@types/node": "^26.1.0",
     "@types/proper-lockfile": "^4.1.4",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
     "@vitest/coverage-v8": "^4.1.9",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"

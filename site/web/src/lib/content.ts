@@ -138,13 +138,54 @@ export const showcasePipelines: Array<{
 /** Paths are relative to /assets — optional files are hidden in the UI when absent. */
 export const showcaseMedia: ShowcaseMedium[] = [
   {
+    id: "real-terminal-master",
+    title: "Real terminal session",
+    description:
+      "The 60fps master rendered from one marked interactive asciinema recording.",
+    href: "/assets/dashboard_preview.mp4",
+    kind: "video",
+    pipeline: "remotion",
+    featured: true,
+  },
+  {
+    id: "skill-creation-clip",
+    title: "Skill creation",
+    description: "Skill creation clip cut from the real terminal master.",
+    href: "/assets/showcase_skill_creation.mp4",
+    kind: "video",
+    pipeline: "remotion",
+  },
+  {
+    id: "subagent-run-clip",
+    title: "Subagent run",
+    description: "Subagent execution clip cut from the same asciinema recording.",
+    href: "/assets/showcase_subagent_run.mp4",
+    kind: "video",
+    pipeline: "remotion",
+  },
+  {
+    id: "dashboard-top-clip",
+    title: "Dashboard and top",
+    description: "Dashboard resource view clip cut from the same asciinema recording.",
+    href: "/assets/showcase_dashboard_top.mp4",
+    kind: "video",
+    pipeline: "remotion",
+  },
+  {
+    id: "handoff-clip",
+    title: "Structured handoff",
+    description: "Handoff result clip cut from the same asciinema recording.",
+    href: "/assets/showcase_handoff.mp4",
+    kind: "video",
+    pipeline: "remotion",
+  },
+  {
     id: "product-film",
     title: "Operator-flow product film",
     description: "A 45-second narrative from one orchestration command through bounded parallel agents, live control, and a verified handoff.",
     href: "/assets/product_film.mp4",
     kind: "video",
     pipeline: "remotion",
-    featured: true,
   },
   {
     id: "feature-tour",

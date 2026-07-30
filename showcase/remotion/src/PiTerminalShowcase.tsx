@@ -3,104 +3,59 @@ import {
   AbsoluteFill,
   Easing,
   interpolate,
-  staticFile,
   useCurrentFrame,
   useDelayRender,
   useVideoConfig,
 } from "remotion";
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useState} from "react";
+import {interFamily, jetBrainsMonoFamily} from "./Fonts.js";
+import {
+  getShowcasePlaybackRange,
+  loadShowcaseData,
+  type ShowcaseData,
+  type TerminalFrame,
+  type TerminalShowcaseProps,
+} from "./showcase-data.js";
+import {TERMINAL_CHROME, fitTerminalTypography} from "./terminal-layout.js";
 
-interface TerminalFrame {
-  t: number;
-  screen: string;
-}
+const converter = new Convert({
+  fg: "#d5d8df",
+  bg: "transparent",
+  newline: true,
+  escapeXML: true,
+  stream: false,
+});
 
-interface ShowcaseData {
-  version: number;
-  cols: number;
-  rows: number;
-  durationSeconds: number;
-  generatedAt: string;
-  source: string;
-  frames: TerminalFrame[];
-}
-
-export interface PiTerminalShowcaseProps {
-  poster?: boolean;
-}
-
-const fallback: ShowcaseData = {
-  version: 1,
-  cols: 110,
-  rows: 32,
-  durationSeconds: 16,
-  generatedAt: "fallback",
-  source: "scripts/showcase-live-demo.mjs --auto",
-  frames: [
-    {
-      t: 0,
-      screen:
-        "\u001b[38;5;81m╭─ PI AGENT ORCHESTRATOR ─────────────────────────────────────────────────────────────╮\u001b[0m\n" +
-        "│  RUNNING 3   QUEUED 1   DONE 1   ERROR 1                                         │\n" +
-        "├────────────────────────────────────────────────────────────────────────────────────┤\n" +
-        "│  ● Explore          Trace RPC + swarm health handlers                    running │\n" +
-        "│  ● Explore          Scan test/ coverage gaps                             running │\n" +
-        "│  ● Plan             Release checklist                                   running │\n" +
-        "│  ○ general-purpose  Virtual scroll + heatmap polish                      queued  │\n" +
-        "│  ✓ Analysis         Benchmark fastTruncate                               done    │\n" +
-        "│  × Plan             Schedule bounds audit                                error   │\n" +
-        "╰────────────────────────────────────────────────────────────────────────────────────╯",
-    },
-  ],
-};
-
-const cues = [
-  {from: 0.8, to: 3.7, key: "j / k", label: "navigate agents"},
-  {from: 3.7, to: 5.3, key: "?", label: "open help"},
-  {from: 5.3, to: 8.9, key: "t", label: "resource top view"},
-  {from: 8.9, to: 10.9, key: "l", label: "sort by last seen"},
-  {from: 10.9, to: 13.8, key: "widget", label: "live editor telemetry"},
-  {from: 13.8, to: 16.0, key: "w", label: "swarm topology"},
-];
-
-const useShowcaseData = () => {
-  const [data, setData] = useState<ShowcaseData>(fallback);
+const useShowcaseData = (dataFile: string) => {
+  const [data, setData] = useState<ShowcaseData | null>(null);
   const {delayRender, continueRender, cancelRender} = useDelayRender();
   const [handle] = useState(() => delayRender("Loading terminal capture"));
 
   useEffect(() => {
     let active = true;
-    fetch(staticFile("showcase.json"))
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`showcase.json returned ${response.status}`);
-        }
-        return response.json() as Promise<ShowcaseData>;
-      })
+    loadShowcaseData(dataFile)
       .then((value) => {
-        if (active && value.frames?.length) {
+        if (active) {
           setData(value);
         }
         continueRender(handle);
       })
       .catch((error: unknown) => {
         if (active) {
-          setData(fallback);
+          cancelRender(error instanceof Error ? error : new Error(String(error)));
         }
-        console.warn("Using fallback terminal capture", error);
-        continueRender(handle);
       });
 
     return () => {
       active = false;
     };
-  }, [cancelRender, continueRender, handle]);
+  }, [cancelRender, continueRender, dataFile, handle]);
 
   return data;
 };
 
 const selectFrame = (frames: TerminalFrame[], seconds: number) => {
-  let selected = frames[0] ?? fallback.frames[0];
+  let selected = frames[0];
   for (const candidate of frames) {
     if (candidate.t > seconds) break;
     selected = candidate;
@@ -108,29 +63,31 @@ const selectFrame = (frames: TerminalFrame[], seconds: number) => {
   return selected;
 };
 
-export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {}) => {
+export const PiTerminalShowcase = ({
+  dataFile = "showcase.json",
+  fromScene,
+  toScene,
+  poster = false,
+}: TerminalShowcaseProps) => {
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
-  const data = useShowcaseData();
-  const seconds = poster ? 7 : frame / fps;
-  const terminalFrame = selectFrame(data.frames, seconds);
-  const cue = cues.find((candidate) => seconds >= candidate.from && seconds < candidate.to);
+  const data = useShowcaseData(dataFile);
+  if (!data) return null;
 
-  const converter = useMemo(
-    () =>
-      new Convert({
-        fg: "#d5d8df",
-        bg: "transparent",
-        newline: true,
-        escapeXML: true,
-        stream: false,
-      }),
-    [],
+  const range = getShowcasePlaybackRange(data, {fromScene, toScene});
+  const seconds = poster
+    ? range.startSeconds + (range.endSeconds - range.startSeconds) / 2
+    : range.startSeconds + frame / fps;
+  const terminalFrame = selectFrame(data.frames, seconds);
+  const scene = data.scenes.find(
+    (candidate) => seconds >= candidate.startSeconds && seconds < candidate.endSeconds,
   );
-  const terminalHtml = useMemo(
-    () => converter.toHtml(terminalFrame.screen),
-    [converter, terminalFrame.screen],
-  );
+  const cueFadeSeconds = scene
+    ? Math.min(0.18, (scene.endSeconds - scene.startSeconds) / 3)
+    : 0;
+
+  const terminalHtml = converter.toHtml(terminalFrame.screen);
+  const typography = fitTerminalTypography(data.rows);
 
   const intro = poster
     ? 1
@@ -147,12 +104,17 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
       });
   const terminalY = interpolate(intro, [0, 1], [34, 0]);
   const progress = poster ? 0.48 : Math.min(1, frame / Math.max(1, durationInFrames - 1));
-  const cueOpacity = cue
+  const cueOpacity = scene
     ? poster
       ? 1
       : interpolate(
           seconds,
-          [cue.from, cue.from + 0.18, cue.to - 0.18, cue.to],
+          [
+            scene.startSeconds,
+            scene.startSeconds + cueFadeSeconds,
+            scene.endSeconds - cueFadeSeconds,
+            scene.endSeconds,
+          ],
           [0, 1, 1, 0],
           {extrapolateLeft: "clamp", extrapolateRight: "clamp"},
         )
@@ -164,8 +126,7 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
         background:
           "radial-gradient(circle at 50% 15%, rgba(83,91,107,0.28), transparent 40%), linear-gradient(145deg, #08090b 0%, #111318 52%, #090a0d 100%)",
         color: "#f4f4f5",
-        fontFamily:
-          "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+        fontFamily: interFamily,
         opacity: intro * exit,
         overflow: "hidden",
       }}
@@ -184,9 +145,9 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
       <div
         style={{
           position: "absolute",
-          left: 144,
-          right: 144,
-          top: 70,
+          left: TERMINAL_CHROME.left,
+          right: TERMINAL_CHROME.right,
+          top: 42,
           display: "flex",
           alignItems: "flex-end",
           justifyContent: "space-between",
@@ -195,17 +156,17 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
         <div>
           <div
             style={{
-              fontSize: 22,
-              letterSpacing: 4.6,
+              fontSize: 16,
+              letterSpacing: 3.8,
               textTransform: "uppercase",
               color: "#a8adb7",
               fontWeight: 650,
-              marginBottom: 14,
+              marginBottom: 8,
             }}
           >
-            OnlineChefGroep / Pi extension
+            OnlineChefGroep / Pi CLI
           </div>
-          <div style={{fontSize: 62, fontWeight: 720, letterSpacing: -2.5, lineHeight: 1}}>
+          <div style={{fontSize: 42, fontWeight: 720, letterSpacing: -1.8, lineHeight: 1}}>
             Pi Agent Orchestrator
           </div>
         </div>
@@ -214,26 +175,27 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
             border: "1px solid rgba(255,255,255,0.16)",
             background: "rgba(13,15,19,0.76)",
             borderRadius: 999,
-            padding: "12px 18px",
-            fontSize: 18,
+            padding: "10px 16px",
+            fontSize: 15,
             letterSpacing: 1.1,
             color: "#c8cbd2",
+            fontFamily: jetBrainsMonoFamily,
           }}
         >
-          ACTUAL TUI RENDERERS · {data.cols}×{data.rows}
+          LIVE PI SESSION · {data.cols}×{data.rows}
         </div>
       </div>
 
       <div
         style={{
           position: "absolute",
-          left: 144,
-          right: 144,
-          top: 190,
-          height: 760,
+          left: TERMINAL_CHROME.left,
+          right: TERMINAL_CHROME.right,
+          top: TERMINAL_CHROME.top,
+          height: TERMINAL_CHROME.height,
           transform: `translateY(${terminalY}px)`,
           border: "1px solid rgba(255,255,255,0.16)",
-          borderRadius: 22,
+          borderRadius: 18,
           background: "rgba(8,10,13,0.97)",
           boxShadow:
             "0 42px 110px rgba(0,0,0,0.62), 0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)",
@@ -242,21 +204,21 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
       >
         <div
           style={{
-            height: 60,
+            height: TERMINAL_CHROME.titleBar,
             borderBottom: "1px solid rgba(255,255,255,0.09)",
             display: "flex",
             alignItems: "center",
-            padding: "0 24px",
+            padding: "0 20px",
             background: "linear-gradient(180deg, #17191f 0%, #101216 100%)",
           }}
         >
-          <div style={{display: "flex", gap: 11}}>
+          <div style={{display: "flex", gap: 10}}>
             {["#ff5f57", "#febc2e", "#28c840"].map((color) => (
               <div
                 key={color}
                 style={{
-                  width: 13,
-                  height: 13,
+                  width: 12,
+                  height: 12,
                   borderRadius: "50%",
                   background: color,
                   boxShadow: `0 0 0 1px ${color}55`,
@@ -270,48 +232,47 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
               left: 0,
               right: 0,
               textAlign: "center",
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: 600,
               color: "#aeb2bc",
               letterSpacing: 0.2,
             }}
           >
-            pi — /agents
+            pi — coding agent
           </div>
           <div
             style={{
               marginLeft: "auto",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              fontSize: 14,
+              fontFamily: jetBrainsMonoFamily,
+              fontSize: 13,
               color: "#747985",
             }}
           >
-            xterm-256color
+            {data.cols}×{data.rows}
           </div>
         </div>
 
         <div
           style={{
             position: "absolute",
-            inset: "60px 0 0 0",
-            padding: "24px 28px",
+            inset: `${TERMINAL_CHROME.titleBar}px 0 ${TERMINAL_CHROME.progressBar}px 0`,
+            padding: `${TERMINAL_CHROME.paddingY}px ${TERMINAL_CHROME.paddingX}px`,
             background:
               "radial-gradient(circle at 25% 0%, rgba(59,80,99,0.10), transparent 36%), #080a0d",
+            overflow: "hidden",
           }}
         >
           <pre
             style={{
               margin: 0,
               color: "#d5d8df",
-              fontFamily:
-                "Berkeley Mono, JetBrains Mono, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
-              fontSize: 17.5,
-              lineHeight: 1.29,
-              letterSpacing: -0.22,
+              fontFamily: jetBrainsMonoFamily,
+              fontSize: typography.fontSize,
+              lineHeight: typography.lineHeight,
+              letterSpacing: 0,
               whiteSpace: "pre",
               fontVariantLigatures: "none",
               textRendering: "geometricPrecision",
-              filter: "drop-shadow(0 0 7px rgba(177,205,226,0.05))",
             }}
             dangerouslySetInnerHTML={{__html: terminalHtml}}
           />
@@ -323,7 +284,7 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
             left: 0,
             right: 0,
             bottom: 0,
-            height: 3,
+            height: TERMINAL_CHROME.progressBar,
             background: "rgba(255,255,255,0.06)",
           }}
         >
@@ -340,44 +301,45 @@ export const PiTerminalShowcase = ({poster = false}: PiTerminalShowcaseProps = {
       <div
         style={{
           position: "absolute",
-          left: 144,
-          bottom: 54,
+          left: TERMINAL_CHROME.left,
+          bottom: 22,
           color: "#8e939e",
-          fontSize: 17,
-          letterSpacing: 0.4,
+          fontSize: 15,
+          letterSpacing: 0.3,
         }}
       >
-        Captured from <span style={{color: "#c9ccd3"}}>scripts/showcase-live-demo.mjs</span> · composed with Remotion
+        Captured from <span style={{color: "#c9ccd3"}}>{data.source}</span> · Pi CLI · v
+        {data.packageVersion}
       </div>
 
       <div
         style={{
           position: "absolute",
-          right: 144,
-          bottom: 42,
+          right: TERMINAL_CHROME.right,
+          bottom: 16,
           display: "flex",
           alignItems: "center",
-          gap: 14,
+          gap: 12,
           opacity: cueOpacity,
           transform: `translateY(${(1 - cueOpacity) * 12}px)`,
         }}
       >
         <div
           style={{
-            padding: "9px 13px",
-            borderRadius: 9,
+            padding: "8px 12px",
+            borderRadius: 8,
             border: "1px solid rgba(255,255,255,0.18)",
             background: "rgba(26,29,35,0.9)",
             boxShadow: "inset 0 -2px 0 rgba(0,0,0,0.5)",
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontFamily: jetBrainsMonoFamily,
             fontWeight: 700,
-            fontSize: 18,
+            fontSize: 16,
             color: "#f5f5f5",
           }}
         >
-          {cue?.key ?? "t"}
+          {scene?.cue.key ?? ""}
         </div>
-        <div style={{fontSize: 19, color: "#b8bcc5"}}>{cue?.label ?? "resource top view"}</div>
+        <div style={{fontSize: 17, color: "#b8bcc5"}}>{scene?.cue.label ?? ""}</div>
       </div>
     </AbsoluteFill>
   );

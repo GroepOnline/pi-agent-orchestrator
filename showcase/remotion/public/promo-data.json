@@ -4,7 +4,7 @@
   "displayName": "PI AGENT ORCHESTRATOR",
   "tagline": "Multi-agent orchestration for Pi: autonomous subagents, worktrees, swarms, schedules, handoffs, prompt compression, and live TUI observability.",
   "repository": "https://github.com/OnlineChefGroep/pi-agent-orchestrator",
-  "generatedAt": "2026-07-22T09:35:59.331Z",
+  "generatedAt": "2026-07-23T12:57:07.047Z",
   "coreCapabilities": [
     {
       "title": "Interactive TUI dashboard",

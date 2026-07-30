@@ -9,9 +9,17 @@ import {
   fallbackPromoData,
   getFeatureTourDuration,
 } from "./promo-data.js";
+import {
+  calculateTerminalMetadata,
+  SHOWCASE_FPS,
+  type TerminalShowcaseProps,
+} from "./showcase-data.js";
 import {layout} from "./theme.js";
 
-const TERMINAL_DURATION_IN_FRAMES = 480;
+const terminalDefaultProps = {
+  dataFile: "showcase.json",
+  poster: false,
+} satisfies TerminalShowcaseProps;
 
 export const RemotionRoot = () => {
   return (
@@ -19,18 +27,80 @@ export const RemotionRoot = () => {
       <Composition
         id="PiAgentTerminal"
         component={PiTerminalShowcase}
-        durationInFrames={TERMINAL_DURATION_IN_FRAMES}
-        fps={layout.fps}
+        durationInFrames={SHOWCASE_FPS}
+        fps={SHOWCASE_FPS}
         width={layout.videoWidth}
         height={layout.videoHeight}
-        defaultProps={{poster: false}}
+        defaultProps={terminalDefaultProps}
+        calculateMetadata={calculateTerminalMetadata}
+      />
+      <Composition
+        id="PiAgentSkillCreation"
+        component={PiTerminalShowcase}
+        durationInFrames={SHOWCASE_FPS}
+        fps={SHOWCASE_FPS}
+        width={layout.videoWidth}
+        height={layout.videoHeight}
+        defaultProps={{
+          ...terminalDefaultProps,
+          fromScene: "skill-creation",
+          toScene: "skill-creation",
+        }}
+        calculateMetadata={calculateTerminalMetadata}
+      />
+      <Composition
+        id="PiAgentSubagentRun"
+        component={PiTerminalShowcase}
+        durationInFrames={SHOWCASE_FPS}
+        fps={SHOWCASE_FPS}
+        width={layout.videoWidth}
+        height={layout.videoHeight}
+        defaultProps={{
+          ...terminalDefaultProps,
+          fromScene: "subagent-run",
+          toScene: "subagent-run",
+        }}
+        calculateMetadata={calculateTerminalMetadata}
+      />
+      <Composition
+        id="PiAgentDashboardTop"
+        component={PiTerminalShowcase}
+        durationInFrames={SHOWCASE_FPS}
+        fps={SHOWCASE_FPS}
+        width={layout.videoWidth}
+        height={layout.videoHeight}
+        defaultProps={{
+          ...terminalDefaultProps,
+          fromScene: "dashboard-top",
+          toScene: "dashboard-top",
+        }}
+        calculateMetadata={calculateTerminalMetadata}
+      />
+      <Composition
+        id="PiAgentHandoff"
+        component={PiTerminalShowcase}
+        durationInFrames={SHOWCASE_FPS}
+        fps={SHOWCASE_FPS}
+        width={layout.videoWidth}
+        height={layout.videoHeight}
+        defaultProps={{
+          ...terminalDefaultProps,
+          fromScene: "handoff",
+          toScene: "handoff",
+        }}
+        calculateMetadata={calculateTerminalMetadata}
       />
       <Still
         id="PiAgentTerminalPoster"
         component={PiTerminalShowcase}
         width={layout.videoWidth}
         height={layout.videoHeight}
-        defaultProps={{poster: true}}
+        defaultProps={{
+          ...terminalDefaultProps,
+          fromScene: "dashboard-top",
+          toScene: "dashboard-top",
+          poster: true,
+        }}
       />
       <Still
         id="PromoBanner"

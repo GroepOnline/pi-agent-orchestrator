@@ -32,6 +32,8 @@ _site/
 qa-results/
 plan/
 .cloud-artifacts/
+showcase/remotion/public/showcase.json
+showcase/fixtures/ci-showcase.cast
 
 # Logs
 *.log

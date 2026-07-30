@@ -29,14 +29,16 @@ Detailed pipeline documentation for the showcase media generation system. Loaded
 
 ### B — Remotion Post-Production
 
-Uses `pi-agent-control-extension/scripts/render-showcase.sh`:
-- Title / outro, window chrome, keystroke overlays
-- Prefers **live** cast, falls back to programmatic hero cast
-- Preset: `warm-hero`, fidelity: `inspect`
+Uses one real interactive asciinema recording:
+- native asciicast marker events define named scenes without changing terminal output;
+- `scripts/label-showcase-scenes.mjs` labels four markers in recording order;
+- `showcase/remotion/scripts/capture-terminal.mjs` converts output events into terminal frames;
+- Remotion renders a dynamic 60fps master and four scene clips from the same capture;
+- `scripts/verify-showcase-media.mjs` checks capture metadata and every H.264 output.
 
 ```bash
-export DROID_PLUGIN_ROOT=/path/to/pi-agent-control-extension
-npm run showcase:live && npm run showcase:remotion
+npm run showcase:label-scenes -- /path/to/real-session.cast
+npm run showcase:remotion -- /path/to/real-session.cast
 ```
 
 ### D — VHS Declarative Tape
@@ -58,7 +60,11 @@ npm run showcase:vhs
 | `showcase_live.gif` | A |
 | `showcase_tmux.gif` / `.mp4` | T |
 | `showcase_vhs.gif` | D |
-| `dashboard_preview.mp4` | B (or C fallback) |
+| `dashboard_preview.mp4` | B real-capture master |
+| `showcase_skill_creation.mp4` | B scene clip |
+| `showcase_subagent_run.mp4` | B scene clip |
+| `showcase_dashboard_top.mp4` | B scene clip |
+| `showcase_handoff.mp4` | B scene clip |
 | `dashboard_preview_programmatic.gif` | C combined cast |
 
 All assets live in `docs/images/`.

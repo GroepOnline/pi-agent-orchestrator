@@ -10,6 +10,9 @@
 
 ### Added
 
+- Real-session showcase pipeline: asciinema scene markers, a dynamic
+  1920×1080/60fps Remotion master, focused skill/subagent/dashboard/handoff
+  clips, and strict codec/frame/version verification.
 - Packaged `real-product-showcase` skill for real terminal, browser, and app
   demo capture, plus post and quality-gate references.
 - `CompactionSnapshot` / `lastCompaction` populated from upstream Pi

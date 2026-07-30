@@ -62,8 +62,13 @@ jobs:
       - name: Verify committed promo data
         run: npm --prefix showcase/remotion run promo:data:check
 
+      - name: Prepare CI showcase cast
+        run: node scripts/prepare-ci-showcase-cast.mjs
+
       - name: Render showcase suite
         shell: bash
+        env:
+          SHOWCASE_CAST: showcase/fixtures/ci-showcase.cast
         run: |
           set -o pipefail
           bash scripts/render-showcase-remotion.sh 2>&1 |
