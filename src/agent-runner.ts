@@ -41,6 +41,7 @@ import { type HookRegistry, normalizeHookResponse } from "./hooks.js";
 import { logger } from "./logger.js";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
+import { loadSettings } from "./settings.js";
 import { preloadSkills } from "./skill-loader.js";
 import { getSwarmCoordinator } from "./swarm-join.js";
 import { emitTelemetry } from "./telemetry.js";
@@ -205,6 +206,24 @@ function getAvailableKeys(
   _cachedKeys = new Set(available.map((m) => `${m.provider}/${m.id}`));
   _cachedRegistry = registry;
   return _cachedKeys;
+}
+
+/**
+ * Resolve the effective configured model string for a spawned agent.
+ *
+ * A `subagentModel` setting overrides the agent's own configured model:
+ * - `"inherit"` → `undefined`, so `resolveDefaultModel` falls back to the
+ *   session-default (parent) model. This is the escape hatch when a built-in
+ *   read-only agent's pinned model is unreachable (e.g. provider 401).
+ * - any other non-empty string → used verbatim as a `provider/modelId`.
+ * - `undefined` → the agent's own configured model is used (current behavior).
+ */
+export function resolveConfiguredModel(
+  subagentModelSetting: string | undefined,
+  agentModel: string | undefined,
+): string | undefined {
+  if (subagentModelSetting === "inherit") return undefined;
+  return subagentModelSetting ?? agentModel;
 }
 
 function resolveDefaultModel(
@@ -592,9 +611,16 @@ ${chefPreflight.systemPromptAddition}`;
   });
   await loader.reload();
 
-  // Resolve model with circuit breaker
+  // Resolve model with circuit breaker. A `subagentModel` setting can override
+  // the agent's configured model ("inherit" falls back to the session-default
+  // model; "provider/modelId" pins a specific one). Lets read-only agents move
+  // off a broken configured model without a code change.
+  const configuredModel = resolveConfiguredModel(
+    loadSettings(effectiveCwd).subagentModel,
+    agentConfig?.model,
+  );
   const model = options.model ?? resolveDefaultModel(
-    ctx.model, ctx.modelRegistry, agentConfig?.model,
+    ctx.model, ctx.modelRegistry, configuredModel,
   );
 
   if (!model) {

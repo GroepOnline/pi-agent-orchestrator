@@ -298,6 +298,41 @@ describe("settings persistence", () => {
       expect(loadSettings(projectDir)).toEqual({ promptCompressionLevel: "aggressive" });
     });
 
+    it("preserves subagentModel: 'inherit' (session-default escape hatch)", () => {
+      writeProject({ subagentModel: "inherit" });
+      expect(loadSettings(projectDir)).toEqual({ subagentModel: "inherit" });
+    });
+
+    it("preserves a pinned provider/model subagentModel", () => {
+      writeProject({ subagentModel: "zai-env/glm-5.2" });
+      expect(loadSettings(projectDir)).toEqual({ subagentModel: "zai-env/glm-5.2" });
+    });
+
+    it("round-trips subagentModel through save + load", () => {
+      saveSettings({ subagentModel: "inherit" }, projectDir);
+      expect(loadSettings(projectDir)).toEqual({ subagentModel: "inherit" });
+      saveSettings({ subagentModel: "anthropic/claude-haiku-4-5" }, projectDir);
+      expect(loadSettings(projectDir)).toEqual({ subagentModel: "anthropic/claude-haiku-4-5" });
+    });
+
+    it("drops non-string, empty, and malformed subagentModel silently", () => {
+      writeProject({ subagentModel: 42 });
+      expect(loadSettings(projectDir)).toEqual({});
+      writeProject({ subagentModel: "" });
+      expect(loadSettings(projectDir)).toEqual({});
+      writeProject({ subagentModel: null });
+      expect(loadSettings(projectDir)).toEqual({});
+      writeProject({ subagentModel: { model: "x" } });
+      expect(loadSettings(projectDir)).toEqual({});
+      // Malformed non-empty pins must be dropped, not degraded to the
+      // parent-model fallback: a bare provider, a missing provider, and a
+      // missing modelId are all invalid "provider/modelId" values.
+      for (const malformed of ["provider", "/model", "provider/"]) {
+        writeProject({ subagentModel: malformed });
+        expect(loadSettings(projectDir)).toEqual({});
+      }
+    });
+
     it("accepts all valid uiStyle values", () => {
       for (const style of ["premium", "retro", "plain"] as const) {
         writeProject({ uiStyle: style });
@@ -635,6 +670,40 @@ describe("settings persistence", () => {
   });
 
   describe("saveAndEmitChanged", () => {
+    it("preserves file-only/expert settings (subagentModel, posthog) not surfaced in the snapshot", () => {
+      // Regression: saveSettings() overwrites the project file. Settings that
+      // are consumed via loadSettings() at spawn time (not held in the
+      // in-memory registry / buildSettingsSnapshot) — e.g. subagentModel and
+      // the optional posthog bridge — must survive a menu save round-trip.
+      // A naive overwrite silently wiped them; saveAndEmitChanged now merges
+      // the snapshot over the persisted file first.
+      writeProject({
+        maxConcurrent: 4,
+        subagentModel: "inherit",
+        posthog: { key: "phc_test" },
+      });
+
+      const emit = vi.fn();
+      // Menu changes maxConcurrent only; the snapshot omits subagentModel/posthog.
+      saveAndEmitChanged({ maxConcurrent: 8 }, "Max concurrency set to 8", emit, projectDir);
+
+      // The snapshot field is updated; the file-only fields are carried through.
+      expect(loadSettings(projectDir)).toEqual({
+        maxConcurrent: 8,
+        subagentModel: "inherit",
+        posthog: { key: "phc_test" },
+      });
+      // The emitted settings reflect the merged persisted state.
+      expect(emit).toHaveBeenCalledWith("subagents:settings_changed", {
+        settings: {
+          maxConcurrent: 8,
+          subagentModel: "inherit",
+          posthog: { key: "phc_test" },
+        },
+        persisted: true,
+      });
+    });
+
     it("persists, emits with persisted=true, and returns info toast on success", () => {
       const emit = vi.fn();
       const snapshot = { maxConcurrent: 5, graceTurns: 2 };

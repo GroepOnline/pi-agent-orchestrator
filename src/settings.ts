@@ -40,6 +40,15 @@ export interface SubagentsSettings {
    * configured project.
    */
   posthog?: PostHogConfig;
+  /**
+   * Override the model used by spawned subagents.
+   * - `"inherit"`: use the session-default (parent) model — useful when a
+   *   built-in read-only agent's configured model (e.g. Explore's pinned
+   *   `anthropic/claude-haiku-4-5`) is unreachable in this install.
+   * - `"<provider>/<modelId>"`: pin a specific model.
+   * - `undefined` (default): each agent uses its own configured model.
+   */
+  subagentModel?: string;
   /** Persisted motion profile; legacy single-spinner values remain valid. */
   animationStyle?: AnimationStyle;
   uiStyle?: "premium" | "retro" | "plain";
@@ -156,6 +165,21 @@ function validateEnum<T extends string>(
     : undefined;
 }
 
+/**
+ * A `subagentModel` override must be either the literal `"inherit"` (fall back
+ * to the session-default model) or a syntactically valid `"<provider>/<modelId>"`
+ * pin with a non-empty provider and a non-empty modelId. Malformed values such
+ * as `"provider"`, `"/model"`, or `"provider/"` are rejected here so they cannot
+ * silently degrade to the parent-model fallback inside `resolveConfiguredModel` /
+ * `resolveDefaultModel` (which would look like a broken pin, not an intentional
+ * inherit). `modelId` may itself contain slashes, so only the first `/` splits.
+ */
+function isValidSubagentModel(value: string): boolean {
+  if (value === "inherit") return true;
+  const slashIdx = value.indexOf("/");
+  return slashIdx > 0 && slashIdx < value.length - 1;
+}
+
 /** Drop fields that do not match the expected shape. */
 function sanitize(raw: unknown): SubagentsSettings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -198,6 +222,14 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const compression = validateEnum(source, "promptCompressionLevel", VALID_COMPRESSION_LEVELS);
   if (compression) settings.promptCompressionLevel = compression;
+
+  // subagentModel override: accept only the documented shapes — "inherit"
+  // (session-default fallback) or a syntactically valid "provider/modelId" pin.
+  // Everything else (empty, malformed pins, non-strings) is dropped so each
+  // agent keeps its own configured model (resolveConfiguredModel contract).
+  if (typeof source.subagentModel === "string" && isValidSubagentModel(source.subagentModel)) {
+    settings.subagentModel = source.subagentModel;
+  }
 
   const booleanFields = [
     "schedulingEnabled",
@@ -346,7 +378,15 @@ export function saveAndEmitChanged(
   emit: SettingsEmit,
   cwd: string = process.cwd(),
 ): { message: string; level: "info" | "warning" } {
-  const persisted = saveSettings(snapshot, cwd);
-  emit("subagents:settings_changed", { settings: snapshot, persisted });
+  // Preserve file-only/expert settings (e.g. `posthog`, `subagentModel`) that
+  // are not surfaced through the in-memory snapshot. They are consumed via
+  // loadSettings() at spawn time and must survive a menu save round-trip; a
+  // bare saveSettings(snapshot) would overwrite the project file and silently
+  // wipe them. Merge the snapshot over the persisted project file first, so
+  // any field absent from the snapshot is carried through unchanged.
+  const persistedFile = readSettingsFile(projectPath(cwd));
+  const merged: SubagentsSettings = { ...persistedFile, ...snapshot };
+  const persisted = saveSettings(merged, cwd);
+  emit("subagents:settings_changed", { settings: merged, persisted });
   return persistToastFor(successMessage, persisted);
 }

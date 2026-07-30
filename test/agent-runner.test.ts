@@ -4,12 +4,17 @@ const {
   createAgentSession,
   defaultResourceLoaderCtor,
   getAgentDir,
+  loadSettingsMock,
   sessionManagerInMemory,
   settingsManagerCreate,
 } = vi.hoisted(() => ({
   createAgentSession: vi.fn(),
   defaultResourceLoaderCtor: vi.fn(),
   getAgentDir: vi.fn(() => "/mock/agent-dir"),
+  // loadSettings reads from disk and (via globalPath) calls getAgentDir; mock
+  // it so runAgent stays hermetic and the subagentModel override can be driven
+  // per-test. Default {} preserves the prior behavior (no override).
+  loadSettingsMock: vi.fn((): Record<string, unknown> => ({})),
   sessionManagerInMemory: vi.fn(() => ({ kind: "memory-session-manager" })),
   settingsManagerCreate: vi.fn(() => ({ kind: "settings-manager" })),
 }));
@@ -26,6 +31,10 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir,
   SessionManager: { inMemory: sessionManagerInMemory },
   SettingsManager: { create: settingsManagerCreate },
+}));
+
+vi.mock("../src/settings.js", () => ({
+  loadSettings: loadSettingsMock,
 }));
 
 vi.mock("../src/agent-types.js", () => ({
@@ -72,7 +81,7 @@ vi.mock("../src/skill-loader.js", () => ({
 }));
 
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { AgentRunnerError, getGraceTurns, getMaxEndHookRevisions, globalCircuitBreaker, resumeAgent, runAgent, setGraceTurns, setMaxEndHookRevisions } from "../src/agent-runner.js";
+import { AgentRunnerError, getGraceTurns, getMaxEndHookRevisions, globalCircuitBreaker, resolveConfiguredModel, resumeAgent, runAgent, setGraceTurns, setMaxEndHookRevisions } from "../src/agent-runner.js";
 import { HookRegistry } from "../src/hooks.js";
 
 function createSession(finalText: string): {
@@ -197,8 +206,36 @@ beforeEach(() => {
   createAgentSession.mockReset();
   defaultResourceLoaderCtor.mockClear();
   getAgentDir.mockClear();
+  loadSettingsMock.mockReset();
+  loadSettingsMock.mockReturnValue({});
   sessionManagerInMemory.mockClear();
   settingsManagerCreate.mockClear();
+});
+
+describe("resolveConfiguredModel (subagentModel setting override)", () => {
+  it("inherits the session-default model when set to 'inherit'", () => {
+    // Regression: built-in read-only agents are pinned to a model that may be
+    // unreachable in a given install (e.g. Explore's claude-haiku via a 401
+    // provider). 'inherit' must bypass that pinned model and fall back to the
+    // session-default (parent) model.
+    expect(resolveConfiguredModel("inherit", "anthropic/claude-haiku-4-5")).toBeUndefined();
+  });
+
+  it("pins a specific provider/model when set", () => {
+    expect(resolveConfiguredModel("zai-env/glm-5.2", "anthropic/claude-haiku-4-5")).toBe(
+      "zai-env/glm-5.2",
+    );
+  });
+
+  it("uses the agent's configured model when unset (default behavior)", () => {
+    expect(resolveConfiguredModel(undefined, "anthropic/claude-haiku-4-5")).toBe(
+      "anthropic/claude-haiku-4-5",
+    );
+  });
+
+  it("returns undefined when neither setting nor agent model is set", () => {
+    expect(resolveConfiguredModel(undefined, undefined)).toBeUndefined();
+  });
 });
 
 describe("agent-runner final output capture", () => {
