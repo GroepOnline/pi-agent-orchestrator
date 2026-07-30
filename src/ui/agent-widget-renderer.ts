@@ -199,7 +199,8 @@ export function renderAgentWidget(options: RenderAgentWidgetOptions): string[] {
   if (queuedLines.length > 50) queuedLines.length = 50;
 
   const runningLines: string[][] = [];
-  for (const agent of running.slice(0, 50)) {
+  for (const agent of running) {
+    if (runningLines.length >= 50) break;
     const name = getDisplayName(agent.type);
     const modeLabel = getPromptModeLabel(agent.type);
     const modeTag = modeLabel ? ` ${theme.fg("dim", `(${modeLabel})`)}` : "";
@@ -247,9 +248,13 @@ export function renderAgentWidget(options: RenderAgentWidgetOptions): string[] {
   // consumes the viewport; body render order is unchanged.
   const activeLineCount = runningLines.reduce((sum, pair) => sum + pair.length, 0);
   const maxFinishedVisible = Math.max(0, MAX_WIDGET_LINES - 1 - activeLineCount - queuedLines.length);
-  const finishedLines = finished.slice(0, maxFinishedVisible).map((agent) =>
-    truncate(`${theme.fg("dim", tree)} ${renderFinishedLine(agent, options.agentActivity.get(agent.id), theme)}`),
-  );
+  const finishedLines: string[] = [];
+  for (const agent of finished) {
+    if (finishedLines.length >= maxFinishedVisible) break;
+    finishedLines.push(
+      truncate(`${theme.fg("dim", tree)} ${renderFinishedLine(agent, options.agentActivity.get(agent.id), theme)}`),
+    );
+  }
 
   const pageIndex = options.pageIndex ?? 0;
   const pageCount = options.pageCount ?? 1;
