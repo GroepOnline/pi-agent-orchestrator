@@ -3,8 +3,12 @@ name: Deploy Cloudflare Pages
 
 # Deploy immediately for production-site changes, with a daily reconciliation
 # run and manual fallback.
-# Required environment secrets: CLOUDFLARE_API_TOKEN and
-# CLOUDFLARE_ACCOUNT_ID.
+# Required environment secrets (GitHub Environment `cloudflare-pages`):
+#   CLOUDFLARE_API_TOKEN  — Account API token with Cloudflare Pages:Edit + Deploy
+#   CLOUDFLARE_ACCOUNT_ID
+# If deploy fails with Authentication error [code: 10000] / Invalid access token
+# [code: 9109], rotate the token; discovery files (llms.txt) will not go live
+# until this job succeeds (SPA fallback otherwise serves HTML for /llms.txt).
 on:
   push:
     branches: [main]
@@ -47,7 +51,6 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
-          # zizmor cache-poisoning: never cache in a publish/deploy workflow
           package-manager-cache: false
 
       - name: Assemble static site

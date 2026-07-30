@@ -39,6 +39,11 @@
   Cache-Control: public, max-age=300, must-revalidate
   Link: <https://orchestrator.chefgroep.online/.well-known/agent-permissions.json>; rel="canonical"
 
+# Media: fetchable via direct link, not for public image/search indexes.
+/assets/*
+  X-Robots-Tag: noindex, noimageindex, nofollow
+  Cache-Control: public, max-age=86400, must-revalidate
+
 https://pi-agent-orchestrator.pages.dev/*
   X-Robots-Tag: noindex
 
