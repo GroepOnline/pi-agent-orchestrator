@@ -6,11 +6,20 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 const root = resolve(import.meta.dirname ?? ".", "..");
+const policySandboxes: string[] = [];
 
 function readRoot(file: string): string {
   return readFileSync(resolve(root, file), "utf-8");
@@ -21,11 +30,50 @@ function fileExists(file: string): boolean {
 }
 
 function runReleasePolicy(...args: string[]) {
+  return runReleasePolicyAt(root, ...args);
+}
+
+function runReleasePolicyAt(cwd: string, ...args: string[]) {
   return spawnSync(process.execPath, ["scripts/release-policy.mjs", ...args], {
-    cwd: root,
+    cwd,
     encoding: "utf8",
   });
 }
+
+function createBaselinePolicySandbox(version = "0.17.5"): string {
+  const sandbox = mkdtempSync(join(tmpdir(), "pi-release-policy-"));
+  policySandboxes.push(sandbox);
+  for (const path of [
+    ".release-policy.json",
+    "CHANGELOG.md",
+    "package.json",
+    "package-lock.json",
+    "docs/releases/v0.18.0.md",
+    "scripts/release-policy.mjs",
+  ]) {
+    const destination = join(sandbox, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, readRoot(path));
+  }
+
+  const packagePath = join(sandbox, "package.json");
+  const lockPath = join(sandbox, "package-lock.json");
+  const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
+  const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+  if (!lock.packages?.[""]) throw new Error("release policy fixture is missing lockfile root metadata");
+  pkg.version = version;
+  lock.version = version;
+  lock.packages[""].version = version;
+  writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+  writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+  return sandbox;
+}
+
+afterEach(() => {
+  for (const sandbox of policySandboxes.splice(0)) {
+    rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
 
 // ── npm pack verification ────────────────────────────────────────────────────
 
@@ -170,18 +218,20 @@ describe("0.18 release policy", () => {
   });
 
   it("accepts the baseline for repository CI but rejects it for publishing", () => {
-    const repository = runReleasePolicy("repository");
+    const sandbox = createBaselinePolicySandbox();
+    const repository = runReleasePolicyAt(sandbox, "repository");
     expect(repository.status, repository.stderr).toBe(0);
-    const publish = runReleasePolicy("publish");
+    const publish = runReleasePolicyAt(sandbox, "publish");
     expect(publish.status).not.toBe(0);
     expect(publish.stderr).toContain("outside the locked 0.18.x release train");
   });
 
   it("accepts maintenance baseline publish policy for 0.17.5", () => {
-    const baseline = runReleasePolicy("baseline", "0.17.5");
+    const sandbox = createBaselinePolicySandbox();
+    const baseline = runReleasePolicyAt(sandbox, "baseline", "0.17.5");
     expect(baseline.status, baseline.stderr).toBe(0);
     expect(baseline.stdout).toContain("Maintenance baseline accepted");
-    const blocked = runReleasePolicy("baseline", "0.18.0");
+    const blocked = runReleasePolicyAt(sandbox, "baseline", "0.18.0");
     expect(blocked.status).not.toBe(0);
   });
 

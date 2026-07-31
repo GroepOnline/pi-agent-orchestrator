@@ -6,11 +6,45 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const sourceRoot = resolve(import.meta.dirname ?? ".", "..");
 const sandboxes: string[] = [];
+const BASELINE_VERSION = "0.17.5";
+const BASELINE_CHANGELOG = `# Changelog
+
+## [Unreleased]
+
+Release transaction fixture changes.
+
+---
+
+## v0.17.5 (2026-07-16)
+
+Maintenance baseline fixture.
+
+---
+
+## v0.17.1 (2026-07-14)
+
+Initial public baseline fixture.
+`;
 
 function copyFixture(root: string, path: string): void {
   const destination = join(root, path);
   mkdirSync(dirname(destination), { recursive: true });
   cpSync(join(sourceRoot, path), destination);
+}
+
+function normalizeSourceBaseline(root: string): void {
+  const packagePath = join(root, "package.json");
+  const lockPath = join(root, "package-lock.json");
+  const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
+  const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+  if (!lock.packages?.[""]) throw new Error("release fixture is missing package-lock root metadata");
+
+  pkg.version = BASELINE_VERSION;
+  lock.version = BASELINE_VERSION;
+  lock.packages[""].version = BASELINE_VERSION;
+  writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+  writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+  writeFileSync(join(root, "CHANGELOG.md"), BASELINE_CHANGELOG);
 }
 
 function git(root: string, ...args: string[]): string {
@@ -44,6 +78,7 @@ function createReleaseSandbox(): string {
   ]) {
     copyFixture(root, path);
   }
+  normalizeSourceBaseline(root);
   git(root, "init");
   git(root, "config", "user.email", "release-test@example.invalid");
   git(root, "config", "user.name", "Release Test");
