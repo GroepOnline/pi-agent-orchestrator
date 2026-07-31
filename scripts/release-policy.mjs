@@ -31,7 +31,7 @@ function canonicalJson(value) {
   return value;
 }
 
-function sameJson(left, right) {
+export function sameJson(left, right) {
   return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
 }
 

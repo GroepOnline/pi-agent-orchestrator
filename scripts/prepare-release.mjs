@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs";
+import { assertReleaseCandidate, loadReleasePolicy, sameJson } from "./release-policy.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ROOT_LOCK_FIELDS = [
@@ -92,7 +92,7 @@ async function prepareRelease(version, releaseDate) {
     const value = field === "version" ? version : pkg[field];
     if (value === undefined) {
       delete lock.packages[""][field];
-    } else {
+    } else if (field === "version" || !sameJson(lock.packages[""][field], value)) {
       lock.packages[""][field] = cloneJson(value);
     }
   }
