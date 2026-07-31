@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { assertReleaseCandidate, loadReleasePolicy, sameJson } from "./release-policy.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PROMO_DATA_PATH = "showcase/remotion/public/promo-data.json";
 const ROOT_LOCK_FIELDS = [
   "name",
   "version",
@@ -40,6 +41,17 @@ function validateDate(value) {
   return value;
 }
 
+async function readOptionalJson(path) {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    fail(`cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function prepareRelease(version, releaseDate) {
   const policy = await loadReleasePolicy(ROOT);
   assertReleaseCandidate(version, policy);
@@ -51,9 +63,11 @@ async function prepareRelease(version, releaseDate) {
   const lockPath = resolve(ROOT, "package-lock.json");
   const changelogPath = resolve(ROOT, "CHANGELOG.md");
   const notesPath = resolve(ROOT, `docs/releases/v${version}.md`);
+  const promoPath = resolve(ROOT, PROMO_DATA_PATH);
 
   const pkg = JSON.parse(await readFile(packagePath, "utf8"));
   const lock = JSON.parse(await readFile(lockPath, "utf8"));
+  const promoData = await readOptionalJson(promoPath);
   if (!policy.sourceBaselines.includes(pkg.version)) {
     fail(`expected a source baseline (${policy.sourceBaselines.join(", ")}), found ${pkg.version}`);
   }
@@ -61,6 +75,9 @@ async function prepareRelease(version, releaseDate) {
     fail("package-lock versions are not synchronized before release preparation");
   }
   if (!lock.packages?.[""]) fail("package-lock is missing packages[''] root metadata");
+  if (promoData && promoData.version !== pkg.version) {
+    fail(`${PROMO_DATA_PATH} version ${promoData.version} does not match package.json ${pkg.version}`);
+  }
 
   const changelog = normalizeLineEndings(await readFile(changelogPath, "utf8"));
   if (new RegExp(`^## v${version.replaceAll(".", "\\.")} \\(`, "m").test(changelog)) {
@@ -96,11 +113,18 @@ async function prepareRelease(version, releaseDate) {
       lock.packages[""][field] = cloneJson(value);
     }
   }
+  if (promoData) {
+    promoData.version = version;
+    promoData.generatedAt = `${releaseDate}T00:00:00.000Z`;
+  }
 
   await writeFile(packagePath, formatJson(pkg));
   await writeFile(lockPath, formatJson(lock));
   await writeFile(changelogPath, nextChangelog);
-  console.log(`Prepared v${version} for ${releaseDate} with synchronized package-lock root metadata`);
+  if (promoData) await writeFile(promoPath, formatJson(promoData));
+  console.log(
+    `Prepared v${version} for ${releaseDate} with synchronized package-lock root metadata${promoData ? " and promo data" : ""}`,
+  );
 }
 
 const version = process.argv[2];

@@ -6,6 +6,7 @@ import { assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOWED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"];
+const PROMO_DATA_PATH = "showcase/remotion/public/promo-data.json";
 const ROOT_LOCK_FIELDS = [
   "name",
   "version",
@@ -33,6 +34,18 @@ function readAt(ref, path) {
   return git(["show", `${ref}:${path}`]);
 }
 
+function existsAt(ref, path) {
+  try {
+    execFileSync("git", ["cat-file", "-e", `${ref}:${path}`], {
+      cwd: ROOT,
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function canonicalJson(value) {
   if (Array.isArray(value)) return value.map(canonicalJson);
   if (value && typeof value === "object") {
@@ -57,13 +70,22 @@ async function verify(parentRef, releaseRef, expectedVersion) {
   const policy = await loadReleasePolicy(ROOT);
   assertReleaseCandidate(expectedVersion, policy);
 
+  const parentHasPromoData = existsAt(parentRef, PROMO_DATA_PATH);
+  const expectedFiles = parentHasPromoData
+    ? [...ALLOWED_FILES, PROMO_DATA_PATH]
+    : ALLOWED_FILES;
   const changed = git(["diff", "--name-only", parentRef, releaseRef])
     .trim()
     .split("\n")
     .filter(Boolean)
     .sort();
-  if (!sameJson(changed, [...ALLOWED_FILES].sort())) {
-    fail(`changed files must be exactly ${ALLOWED_FILES.join(", ")}; received ${changed.join(", ")}`);
+  if (!sameJson(changed, [...expectedFiles].sort())) {
+    const additionalRequirement = parentHasPromoData
+      ? `; required additional file ${PROMO_DATA_PATH}`
+      : "";
+    fail(
+      `changed files must be exactly ${ALLOWED_FILES.join(", ")}; received ${changed.join(", ")}${additionalRequirement}`,
+    );
   }
 
   const parentPackage = JSON.parse(readAt(parentRef, "package.json"));
@@ -114,12 +136,37 @@ async function verify(parentRef, releaseRef, expectedVersion) {
   if (parentChangelog.slice(parentHistory) !== releaseChangelog.slice(releaseHistory)) {
     fail("CHANGELOG history from v0.17.1 backwards was modified");
   }
-  const datedHeader = new RegExp(`^## v${expectedVersion.replaceAll(".", "\\.")} \\(\\d{4}-\\d{2}-\\d{2}\\)$`, "m");
-  if (!datedHeader.test(releaseChangelog)) fail(`release CHANGELOG lacks a dated v${expectedVersion} heading`);
+  const datedHeader = new RegExp(
+    `^## v${expectedVersion.replaceAll(".", "\\.")} \\((\\d{4}-\\d{2}-\\d{2})\\)$`,
+    "m",
+  );
+  const datedHeaderMatch = releaseChangelog.match(datedHeader);
+  if (!datedHeaderMatch) fail(`release CHANGELOG lacks a dated v${expectedVersion} heading`);
   const notes = normalizeLineEndings(
     await readFile(resolve(ROOT, `docs/releases/v${expectedVersion}.md`), "utf8"),
   ).trim();
   if (!notes || !releaseChangelog.includes(notes)) fail("release CHANGELOG does not contain the canonical release notes template");
+
+  if (parentHasPromoData) {
+    const parentPromoData = JSON.parse(readAt(parentRef, PROMO_DATA_PATH));
+    const releasePromoData = JSON.parse(readAt(releaseRef, PROMO_DATA_PATH));
+    if (parentPromoData.version !== parentPackage.version) {
+      fail(`parent ${PROMO_DATA_PATH} version does not match parent package.json`);
+    }
+    if (releasePromoData.version !== expectedVersion) {
+      fail(`release ${PROMO_DATA_PATH} version does not equal ${expectedVersion}`);
+    }
+    const expectedGeneratedAt = `${datedHeaderMatch[1]}T00:00:00.000Z`;
+    if (releasePromoData.generatedAt !== expectedGeneratedAt) {
+      fail(`release ${PROMO_DATA_PATH} generatedAt must equal ${expectedGeneratedAt}`);
+    }
+    const normalizedParentPromoData = cloneJson(parentPromoData);
+    normalizedParentPromoData.version = expectedVersion;
+    normalizedParentPromoData.generatedAt = expectedGeneratedAt;
+    if (!sameJson(normalizedParentPromoData, releasePromoData)) {
+      fail(`${PROMO_DATA_PATH} changed fields other than version and generatedAt`);
+    }
+  }
 
   console.log(`Release transaction verified: ${parentRef} -> ${releaseRef} as v${expectedVersion}`);
 }

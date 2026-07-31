@@ -46,6 +46,8 @@ jobs:
 
       - name: Refuse stale, duplicate, or non-main preparation
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main" || {
@@ -57,10 +59,6 @@ jobs:
             echo "The selected main ref is stale. Re-run from the current main branch." >&2
             exit 1
           }
-          if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" >/dev/null 2>&1; then
-            echo "Release branch $RELEASE_BRANCH already exists; inspect or remove it before retrying." >&2
-            exit 1
-          fi
           if git rev-parse "v$RELEASE_VERSION" >/dev/null 2>&1; then
             echo "Tag v$RELEASE_VERSION already exists." >&2
             exit 1
@@ -68,6 +66,16 @@ jobs:
           PACKAGE="@onlinechefgroep/pi-agent-orchestrator"
           # Exact version existence via shared helper — never the floating `latest` dist-tag.
           node scripts/release-recovery.mjs assert-absent "$PACKAGE" "$RELEASE_VERSION"
+
+          if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" >/dev/null 2>&1; then
+            OPEN_RELEASE_PRS="$(gh pr list --head "$RELEASE_BRANCH" --state open --json number --jq 'length')"
+            if [ "$OPEN_RELEASE_PRS" != "0" ]; then
+              echo "Release branch $RELEASE_BRANCH already has an open PR; finish or close it before retrying." >&2
+              exit 1
+            fi
+            echo "Removing stale release branch $RELEASE_BRANCH from an earlier failed preparation."
+            git push origin --delete "$RELEASE_BRANCH"
+          fi
 
       - name: Install dependencies
         run: npm ci
@@ -77,7 +85,7 @@ jobs:
           npm run verify:release-policy
           node scripts/release-policy.mjs candidate "$RELEASE_VERSION"
 
-      - name: Prepare source version and changelog
+      - name: Prepare source version, changelog, and promo metadata
         run: node scripts/prepare-release.mjs "$RELEASE_VERSION" "$(date -u +%F)"
 
       - name: Run complete release candidate gate
@@ -88,6 +96,7 @@ jobs:
           npm run lint
           npm test
           npm run verify:package
+          npm --prefix showcase/remotion run promo:data:check
           npm pack --dry-run --json > npm-pack.json
           node scripts/verify-npm-pack.mjs npm-pack.json
 
@@ -97,7 +106,7 @@ jobs:
           set -euo pipefail
           git diff --check
           ACTUAL="$(git diff --name-only | sort)"
-          EXPECTED="$(printf '%s\n' CHANGELOG.md package-lock.json package.json | sort)"
+          EXPECTED="$(printf '%s\n' CHANGELOG.md package-lock.json package.json showcase/remotion/public/promo-data.json | sort)"
           if [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "Release preparation changed unexpected files:" >&2
             printf '%s\n' "$ACTUAL" >&2
@@ -111,7 +120,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$RELEASE_BRANCH"
-          git add CHANGELOG.md package.json package-lock.json
+          git add CHANGELOG.md package.json package-lock.json showcase/remotion/public/promo-data.json
           git commit -m "$RELEASE_TITLE"
           node scripts/verify-release-transaction.mjs HEAD^ HEAD "$RELEASE_VERSION"
           git push origin "HEAD:$RELEASE_BRANCH"
@@ -120,7 +129,7 @@ jobs:
         id: pr
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
         run: |
           set -euo pipefail
           cat > release-pr.md <<'EOF'
@@ -130,7 +139,7 @@ jobs:
 
           - Updates `package.json` and both package-lock root versions to `0.18.0`.
           - Synchronizes all package-lock root metadata from `package.json`.
-          - Finalizes the v0.18.0 changelog date and release record.
+          - Finalizes the v0.18.0 changelog date and deterministic Remotion promo metadata.
           - Contains no runtime or workflow changes.
           - Publishing starts only after this PR is approved, fully green, and merged.
           - The publisher rejects every version outside the locked `0.18.x` train; `0.19.0` remains blocked.
@@ -145,7 +154,7 @@ jobs:
       - name: Dispatch required checks for the bot-created PR
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
         run: |
           set -euo pipefail
           gh workflow run ci.yml --ref "$RELEASE_BRANCH"
@@ -154,7 +163,7 @@ jobs:
       - name: Enable auto-merge after checks and external approval
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
           PR_URL: ${{ steps.pr.outputs.url }}
         run: |
           set -euo pipefail
