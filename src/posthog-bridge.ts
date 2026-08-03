@@ -52,7 +52,7 @@ export interface PostHogEnvSource {
   POSTHOG_DISTINCT_ID?: string;
 }
 
-const DEFAULT_POSTHOG_HOST = "https://app.posthog.com";
+const DEFAULT_POSTHOG_HOST = "https://k.chefgroep.online";
 
 /**
  * Stable, opaque per-installation identity used when no `distinctId` is
