@@ -11,9 +11,12 @@
  * Per the coding guidelines, runtime behavior resolves **only** the persisted
  * `PostHogConfig`. Ambient environment variables (`POSTHOG_KEY`,
  * `POSTHOG_HOST`, `POSTHOG_DISTINCT_ID`) are read once by
- * `postHogConfigToMigrate()` on first run to seed the persisted config; they are
- * never consulted again at runtime, so telemetry egress always requires an
- * explicit, stored opt-in rather than an ambient env var.
+ * `postHogConfigToMigrate()` on first run to seed the persisted config. The one
+ * runtime exception is `POSTHOG_HOST`, consulted as a fallback between a
+ * configured `host` and the default proxy, so an operator's host choice wins
+ * even when the persisted config was seeded without one. Telemetry egress
+ * itself still requires an explicit, stored opt-in: the project key is never
+ * read from the environment at runtime.
  *
  * The SDK is imported dynamically so a missing or broken `posthog-node`
  * install degrades to "no bridge" instead of crashing extension activation.
@@ -118,7 +121,7 @@ export async function createPostHogBridge(config: PostHogConfig): Promise<PostHo
   const key = resolvePostHogKey(config.key);
   if (!key) return null;
 
-  const host = config.host ?? DEFAULT_POSTHOG_HOST;
+  const host = config.host ?? process.env.POSTHOG_HOST ?? DEFAULT_POSTHOG_HOST;
   const distinctId = config.distinctId ?? anonymousInstallId();
 
   try {

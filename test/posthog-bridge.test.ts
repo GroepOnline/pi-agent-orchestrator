@@ -200,4 +200,33 @@ describe("createPostHogBridge default host", () => {
     ]);
     await mockedBridge?.shutdown();
   });
+
+  it("falls back to the ambient POSTHOG_HOST when no host is configured", async () => {
+    const constructorCalls: Array<{ key: string; options: { host?: string } }> = [];
+    vi.doMock("posthog-node", () => ({
+      PostHog: class {
+        constructor(key: string, options: { host?: string }) {
+          constructorCalls.push({ key, options });
+        }
+        capture(): void {}
+        async shutdown(): Promise<void> {}
+      },
+    }));
+    vi.resetModules();
+    const previous = process.env.POSTHOG_HOST;
+    process.env.POSTHOG_HOST = "https://ingest.example.com";
+    try {
+      const { createPostHogBridge: createFresh } = await import("../src/posthog-bridge.js");
+
+      const mockedBridge = await createFresh({ key: "phc_test" });
+      expect(mockedBridge).not.toBeNull();
+      expect(constructorCalls).toEqual([
+        { key: "phc_test", options: { host: "https://ingest.example.com" } },
+      ]);
+      await mockedBridge?.shutdown();
+    } finally {
+      if (previous === undefined) delete process.env.POSTHOG_HOST;
+      else process.env.POSTHOG_HOST = previous;
+    }
+  });
 });
