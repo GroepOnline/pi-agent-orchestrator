@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPostHogBridge,
@@ -128,5 +128,60 @@ describe("createPostHogBridge", () => {
     await expect(result).resolves.toBeUndefined();
     // Calling again must remain best-effort safe.
     await expect(bridge?.shutdown()).resolves.toBeUndefined();
+  });
+});
+
+describe("createPostHogBridge default host", () => {
+  afterEach(() => {
+    vi.doUnmock("posthog-node");
+    vi.resetModules();
+  });
+
+  it("passes the managed reverse proxy host to the PostHog constructor when no host is configured", async () => {
+    const constructorCalls: Array<{ key: string; options: { host?: string } }> = [];
+    vi.doMock("posthog-node", () => ({
+      PostHog: class {
+        constructor(key: string, options: { host?: string }) {
+          constructorCalls.push({ key, options });
+        }
+        capture(): void {}
+        async shutdown(): Promise<void> {}
+      },
+    }));
+    vi.resetModules();
+    // Fresh import so the module's dynamic `import("posthog-node")` resolves the mock.
+    const { createPostHogBridge: createFresh } = await import("../src/posthog-bridge.js");
+
+    const mockedBridge = await createFresh({ key: "phc_test" });
+    expect(mockedBridge).not.toBeNull();
+    expect(constructorCalls).toEqual([
+      { key: "phc_test", options: { host: "https://k.chefgroep.online" } },
+    ]);
+    await mockedBridge?.shutdown();
+  });
+
+  it("prefers a configured host over the default", async () => {
+    const constructorCalls: Array<{ key: string; options: { host?: string } }> = [];
+    vi.doMock("posthog-node", () => ({
+      PostHog: class {
+        constructor(key: string, options: { host?: string }) {
+          constructorCalls.push({ key, options });
+        }
+        capture(): void {}
+        async shutdown(): Promise<void> {}
+      },
+    }));
+    vi.resetModules();
+    const { createPostHogBridge: createFresh } = await import("../src/posthog-bridge.js");
+
+    const mockedBridge = await createFresh({
+      key: "phc_test",
+      host: "https://selfhosted.example.com",
+    });
+    expect(mockedBridge).not.toBeNull();
+    expect(constructorCalls).toEqual([
+      { key: "phc_test", options: { host: "https://selfhosted.example.com" } },
+    ]);
+    await mockedBridge?.shutdown();
   });
 });
