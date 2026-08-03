@@ -129,6 +129,22 @@ describe("createPostHogBridge", () => {
     // Calling again must remain best-effort safe.
     await expect(bridge?.shutdown()).resolves.toBeUndefined();
   });
+
+  it("defaults to the k.chefgroep.online reverse proxy when no host is configured", async () => {
+    const ctor = vi.fn(function PostHogMock() {
+      return { capture() {}, shutdown() {} };
+    });
+    vi.doMock("posthog-node", () => ({ PostHog: ctor }));
+    try {
+      bridge = await createPostHogBridge({ key: "phc_test" });
+      expect(bridge).not.toBeNull();
+      expect(ctor).toHaveBeenCalledOnce();
+      // posthog-node@5 is constructed as new PostHog(key, { host }).
+      expect(ctor).toHaveBeenCalledWith("phc_test", { host: "https://k.chefgroep.online" });
+    } finally {
+      vi.doUnmock("posthog-node");
+    }
+  });
 });
 
 describe("createPostHogBridge default host", () => {
