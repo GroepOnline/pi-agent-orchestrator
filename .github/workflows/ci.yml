@@ -214,8 +214,10 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # GroepOnline transfer: Dependency graph / GHAS may be off until org
-    # security settings catch up. Soft-fail so cutover PRs are not blocked.
+    # GroepOnline transfer: Dependency graph / GHAS is often still off. Probe
+    # first and skip the action when unsupported so the check is green (not a
+    # red FAILURE that leaves the PR UNSTABLE). continue-on-error remains as a
+    # belt-and-suspenders for race/transient GHAS gaps — same class as #1.
     continue-on-error: true
     permissions:
       contents: read
@@ -225,7 +227,32 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Detect Dependency graph support
+        id: depgraph
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/dep-graph-probe.json -w '%{http_code}' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}" || true)
+          case "$code" in
+            200)
+              echo "supported=true" >> "$GITHUB_OUTPUT"
+              echo "Dependency graph available (HTTP 200); running review."
+              ;;
+            *)
+              echo "supported=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Dependency graph/GHAS unavailable (HTTP ${code:-curl-failed}); skipping dependency-review-action for org cutover."
+              ;;
+          esac
+
       - name: Review dependency changes
+        if: steps.depgraph.outputs.supported == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
