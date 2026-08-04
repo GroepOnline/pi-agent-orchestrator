@@ -1,16 +1,16 @@
 {
-  "name": "@onlinechefgroep/pi-agent-orchestrator",
+  "name": "@groeponline/pi-agent-orchestrator",
   "version": "0.18.0",
   "description": "Multi-agent orchestration for Pi: autonomous subagents, worktrees, swarms, schedules, handoffs, prompt compression, and live TUI observability.",
-  "author": "OnlineChef",
+  "author": "GroepOnline",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OnlineChefGroep/pi-agent-orchestrator.git"
+    "url": "git+https://github.com/GroepOnline/pi-agent-orchestrator.git"
   },
-  "homepage": "https://github.com/OnlineChefGroep/pi-agent-orchestrator#readme",
+  "homepage": "https://github.com/GroepOnline/pi-agent-orchestrator#readme",
   "bugs": {
-    "url": "https://github.com/OnlineChefGroep/pi-agent-orchestrator/issues"
+    "url": "https://github.com/GroepOnline/pi-agent-orchestrator/issues"
   },
   "keywords": [
     "pi-package",

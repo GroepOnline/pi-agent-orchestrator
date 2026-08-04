@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageName": "@onlinechefgroep/pi-agent-orchestrator",
+  "packageName": "@groeponline/pi-agent-orchestrator",
   "releaseTrain": "0.18",
   "initialRelease": "0.18.0",
   "sourceBaselines": ["0.17.1", "0.17.5", "0.17.6"],

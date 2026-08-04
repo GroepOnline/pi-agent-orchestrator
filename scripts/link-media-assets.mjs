@@ -59,7 +59,7 @@ function printStatus() {
   console.log(`media images ${resolved ? resolved.images : "(not found)"}`);
   if (!resolved) {
     console.log("\nClone or create the assets repo next to this checkout:");
-    console.log("  git clone git@github.com:OnlineChefGroep/pi-agent-orchestrator-assets.git ../pi-agent-orchestrator-assets");
+    console.log("  git clone git@github.com:GroepOnline/pi-agent-orchestrator-assets.git ../pi-agent-orchestrator-assets");
     console.log("Or set ORCHESTRATOR_MEDIA_DIR to an absolute path.");
   }
 }

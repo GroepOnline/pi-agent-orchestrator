@@ -5,9 +5,9 @@ const packageJson = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
 
-const CANONICAL_REPOSITORY = "https://github.com/OnlineChefGroep/pi-agent-orchestrator";
+const CANONICAL_REPOSITORY = "https://github.com/GroepOnline/pi-agent-orchestrator";
 const CANONICAL_PREVIEW =
-  "https://onlinechefgroep.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4";
+  "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4";
 
 function assert(condition, message) {
   if (!condition) {
@@ -15,7 +15,7 @@ function assert(condition, message) {
   }
 }
 
-assert(packageJson.name === "@onlinechefgroep/pi-agent-orchestrator", "unexpected package name");
+assert(packageJson.name === "@groeponline/pi-agent-orchestrator", "unexpected package name");
 assert(packageJson.license === "MIT", "license must remain explicit");
 assert(packageJson.publishConfig?.access === "public", "scoped package must publish publicly");
 assert(packageJson.keywords?.includes("pi-package"), "missing pi-package discovery keyword");
