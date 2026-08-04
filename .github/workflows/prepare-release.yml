@@ -63,7 +63,7 @@ jobs:
             echo "Tag v$RELEASE_VERSION already exists." >&2
             exit 1
           fi
-          PACKAGE="@onlinechefgroep/pi-agent-orchestrator"
+          PACKAGE="@groeponline/pi-agent-orchestrator"
           # Exact version existence via shared helper — never the floating `latest` dist-tag.
           node scripts/release-recovery.mjs assert-absent "$PACKAGE" "$RELEASE_VERSION"
 

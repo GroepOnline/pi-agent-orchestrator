@@ -148,7 +148,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/release-recovery.mjs decide-publish "@onlinechefgroep/pi-agent-orchestrator" "$RELEASE_VERSION"
+          node scripts/release-recovery.mjs decide-publish "@groeponline/pi-agent-orchestrator" "$RELEASE_VERSION"
 
       - name: Publish tarball with provenance
         if: steps.npm.outputs.publish == 'true'
@@ -165,7 +165,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/verify-published-package.mjs \
-            --spec "@onlinechefgroep/pi-agent-orchestrator@$RELEASE_VERSION" \
+            --spec "@groeponline/pi-agent-orchestrator@$RELEASE_VERSION" \
             --expected release-artifact/release-manifest.json \
             --workdir published
 
@@ -199,6 +199,6 @@ jobs:
             echo "## Published maintenance baseline v$RELEASE_VERSION"
             echo
             echo "- Source commit: \`$GITHUB_SHA\`"
-            echo "- npm: \`@onlinechefgroep/pi-agent-orchestrator@$RELEASE_VERSION\`"
+            echo "- npm: \`@groeponline/pi-agent-orchestrator@$RELEASE_VERSION\`"
             echo "- 0.18.x transactional train remains locked."
           } >> "$GITHUB_STEP_SUMMARY"

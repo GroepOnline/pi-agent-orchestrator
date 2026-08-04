@@ -1,6 +1,6 @@
 # npm release setup
 
-`@onlinechefgroep/pi-agent-orchestrator` has one canonical, transactional release path.
+`@groeponline/pi-agent-orchestrator` has one canonical, transactional release path.
 
 Do not create tags manually and do not add another npm or GitHub Packages publish workflow. A release must move source, npm, Git tag, and GitHub Release together.
 
@@ -58,14 +58,14 @@ The publisher currently reads the repository Actions secret `NPM_TOKEN` and also
 
 Create a granular npm access token with the smallest possible scope:
 
-- Package: `@onlinechefgroep/pi-agent-orchestrator`
+- Package: `@groeponline/pi-agent-orchestrator`
 - Permission: read and write
 - Expiration: the shortest operationally practical period
 
 Store it at:
 
 ```text
-https://github.com/OnlineChefGroep/pi-agent-orchestrator/settings/secrets/actions
+https://github.com/GroepOnline/pi-agent-orchestrator/settings/secrets/actions
 ```
 
 ## Preferred authentication: npm trusted publishing
@@ -73,7 +73,7 @@ https://github.com/OnlineChefGroep/pi-agent-orchestrator/settings/secrets/action
 Configure a trusted publisher in npm with:
 
 - Provider: GitHub Actions
-- Organization or user: `OnlineChefGroep`
+- Organization or user: `GroepOnline`
 - Repository: `pi-agent-orchestrator`
 - Workflow filename: `release.yml`
 - Environment: leave empty unless a protected release environment is introduced
@@ -100,10 +100,10 @@ No version text, tag, or npm command needs to be entered manually. Branch protec
 ## Post-release verification
 
 ```bash
-npm view @onlinechefgroep/pi-agent-orchestrator version
-npm view @onlinechefgroep/pi-agent-orchestrator pi --json
-npm pack @onlinechefgroep/pi-agent-orchestrator@0.18.0 --dry-run
-pi -e npm:@onlinechefgroep/pi-agent-orchestrator
+npm view @groeponline/pi-agent-orchestrator version
+npm view @groeponline/pi-agent-orchestrator pi --json
+npm pack @groeponline/pi-agent-orchestrator@0.18.0 --dry-run
+pi -e npm:@groeponline/pi-agent-orchestrator
 ```
 
 Verify:

@@ -157,7 +157,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PACKAGE="@onlinechefgroep/pi-agent-orchestrator"
+          PACKAGE="@groeponline/pi-agent-orchestrator"
           node scripts/release-recovery.mjs decide-publish "$PACKAGE" "$RELEASE_VERSION"
 
       - name: Publish immutable tarball with provenance
@@ -174,7 +174,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SPEC="@onlinechefgroep/pi-agent-orchestrator@$RELEASE_VERSION"
+          SPEC="@groeponline/pi-agent-orchestrator@$RELEASE_VERSION"
           node scripts/verify-published-package.mjs \
             --spec "$SPEC" \
             --expected release-artifact/release-manifest.json \
@@ -218,7 +218,7 @@ jobs:
             echo "## Released v$RELEASE_VERSION"
             echo
             echo "- Source commit: \`$GITHUB_SHA\`"
-            echo "- npm: \`@onlinechefgroep/pi-agent-orchestrator@$RELEASE_VERSION\`"
+            echo "- npm: \`@groeponline/pi-agent-orchestrator@$RELEASE_VERSION\`"
             echo "- Registry metadata and downloaded tarball: verified"
             echo "- Tag: \`v$RELEASE_VERSION\`"
             echo "- Release train remains locked to \`0.18.x\`; \`0.19.0\` is blocked by policy."

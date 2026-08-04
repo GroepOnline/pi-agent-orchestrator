@@ -315,7 +315,7 @@ describe("transactional release workflow", () => {
     expect(content).not.toMatch(/npm publish/);
     expect(content).toContain("node scripts/release-recovery.mjs assert-absent");
     expect(content).not.toMatch(
-      /PUBLISHED="\$\(npm view @onlinechefgroep\/pi-agent-orchestrator version\)"/,
+      /PUBLISHED="\$\(npm view @groeponline\/pi-agent-orchestrator version\)"/,
     );
   });
 

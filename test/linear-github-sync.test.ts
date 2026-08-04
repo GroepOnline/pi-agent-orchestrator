@@ -7,7 +7,7 @@ import {
   syncGithubEvent,
 } from "../scripts/linear-github-sync.mjs";
 
-const repository = "OnlineChefGroep/pi-agent-orchestrator";
+const repository = "GroepOnline/pi-agent-orchestrator";
 
 const workflowStates = [
   { id: "backlog", name: "Backlog", type: "backlog" },
@@ -72,7 +72,7 @@ describe("linear GitHub sync mapping", () => {
         pull_request: {
           number: 253,
           title: "Add validator coverage",
-          html_url: "https://github.com/OnlineChefGroep/pi-agent-orchestrator/pull/253",
+          html_url: "https://github.com/GroepOnline/pi-agent-orchestrator/pull/253",
           state: "open",
           draft: false,
           merged: false,
@@ -88,7 +88,7 @@ describe("linear GitHub sync mapping", () => {
 
     expect(entity.stateKey).toBe("in-review");
     expect(entity.marker).toBe(
-      "<!-- github-pr:OnlineChefGroep/pi-agent-orchestrator#253 -->",
+      "<!-- github-pr:GroepOnline/pi-agent-orchestrator#253 -->",
     );
     expect(entity.labels).toEqual(["area: tests"]);
   });
