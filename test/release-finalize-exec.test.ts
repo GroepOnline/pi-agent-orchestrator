@@ -224,14 +224,14 @@ describe.skipIf(process.platform === "win32")("decide-publish CLI with real npm 
       `#!/usr/bin/env bash
 set -euo pipefail
 echo "npm error code E404" >&2
-echo "npm error 404 '@onlinechefgroep/pi-agent-orchestrator' is not in this registry." >&2
+echo "npm error 404 '@groeponline/pi-agent-orchestrator' is not in this registry." >&2
 exit 1
 `,
     );
     const out = join(bin, "github.output");
     writeFileSync(out, "");
     const result = runNode(
-      ["scripts/release-recovery.mjs", "decide-publish", "@onlinechefgroep/pi-agent-orchestrator", "0.18.0"],
+      ["scripts/release-recovery.mjs", "decide-publish", "@groeponline/pi-agent-orchestrator", "0.18.0"],
       { env: nodeEnv(bin, { GITHUB_OUTPUT: out }) },
     );
     expect(result.status, result.stderr).toBe(0);
@@ -251,7 +251,7 @@ if [[ "$*" == *"@0.18.0"* ]]; then
   echo "npm error 404 No match found for version 0.18.0" >&2
   exit 1
 fi
-if [[ "$*" == *"view @onlinechefgroep/pi-agent-orchestrator version"* ]] || [[ "$3" == "version" && "$2" == "@onlinechefgroep/pi-agent-orchestrator" ]]; then
+if [[ "$*" == *"view @groeponline/pi-agent-orchestrator version"* ]] || [[ "$3" == "version" && "$2" == "@groeponline/pi-agent-orchestrator" ]]; then
   echo "0.17.1"
   exit 0
 fi
@@ -262,7 +262,7 @@ exit 2
     const out = join(bin, "github.output");
     writeFileSync(out, "");
     const result = runNode(
-      ["scripts/release-recovery.mjs", "decide-publish", "@onlinechefgroep/pi-agent-orchestrator", "0.18.0"],
+      ["scripts/release-recovery.mjs", "decide-publish", "@groeponline/pi-agent-orchestrator", "0.18.0"],
       { env: nodeEnv(bin, { GITHUB_OUTPUT: out }) },
     );
     expect(result.status, result.stderr).toBe(0);
@@ -287,7 +287,7 @@ exit 0
     const out = join(bin, "github.output");
     writeFileSync(out, "");
     const result = runNode(
-      ["scripts/release-recovery.mjs", "decide-publish", "@onlinechefgroep/pi-agent-orchestrator", "0.18.0"],
+      ["scripts/release-recovery.mjs", "decide-publish", "@groeponline/pi-agent-orchestrator", "0.18.0"],
       { env: nodeEnv(bin, { GITHUB_OUTPUT: out }) },
     );
     expect(result.status, result.stderr).toBe(0);
@@ -306,7 +306,7 @@ exit 0
 `,
     );
     const result = runNode(
-      ["scripts/release-recovery.mjs", "decide-publish", "@onlinechefgroep/pi-agent-orchestrator", "0.18.0"],
+      ["scripts/release-recovery.mjs", "decide-publish", "@groeponline/pi-agent-orchestrator", "0.18.0"],
       { env: nodeEnv(bin) },
     );
     expect(result.status).not.toBe(0);
@@ -326,7 +326,7 @@ exit 1
 `,
     );
     const result = runNode(
-      ["scripts/release-recovery.mjs", "decide-publish", "@onlinechefgroep/pi-agent-orchestrator", "0.18.0"],
+      ["scripts/release-recovery.mjs", "decide-publish", "@groeponline/pi-agent-orchestrator", "0.18.0"],
       { env: nodeEnv(bin) },
     );
     expect(result.status).not.toBe(0);
@@ -457,7 +457,7 @@ exit 0
       [
         script("scripts/release-recovery.mjs"),
         "decide-publish",
-        "@onlinechefgroep/pi-agent-orchestrator",
+        "@groeponline/pi-agent-orchestrator",
         "0.18.0",
       ],
       { cwd: root, env: nodeEnv(bin, { GITHUB_OUTPUT: githubOutput }) },
@@ -484,7 +484,7 @@ exit 0
       [
         script("scripts/release-recovery.mjs"),
         "decide-publish",
-        "@onlinechefgroep/pi-agent-orchestrator",
+        "@groeponline/pi-agent-orchestrator",
         "0.18.0",
       ],
       { cwd: root, env: nodeEnv(bin, { GITHUB_OUTPUT: githubOutput }) },
@@ -521,7 +521,7 @@ describe("write-release-manifest and published verification helpers", () => {
       join(dir, "release-pack.json"),
       `${JSON.stringify([
         {
-          filename: "onlinechefgroep-pi-agent-orchestrator-0.17.1.tgz",
+          filename: "groeponline-pi-agent-orchestrator-0.17.1.tgz",
           integrity: "sha512-testintegrity",
           files: [{ path: "dist/index.js" }],
         },
@@ -533,16 +533,16 @@ describe("write-release-manifest and published verification helpers", () => {
     );
     expect(result.status, result.stderr).toBe(0);
     const manifest = JSON.parse(readFileSync(join(dir, "release-manifest.json"), "utf8"));
-    expect(manifest.tarballFile).toBe("onlinechefgroep-pi-agent-orchestrator-0.17.1.tgz");
+    expect(manifest.tarballFile).toBe("groeponline-pi-agent-orchestrator-0.17.1.tgz");
     expect(manifest.tarballIntegrity).toBe("sha512-testintegrity");
-    expect(manifest.package.name).toBe("@onlinechefgroep/pi-agent-orchestrator");
+    expect(manifest.package.name).toBe("@groeponline/pi-agent-orchestrator");
   });
 
   it("verifies published metadata against the reviewed manifest", async () => {
     const { assertPublishedMatchesManifest } = await import("../scripts/verify-published-package.mjs");
     const expected = {
       package: {
-        name: "@onlinechefgroep/pi-agent-orchestrator",
+        name: "@groeponline/pi-agent-orchestrator",
         version: "0.18.0",
         license: "MIT",
         engines: { node: ">=22.19.0" },

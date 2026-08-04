@@ -312,6 +312,16 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
+    const message = String(error?.message ?? error);
+    // After org transfer, LINEAR_PARENT_ISSUE may still point at a missing
+    // CHEF-* parent. Soft-skip so release cutover PRs are not blocked.
+    if (
+      message.includes("Entity not found: Issue") ||
+      message.includes("Linear parent issue not found:")
+    ) {
+      console.log(`::warning::Linear sync skipped: ${message}`);
+      return;
+    }
     console.error(error);
     process.exitCode = 1;
   });
