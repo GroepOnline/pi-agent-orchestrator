@@ -180,6 +180,17 @@ describe("Node.js version consistency", () => {
     expect(qualityJob).not.toMatch(/node-version:\s*22\s*$/m);
   });
 
+  it("version-transition avoids unauthenticated git fetch origin main", () => {
+    const ci = readRoot(".github/workflows/ci.yml");
+    const qualityJob = ci.match(/quality:[\s\S]*?compatibility:/)?.[0] ?? "";
+    expect(qualityJob).toContain("verify-version-transition.mjs");
+    expect(qualityJob).toContain("BASE_SHA");
+    expect(qualityJob).toContain("x-access-token");
+    // Bare fetch after credential strip exits 128 on transferred org remotes
+    // and was misread as a verify:release-policy failure in Quality gate logs.
+    expect(qualityJob).not.toMatch(/^\s*git fetch origin main\s*$/m);
+  });
+
   it("Required CI gate skips (not fails) when a run is cancelled via concurrency", () => {
     const ci = readRoot(".github/workflows/ci.yml");
     const gate = ci.match(/\n {2}required-gate:[\s\S]*$/)?.[0] ?? "";
