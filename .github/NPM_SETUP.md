@@ -127,7 +127,7 @@ The publisher is intentionally idempotent.
 | Release preparation fails | Fix the hardening PR or remove an abandoned `release/v0.18.0` branch, then press the button again. |
 | Release PR checks fail | Fix the release branch; do not bypass branch protection. |
 | `401` or `ENEEDAUTH` | Verify `NPM_TOKEN`, or the npm trusted publisher after migration. |
-| `403 Forbidden` | Verify package-level publish permission for the `@onlinechefgroep` scope. |
+| `403 Forbidden` | Verify package-level publish permission for the `@groeponline` scope. |
 | npm already contains `0.18.0` | Re-run the failed Release job. It skips npm publish and completes tag/release verification. |
 | npm publish succeeds but tag or GitHub Release fails | Re-run the failed Release job. Never increment the version solely to repair release metadata. |
 | Existing tag points elsewhere | Stop. Do not force-move the tag; investigate the source-integrity violation. |

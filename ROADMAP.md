@@ -16,7 +16,7 @@ Last rebuilt: **2026-07-16**.
 |-------|--------|
 | Published / package baseline | **0.17.5** (this cut; was 0.17.1) |
 | **Next ship target** | Soak **0.17.5**, then reopen 0.18 publish only when ready |
-| 0.18.x train | Infrastructure already on `main` via [#282](https://github.com/OnlineChefGroep/pi-agent-orchestrator/pull/282); **parked** until 0.17.5 is cut and soaked. Do not bump/publish 0.18.0 yet. |
+| 0.18.x train | Infrastructure already on `main` via [#282](https://github.com/GroepOnline/pi-agent-orchestrator/pull/282); **parked** until 0.17.5 is cut and soaked. Do not bump/publish 0.18.0 yet. |
 | Validation scale | **~1.8k+** tests (CI on #282: **1,839**; local suite grows with follow-ups) |
 | Product shape | Local **Pi extension** — no hosted control plane, multi-tenancy, K8s, or external queues |
 
@@ -30,7 +30,7 @@ Goal: one deliberate minor that makes 0.17.x **boringly trustworthy** before any
 
 ### A. Unblock and stabilize CI
 
-1. Merge **[#286](https://github.com/OnlineChefGroep/pi-agent-orchestrator/pull/286)** (Windows `gh.exe` stub argv) — release-finalize tests green on Windows Node 22/24.
+1. Merge **[#286](https://github.com/GroepOnline/pi-agent-orchestrator/pull/286)** (Windows `gh.exe` stub argv) — release-finalize tests green on Windows Node 22/24.
 2. Fix remaining suite flakes/failures (e.g. `test/task-budget.test.ts` parentId race seen locally) until `npm run typecheck && npm run lint && npm test` is clean on Linux + documented Windows/macOS CI lanes.
 3. Treat **#286 stub as SSOT** for `test/release-finalize-exec.test.ts` — do not land competing Jules stub variants.
 

@@ -164,7 +164,7 @@ See [issue body acceptance criteria](../../issues/213) for the canonical list. S
 
 ## References
 
-- GitHub: [OnlineChefGroep/pi-agent-orchestrator#213](../../issues/213)
+- GitHub: [GroepOnline/pi-agent-orchestrator#213](../../issues/213)
 - Linear: [CHEF-832](https://linear.app/chefclawsheesh/issue/CHEF-832/)
 - Background commits:
   - `accd80f8` — env.ts tactical P4 fix via helper extraction (defeats overdrive detector false positive)

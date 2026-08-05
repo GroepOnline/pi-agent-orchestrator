@@ -1,12 +1,12 @@
-# @onlinechefgroep/pi-agent-orchestrator
+# @groeponline/pi-agent-orchestrator
 
 > Multi-agent orchestration for the Pi coding agent: autonomous subagents,
 > isolated worktrees, swarms, schedules, structured handoffs, prompt compression,
 > and live terminal observability.
 
-[![npm version](https://img.shields.io/npm/v/@onlinechefgroep/pi-agent-orchestrator)](https://www.npmjs.com/package/@onlinechefgroep/pi-agent-orchestrator)
-[![npm downloads](https://img.shields.io/npm/dm/@onlinechefgroep/pi-agent-orchestrator)](https://www.npmjs.com/package/@onlinechefgroep/pi-agent-orchestrator)
-[![CI](https://github.com/OnlineChefGroep/pi-agent-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/OnlineChefGroep/pi-agent-orchestrator/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@groeponline/pi-agent-orchestrator)](https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator)
+[![npm downloads](https://img.shields.io/npm/dm/@groeponline/pi-agent-orchestrator)](https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator)
+[![CI](https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 ## Install or try it immediately
@@ -14,19 +14,19 @@
 Install globally in Pi:
 
 ```bash
-pi install npm:@onlinechefgroep/pi-agent-orchestrator
+pi install npm:@groeponline/pi-agent-orchestrator
 ```
 
 Try the published package for one session without changing your settings:
 
 ```bash
-pi -e npm:@onlinechefgroep/pi-agent-orchestrator
+pi -e npm:@groeponline/pi-agent-orchestrator
 ```
 
 For a project-local install:
 
 ```bash
-pi install npm:@onlinechefgroep/pi-agent-orchestrator -l
+pi install npm:@groeponline/pi-agent-orchestrator -l
 ```
 
 Requires Node.js 22.19.0 or newer and `@earendil-works/pi-coding-agent` 0.81.1 or newer.
@@ -49,11 +49,11 @@ The extension runs inside the Pi host process. It does not make outbound network
 
 The preview is rendered from the compiled dashboard, resource top view, and widget implementation. Remotion supplies the framing and encoding; the terminal content comes from the actual product renderers.
 
-[![Pi Agent Orchestrator terminal preview](https://raw.githubusercontent.com/OnlineChefGroep/pi-agent-orchestrator/main/docs/images/dashboard_preview.svg)](https://onlinechefgroep.github.io/pi-agent-orchestrator/assets/product_film.mp4)
+[![Pi Agent Orchestrator terminal preview](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/dashboard_preview.svg)](https://groeponline.github.io/pi-agent-orchestrator/assets/product_film.mp4)
 
-- [Watch the product film](https://onlinechefgroep.github.io/pi-agent-orchestrator/assets/product_film.mp4) — the full Remotion-rendered showcase
-- [Watch the dashboard preview](https://onlinechefgroep.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4)
-- [Open the agent-readable project site](https://onlinechefgroep.github.io/pi-agent-orchestrator/)
+- [Watch the product film](https://groeponline.github.io/pi-agent-orchestrator/assets/product_film.mp4) — the full Remotion-rendered showcase
+- [Watch the dashboard preview](https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4)
+- [Open the agent-readable project site](https://groeponline.github.io/pi-agent-orchestrator/)
 - [Read the Pi package documentation](https://pi.dev/docs/latest/packages)
 
 ## First useful run
@@ -98,8 +98,8 @@ The npm package includes three skills and three prompt templates. Pi loads only 
 Install skills into Cursor, Codex, Claude Code, or another Agent Skills-compatible client:
 
 ```bash
-npx skills add https://github.com/OnlineChefGroep/pi-agent-orchestrator --skill real-product-showcase
-npx skills add https://github.com/OnlineChefGroep/pi-agent-orchestrator --skill pi-typescript-extension-engineering
+npx skills add https://github.com/GroepOnline/pi-agent-orchestrator --skill real-product-showcase
+npx skills add https://github.com/GroepOnline/pi-agent-orchestrator --skill pi-typescript-extension-engineering
 ```
 
 The templates deliberately avoid automatic merge, publish, tag, or deploy actions unless those actions are explicitly part of the request.
@@ -173,4 +173,4 @@ npm run cloud:smoke    # load the built extension through the real Pi host (no A
 
 ## License
 
-MIT © OnlineChefGroep
+MIT © GroepOnline

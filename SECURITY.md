@@ -13,7 +13,7 @@ If you think you've found a security issue, please report it privately first,
 so a fix can land before the details are public:
 
 1. **Preferred:** use GitHub's private vulnerability reporting. Open the
-   [Security advisories page](https://github.com/OnlineChefGroep/pi-agent-orchestrator/security/advisories/new)
+   [Security advisories page](https://github.com/GroepOnline/pi-agent-orchestrator/security/advisories/new)
    and click "Report a vulnerability". It's a private channel only the
    maintainers can see.
 2. **Or email** **security@chefgroep.nl** if you'd rather not use GitHub.
@@ -28,7 +28,7 @@ agreed it's safe to discuss in the open.
 - What you did (the steps or a tiny repro)
 - What you saw
 - What you expected
-- The version (run "npm view @onlinechefgroep/pi-agent-orchestrator version" or check the commit hash)
+- The version (run "npm view @groeponline/pi-agent-orchestrator version" or check the commit hash)
 
 ## What we'll do
 
@@ -40,7 +40,7 @@ agreed it's safe to discuss in the open.
 ## Scope
 
 In scope: the source under "src/", the published npm package
-"@onlinechefgroep/pi-agent-orchestrator", and the example agent templates under
+"@groeponline/pi-agent-orchestrator", and the example agent templates under
 "examples/agents/". If this extension is the source of the problem, it stays in
 scope even when the impact lands on the Pi host, a peer extension, or your
 machine (for example: the extension running an unintended command, leaking a

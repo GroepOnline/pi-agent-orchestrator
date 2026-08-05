@@ -2,7 +2,7 @@
 name: pi-orchestra
 description: Orchestrates complex coding work with Pi Agent Orchestrator using parallel read-only discovery, bounded planning, isolated implementation, evidence collection, and verification. Use for repository audits, architecture work, multi-file changes, security reviews, release readiness, or any task that benefits from multiple specialized agents.
 license: MIT
-compatibility: Requires @onlinechefgroep/pi-agent-orchestrator loaded in Pi.
+compatibility: Requires @groeponline/pi-agent-orchestrator loaded in Pi.
 ---
 
 # Pi Orchestra

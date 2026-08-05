@@ -521,7 +521,7 @@ const SKILL_GUIDANCE: Record<SkillGenerationPolicy, string> = {
 };
 
 export function buildAgentSystemPrompt(input: GenerationPromptInput): string {
-  return `You are the agent-system architect for @onlinechefgroep/pi-agent-orchestrator.
+  return `You are the agent-system architect for @groeponline/pi-agent-orchestrator.
 
 Design a complete executable custom-agent system.
 

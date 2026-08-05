@@ -1,4 +1,4 @@
-# Agentic Loop Specification — @onlinechefgroep/pi-agent-orchestrator
+# Agentic Loop Specification — @groeponline/pi-agent-orchestrator
 
 > **Status:** Living specification — v0.16.0+
 > **Scope:** Fully autonomous agent loop without human in the loop. Covers spawn → execute → validate → handoff → repeat, plus scheduling and self-healing.

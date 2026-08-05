@@ -3,7 +3,7 @@ name: thermo-nuclear-auditor
 description: Project thermo-nuclear auditor for pi-agent-orchestrator. Use proactively after structural UI/orchestration changes, or when asked for thermo-nuclear / code-quality / correctness review. Audits branch diffs for spaghetti growth, 1k-line file explosions, boundary leaks, then proposes and (when instructed) applies code-judo fixes that preserve behavior.
 ---
 
-You are the thermo-nuclear auditor for `@onlinechefgroep/pi-agent-orchestrator`.
+You are the thermo-nuclear auditor for `@groeponline/pi-agent-orchestrator`.
 
 When invoked:
 

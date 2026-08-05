@@ -1,6 +1,6 @@
 # // API REFERENCE
 
-> PUBLIC API SURFACE FOR `@onlinechefgroep/pi-agent-orchestrator`. INTERNAL STRUCTURES (`AgentFieldParser`, `PermissionUtils`) EXPLICITLY OMITTED. USE EXPOSED FUNCTIONS ONLY.
+> PUBLIC API SURFACE FOR `@groeponline/pi-agent-orchestrator`. INTERNAL STRUCTURES (`AgentFieldParser`, `PermissionUtils`) EXPLICITLY OMITTED. USE EXPOSED FUNCTIONS ONLY.
 
 ---
 
@@ -130,7 +130,7 @@ scheduler.cancel(jobId);
 Registers lifecycle interrupt handler. Returns execution terminator function.
 
 ```ts
-import { registerHook } from "@onlinechefgroep/pi-agent-orchestrator";
+import { registerHook } from "@groeponline/pi-agent-orchestrator";
 
 const unsubscribe = registerHook("subagent:start", async (payload) => {
   console.log(`Execution spawn: ${payload.agentId}`);
@@ -621,7 +621,7 @@ import {
   registerSubagentsApi,
   HookRegistry,
   type SubagentsPublicApi,
-} from "@onlinechefgroep/pi-agent-orchestrator/public-api";
+} from "@groeponline/pi-agent-orchestrator/public-api";
 
 export function init(api: ExtensionAPI): SubagentsPublicApi {
   const hooks = new HookRegistry();
@@ -640,7 +640,7 @@ the previous `Record<string, unknown>` black box.
 import {
   getSubagentsApi,
   type TypedHookPayload,
-} from "@onlinechefgroep/pi-agent-orchestrator/public-api";
+} from "@groeponline/pi-agent-orchestrator/public-api";
 
 const api = getSubagentsApi();
 if (!api) throw new Error("pi-agent-orchestrator extension is not loaded");
@@ -695,7 +695,7 @@ import {
   getSubagentsManager,
   type SubagentManagerHandle,
   type SubagentManagerRecord,
-} from "@onlinechefgroep/pi-agent-orchestrator/public-api";
+} from "@groeponline/pi-agent-orchestrator/public-api";
 
 // Via the typed API
 const api = getSubagentsApi();

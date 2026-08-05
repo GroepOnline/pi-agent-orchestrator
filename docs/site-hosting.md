@@ -7,7 +7,7 @@ Canonical product URL is a **subdomain of `chefgroep.online`**. Cloudflare Pages
 | Host | Role |
 |------|------|
 | `https://orchestrator.chefgroep.online` | **Canonical** product site (`chefgroep.online` zone) |
-| `https://onlinechefgroep.github.io/pi-agent-orchestrator/` | GitHub Pages mirror (Actions deploy; README/legacy links) |
+| `https://groeponline.github.io/pi-agent-orchestrator/` | GitHub Pages mirror (Actions deploy; README/legacy links) |
 
 Internal only (not a public brand URL): the Cloudflare project default host `pi-agent-orchestrator.pages.dev` exists as the Pages origin behind the CNAME. Do not advertise it; point humans and agents at `orchestrator.chefgroep.online`. The Pages origin and branch-preview hosts receive `X-Robots-Tag: noindex` through `site/web/public/_headers`.
 

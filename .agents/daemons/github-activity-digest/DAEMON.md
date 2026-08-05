@@ -38,7 +38,7 @@ Use this repository-specific value:
 
 Use a stable UTC-date digest key for idempotency:
 
-- `gh-digest:OnlineChefGroep/pi-agent-orchestrator:YYYY-MM-DD`
+- `gh-digest:GroepOnline/pi-agent-orchestrator:YYYY-MM-DD`
 
 Before posting, search recent `#engineering` channel history for that exact key.
 

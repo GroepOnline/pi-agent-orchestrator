@@ -2,11 +2,11 @@
 
 ## Filing context
 
-- **Filed by:** OnlineChefGroep / OrgBeheer (downstream consumer org)
+- **Filed by:** GroepOnline / OrgBeheer (downstream consumer org)
 - **Filed against:** `earendil-works/pi-coding-agent` (this repo)
-- **Motivating consumer:** `OnlineChefGroep/pi-agent-orchestrator` (project README at github.com/OnlineChefGroep/pi-agent-orchestrator)
-- **Downstream tracking ticket:** [`OnlineChefGroep/pi-agent-orchestrator#213`](https://github.com/OnlineChefGroep/pi-agent-orchestrator/issues/213) — `CHEF-100: expose workspaceContext on ExtensionAPI and delete src/env.ts`
-- **Downstream tracking PR:** [`OnlineChefGroep/pi-agent-orchestrator#214`](https://github.com/OnlineChefGroep/pi-agent-orchestrator/pull/214) on branch `chore/CHEF-100-workspace-context-rfc`
+- **Motivating consumer:** `GroepOnline/pi-agent-orchestrator` (project README at github.com/GroepOnline/pi-agent-orchestrator)
+- **Downstream tracking ticket:** [`GroepOnline/pi-agent-orchestrator#213`](https://github.com/GroepOnline/pi-agent-orchestrator/issues/213) — `CHEF-100: expose workspaceContext on ExtensionAPI and delete src/env.ts`
+- **Downstream tracking PR:** [`GroepOnline/pi-agent-orchestrator#214`](https://github.com/GroepOnline/pi-agent-orchestrator/pull/214) on branch `chore/CHEF-100-workspace-context-rfc`
 - **Linear mirror:** `CHEF-832` in the `ChefSheesh` team
 - **Filing date:** May 2026
 
@@ -137,9 +137,9 @@ Consumers would gate on a peer-dep bump once `workspaceContext` is available. Re
 
 | Surface | Identifier |
 |---------|-----------|
-| GitHub (downstream ticket) | [OnlineChefGroep/pi-agent-orchestrator#213](https://github.com/OnlineChefGroep/pi-agent-orchestrator/issues/213) |
-| GitHub (downstream PR) | [OnlineChefGroep/pi-agent-orchestrator#214](https://github.com/OnlineChefGroep/pi-agent-orchestrator/pull/214) |
+| GitHub (downstream ticket) | [GroepOnline/pi-agent-orchestrator#213](https://github.com/GroepOnline/pi-agent-orchestrator/issues/213) |
+| GitHub (downstream PR) | [GroepOnline/pi-agent-orchestrator#214](https://github.com/GroepOnline/pi-agent-orchestrator/pull/214) |
 | Linear | `CHEF-832` (`ChefSheesh` team) |
-| Downstream RFC doc (full) | `docs/chef-rfcs/CHEF-100-workspace-context.md` in `OnlineChefGroep/pi-agent-orchestrator` |
+| Downstream RFC doc (full) | `docs/chef-rfcs/CHEF-100-workspace-context.md` in `GroepOnline/pi-agent-orchestrator` |
 
-— Filed by OnlineChefGroep / OrgBeheer, May 2026.
+— Filed by GroepOnline / OrgBeheer, May 2026.

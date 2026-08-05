@@ -250,7 +250,7 @@ This release transforms the extension from an internal project into a fully acce
 
 ### Open-Source Public Release
 
-- **Public repo**: Repository made public on GitHub (`OnlineChefGroep/pi-agent-orchestrator`)
+- **Public repo**: Repository made public on GitHub (`GroepOnline/pi-agent-orchestrator`)
 - **publishConfig**: Default registry now points to npmjs.org (was GitHub Packages); CI still dual-publishes
 - **HANDOFF.md**: Removed staging-remote import workflow; repo is directly public
 - **Version consistency**: All files aligned on v0.15.0 (package.json, README, ROADMAP, VERVOLG_PLAN, CHANGELOG)
@@ -390,7 +390,7 @@ This release transforms the extension from an internal project into a fully acce
 
 - **Full documentation refresh**: Updated AGENTS.md, CLAUDE.md, README.md, CHANGELOG.md, ROADMAP.md, SECURITY.md, INFRASTRUCTURE.md, and docs/architecture.md with current test counts (1035/58), version numbers (0.12.1), and feature descriptions.
 - **Stale file cleanup**: Removed personal daily report logs (`jules_daily_report.md`, `jules_daily_report_2026_06_10.md`).
-- **Go cinematic sidecar status**: Documented that `@onlinechefgroep/pi-subagents-tui` exists as sibling Go repo with `bubbletea-cinematic` library; binary spawning was removed in v0.9.1 but settings infrastructure remains dormant. Re-integration tracked in issue #1.
+- **Go cinematic sidecar status**: Documented that `@groeponline/pi-subagents-tui` exists as sibling Go repo with `bubbletea-cinematic` library; binary spawning was removed in v0.9.1 but settings infrastructure remains dormant. Re-integration tracked in issue #1.
 
 ### Merged PRs & Housekeeping
 
@@ -410,7 +410,7 @@ This release transforms the extension from an internal project into a fully acce
 
 ### MIT Open-Source Release
 
-- **Dual publishing**: Now published to both npmjs.org (`npm install @onlinechefgroep/pi-agent-orchestrator`) and GitHub Packages. Added `publish-npm.yml` CI workflow alongside existing `publish.yml`.
+- **Dual publishing**: Now published to both npmjs.org (`npm install @groeponline/pi-agent-orchestrator`) and GitHub Packages. Added `publish-npm.yml` CI workflow alongside existing `publish.yml`.
 - **Public documentation**: Added `SECURITY.md` (vulnerability reporting), `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1), and `ROADMAP.md` (public feature roadmap replacing internal ENTERPRISE_READINESS.md).
 - **README badges**: npm version badge, CI status badge, license badge. Dual install instructions (pi extension + standalone npm).
 - **License audit**: Verified MIT license consistency across all source files. No proprietary markings found.
@@ -504,8 +504,8 @@ This release transforms the extension from an internal project into a fully acce
 ## v0.10.0 (2026-05-27)
 
 ### Release
-- Renamed the package to `@onlinechefgroep/pi-agent-orchestrator`.
-- Updated repository metadata and documentation links for `OnlineChefGroep/pi-agent-orchestrator`.
+- Renamed the package to `@groeponline/pi-agent-orchestrator`.
+- Updated repository metadata and documentation links for `GroepOnline/pi-agent-orchestrator`.
 - Added an explicit package `files` whitelist so private GitHub Packages releases contain runtime source and docs only.
 
 ### Features
@@ -666,7 +666,7 @@ This release transforms the extension from an internal project into a fully acce
 - Remove tintinweb URLs from package.json
 
 ## 0.7.4
-- Publish @onlinechefgroep/pi-agent-orchestrator to GitHub Packages
+- Publish @groeponline/pi-agent-orchestrator to GitHub Packages
 
 ## 0.7.3 (original)
 - Forked from tintinweb/pi-subagents

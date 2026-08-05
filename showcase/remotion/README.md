@@ -1,7 +1,7 @@
 # Remotion showcase
 
 This package renders a real terminal recording and the reusable promo-media set for
-`@onlinechefgroep/pi-agent-orchestrator`.
+`@groeponline/pi-agent-orchestrator`.
 
 The terminal compositions all come from one asciicast. The other compositions do not
 contain hand-written product claims. Before rendering,

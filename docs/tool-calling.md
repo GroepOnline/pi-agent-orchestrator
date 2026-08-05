@@ -1,6 +1,6 @@
 # Tool Calling and Tool Execution Contract
 
-> **Status:** Normative implementation reference for `@onlinechefgroep/pi-agent-orchestrator`.
+> **Status:** Normative implementation reference for `@groeponline/pi-agent-orchestrator`.
 > **Host baseline:** `@earendil-works/pi-coding-agent >= 0.81.1`.
 > **Scope:** Pi tool definitions, execution, cancellation, updates, steering, subagent orchestration, result ownership, telemetry, and failure handling.
 

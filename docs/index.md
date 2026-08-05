@@ -1,6 +1,6 @@
 # // DOCUMENTATION INDEX
 
-> Master index for `@onlinechefgroep/pi-agent-orchestrator` documentation. All files live in `docs/`.
+> Master index for `@groeponline/pi-agent-orchestrator` documentation. All files live in `docs/`.
 
 ---
 

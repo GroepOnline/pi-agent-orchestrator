@@ -14,7 +14,7 @@ The showcase video is generated from the compiled dashboard, resource top-view, 
 ## Install
 
 ```bash
-pi install npm:@onlinechefgroep/pi-agent-orchestrator
+pi install npm:@groeponline/pi-agent-orchestrator
 ```
 
 Open a Pi session and run:

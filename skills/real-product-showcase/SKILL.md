@@ -4,7 +4,7 @@ description: Record real product demos from terminal, browser, or apps and ship 
 license: MIT
 compatibility: Works in Pi, Cursor, and other Agent Skills hosts. When this package has local pipeline commands, those win. Otherwise use the surface references as written.
 metadata:
-  author: OnlineChefGroep
+  author: GroepOnline
   version: "1.0.0"
 ---
 

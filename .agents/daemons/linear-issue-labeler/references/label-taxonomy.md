@@ -46,4 +46,4 @@ Source: live labels from Linear workspace (team CHEF / ChefSheesh).
 ## Notes
 - For this repository (pi-agent-orchestrator), default area seed is `infrastructure`; add others only with evidence from changed files or issue text.
 - `agent-skill` applies when the issue involves skill loading, registration, or skill lifecycle managed by the orchestrator.
-- `rag`, `skill-grinder`, and `web` are excluded from this repo's taxonomy; those labels apply to other OnlineChefGroep repositories.
+- `rag`, `skill-grinder`, and `web` are excluded from this repo's taxonomy; those labels apply to other GroepOnline repositories.

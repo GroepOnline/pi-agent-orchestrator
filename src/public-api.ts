@@ -8,7 +8,7 @@
  * Usage from a peer extension:
  *
  * ```ts
- * import { getSubagentsApi, type TypedHookPayload } from "@onlinechefgroep/pi-agent-orchestrator/public-api";
+ * import { getSubagentsApi, type TypedHookPayload } from "@groeponline/pi-agent-orchestrator/public-api";
  *
  * const api = getSubagentsApi();
  * if (!api) throw new Error("pi-agent-orchestrator extension is not loaded");

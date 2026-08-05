@@ -5,8 +5,8 @@ description: Navigate and contribute to the pi-agent-orchestrator repo. Use for 
 
 # Pi Agent Orchestrator — Repo Orientation
 
-This package (`@onlinechefgroep/pi-agent-orchestrator`) is a **pi extension** that runs inside a
-[pi coding-agent](https://github.com/OnlineChefGroep) host. The three `@earendil-works/pi-*`
+This package (`@groeponline/pi-agent-orchestrator`) is a **pi extension** that runs inside a
+[pi coding-agent](https://github.com/GroepOnline) host. The three `@earendil-works/pi-*`
 packages are the host platform and are **peer deps only** — never direct dependencies.
 
 ## Dev environment

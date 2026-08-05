@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for contributing. This project is a small **pi extension** that
-runs inside a [Pi coding agent](https://github.com/OnlineChefGroep) host.
+runs inside a [Pi coding agent](https://github.com/GroepOnline) host.
 Most of what you will need lives in [AGENTS.md](AGENTS.md) — read that
 first, it documents the architecture, conventions, and the long list of
 common mistakes that have cost us review cycles.
@@ -16,7 +16,7 @@ Please also read our [Code of Conduct](CODE_OF_CONDUCT.md).
 4. Open a PR. Use [Conventional Commits](https://www.conventionalcommits.org/)
    in the title (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
    Scope is encouraged (e.g. `feat(dashboard):`).
-5. Wait for review. Merging requires an `@OnlineChefGroep/owners` member to
+5. Wait for review. Merging requires an `@GroepOnline/owners` member to
    approve — this is enforced by branch protection.
 
 ## Development setup
@@ -26,7 +26,7 @@ Please also read our [Code of Conduct](CODE_OF_CONDUCT.md).
 - Git.
 
 ```bash
-git clone https://github.com/OnlineChefGroep/pi-agent-orchestrator
+git clone https://github.com/GroepOnline/pi-agent-orchestrator
 cd pi-agent-orchestrator
 npm install
 npm run setup:hooks   # optional: pre-commit biome+tsc, pre-push full test
@@ -76,7 +76,7 @@ npm run lint:fix                   # auto-fix biome issues
 Before opening a PR also run `npm run build` (builds dist/).
 
 The CI matrix runs the same plus cross-platform tests. A PR is green when
-all required checks pass and an `@OnlineChefGroep/owners` team member
+all required checks pass and an `@GroepOnline/owners` team member
 approves.
 
 ## Project conventions (the short list)
@@ -105,7 +105,7 @@ spawn-roles table.
 2. Make commits using Conventional Commits.
 3. Ensure `npm run typecheck`, `npm run lint`, and `npm test` pass.
 4. Open a PR against `main`.
-5. An `@OnlineChefGroep/owners` team member must approve.
+5. An `@GroepOnline/owners` team member must approve.
 6. The merge must be a fast-forward or squash merge — linear history is enforced.
 7. The branch is deleted after merge.
 
@@ -137,7 +137,7 @@ tests on Windows related to temp directory races. These are
 ## Release flow
 
 - Conventional Commits drive changelog groups.
-- The maintainer (currently the only member of `@OnlineChefGroep/owners`)
+- The maintainer (currently the only member of `@GroepOnline/owners`)
   updates `CHANGELOG.md` (CI sets `package.json` version from the tag).
 - Tag `vX.Y.Z` and push it; `release.yml` builds, gates, publishes to npm,
   and creates the GitHub Release. Don't publish manually.

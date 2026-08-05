@@ -8,9 +8,9 @@ files; every clone and every PR CI run pays for that.
 
 | Path | Owns |
 | --- | --- |
-| `OnlineChefGroep/pi-agent-orchestrator` | Source, site app code, small posters/SVGs |
-| `OnlineChefGroep/pi-agent-orchestrator-assets` (sibling) | Binary media under `images/` |
-| `OnlineChefGroep/showcase-videos` | Remotion compositions / generated films |
+| `GroepOnline/pi-agent-orchestrator` | Source, site app code, small posters/SVGs |
+| `GroepOnline/pi-agent-orchestrator-assets` (sibling) | Binary media under `images/` |
+| `GroepOnline/showcase-videos` | Remotion compositions / generated films |
 
 Checkout side by side:
 
@@ -25,7 +25,7 @@ OrgChefgroep/
 
 ```bash
 # clone once
-git clone git@github.com:OnlineChefGroep/pi-agent-orchestrator-assets.git ../pi-agent-orchestrator-assets
+git clone git@github.com:GroepOnline/pi-agent-orchestrator-assets.git ../pi-agent-orchestrator-assets
 
 # optional: point docs/images at the external images/ tree
 npm run assets:link

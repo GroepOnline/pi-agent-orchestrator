@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a release of @onlinechefgroep/pi-agent-orchestrator to npmjs.org and GitHub. Use when publishing a new version, creating a release tag, or validating the canonical release workflow.
+description: Cut a release of @groeponline/pi-agent-orchestrator to npmjs.org and GitHub. Use when publishing a new version, creating a release tag, or validating the canonical release workflow.
 ---
 
 # Release — pi-agent-orchestrator
@@ -32,7 +32,7 @@ The workflow resolves the target version from the tag or manual input and sets i
 2. Check the currently published version:
 
    ```bash
-   npm view @onlinechefgroep/pi-agent-orchestrator version
+   npm view @groeponline/pi-agent-orchestrator version
    ```
 
 3. Update `CHANGELOG.md` with user-visible changes.
@@ -65,7 +65,7 @@ Current workflow authentication uses the repository Actions secret `NPM_TOKEN` w
 
 Preferred target state is npm trusted publishing through GitHub OIDC:
 
-1. Configure `OnlineChefGroep/pi-agent-orchestrator` and workflow `release.yml` as the trusted publisher in npm.
+1. Configure `GroepOnline/pi-agent-orchestrator` and workflow `release.yml` as the trusted publisher in npm.
 2. Add `id-token: write` to release workflow permissions.
 3. Remove `NODE_AUTH_TOKEN` and the `NPM_TOKEN` dependency.
 4. Publish with `npm publish --access public --provenance`.
@@ -75,9 +75,9 @@ Do not remove token authentication until npm trusted publishing is configured.
 ## Post-release verification
 
 ```bash
-npm view @onlinechefgroep/pi-agent-orchestrator version
-npm view @onlinechefgroep/pi-agent-orchestrator pi --json
-pi -e npm:@onlinechefgroep/pi-agent-orchestrator
+npm view @groeponline/pi-agent-orchestrator version
+npm view @groeponline/pi-agent-orchestrator pi --json
+pi -e npm:@groeponline/pi-agent-orchestrator
 ```
 
 Confirm that:

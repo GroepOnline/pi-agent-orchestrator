@@ -50,11 +50,11 @@ export const featureTourTiming = {
 
 export const fallbackPromoData: PromoData = {
   version: "0.17.5",
-  name: "@onlinechefgroep/pi-agent-orchestrator",
+  name: "@groeponline/pi-agent-orchestrator",
   displayName: "PI AGENT ORCHESTRATOR",
   tagline:
     "Multi-agent orchestration for Pi: autonomous subagents, worktrees, swarms, schedules, handoffs, prompt compression, and live TUI observability.",
-  repository: "https://github.com/OnlineChefGroep/pi-agent-orchestrator",
+  repository: "https://github.com/GroepOnline/pi-agent-orchestrator",
   generatedAt: "fallback",
   coreCapabilities: [
     {

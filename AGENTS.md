@@ -50,7 +50,7 @@ npm test -- --watch                             # watch mode
 
 This is a **pi extension** — it runs inside a pi coding agent host, not standalone. The `@earendil-works/pi-*` host-platform packages are never direct dependencies. (`@earendil-works/pi-tui` is no longer a direct dependency — its API surface is mirrored locally in `src/ui/tui-shim.ts`. See Common Mistake #4 below for the full rule.) The entry point is declared in `package.json` → `pi.extensions` as `./dist/index.js`.
 
-Published to **npmjs.org** (`@onlinechefgroep/pi-agent-orchestrator`).
+Published to **npmjs.org** (`@groeponline/pi-agent-orchestrator`).
 
 ES modules only (`"type": "module"`). No CommonJS.
 
@@ -211,7 +211,7 @@ This package is a **Pi host extension**, not a standalone app or server — ther
 ## Learned User Preferences
 
 - For merge readiness on this repo, treat only `Required CI gate` and `Quality gate` as branch-protection required checks; Super-Linter `Lint Code Base` is not required and must not drive auto-merge decisions.
-- When rolling out `@onlinechefgroep/pi-agent-orchestrator`, update **sofie** (path install of the local checkout) and **jan** (npm package); do not treat `chefgroep-vps` / `chefgroep` or offline jump hosts as active deploy targets.
+- When rolling out `@groeponline/pi-agent-orchestrator`, update **sofie** (path install of the local checkout) and **jan** (npm package); do not treat `chefgroep-vps` / `chefgroep` or offline jump hosts as active deploy targets.
 
 ## Learned Workspace Facts
 
@@ -221,6 +221,6 @@ This package is a **Pi host extension**, not a standalone app or server — ther
 - `joep` / ProBook uses MagicDNS `joep.tail86a8f2.ts.net` (`Host joep`); Tailscale can show it active even when plain SSH previously timed out.
 - `sofie-dev` is in the utrecht-data-os SSH fleet block (`100.120.188.59`) and may be offline independently of `sofie`.
 - Reachable `bc-scan-*` / `bc-monitor` hosts usually have no orchestrator checkout; they are not primary orch update targets.
-- On `jan`, `~/.npmrc` may scope `@onlinechefgroep` to GitHub Packages (older caps); this package publishes to npmjs.org (`publishConfig.registry`), so `pi update` may need `--@onlinechefgroep:registry=https://registry.npmjs.org`.
+- On `jan`, `~/.npmrc` may scope `@groeponline` to GitHub Packages (older caps); this package publishes to npmjs.org (`publishConfig.registry`), so `pi update` may need `--@groeponline:registry=https://registry.npmjs.org`.
 - Dependency CVE SSOT for merges is `dependency-review` inside `Required CI gate` plus Dependabot — not Super-Linter Trivy (`VALIDATE_TRIVY` must not be treated as a required merge signal).
-- Binary showcase media lives in sibling repo `OnlineChefGroep/pi-agent-orchestrator-assets`; consume via `npm run assets:link` or `ORCHESTRATOR_MEDIA_DIR` (see `docs/assets-layout.md` when present).
+- Binary showcase media lives in sibling repo `GroepOnline/pi-agent-orchestrator-assets`; consume via `npm run assets:link` or `ORCHESTRATOR_MEDIA_DIR` (see `docs/assets-layout.md` when present).

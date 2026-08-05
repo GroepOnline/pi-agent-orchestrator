@@ -24,7 +24,7 @@
 - [XML sitemap](https://orchestrator.chefgroep.online/sitemap.xml)
 - [Robots policy](https://orchestrator.chefgroep.online/robots.txt)
 
-The complete source documentation remains available in the installed `@onlinechefgroep/pi-agent-orchestrator` npm package. The root discovery files above are also published verbatim so crawlers and coding agents do not fall through to the SPA shell.
+The complete source documentation remains available in the installed `@groeponline/pi-agent-orchestrator` npm package. The root discovery files above are also published verbatim so crawlers and coding agents do not fall through to the SPA shell.
 
 ## Showcase
 

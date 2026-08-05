@@ -1,6 +1,6 @@
 ---
 # Publish the project landing page to the GitHub Pages mirror.
-# Target URL: https://onlinechefgroep.github.io/pi-agent-orchestrator/
+# Target URL: https://groeponline.github.io/pi-agent-orchestrator/
 #
 # scripts/build-site.sh uses SITE_BASE to produce a self-contained artifact for
 # the /pi-agent-orchestrator/ subpath, including the explicit agent-discovery

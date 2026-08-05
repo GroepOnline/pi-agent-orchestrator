@@ -1,5 +1,5 @@
 {
-  "name": "@onlinechefgroep/pi-agent-orchestrator-site",
+  "name": "@groeponline/pi-agent-orchestrator-site",
   "private": true,
   "version": "0.1.0",
   "type": "module",
