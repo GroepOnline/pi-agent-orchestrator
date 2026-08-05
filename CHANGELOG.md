@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+No unreleased changes. The repository remains locked to the 0.18.x stabilization train.
+
+---
+
+## v0.18.0 (2026-08-05)
+
+### Pi package distribution
+
+- Ships the package as a complete Pi bundle: extension, `/skill:pi-orchestra`, and the `/orchestra-audit`, `/orchestra-plan`, and `/orchestra-implement` prompt templates.
+- Adds the canonical public MP4 preview and exact Pi discovery metadata used by the package catalog.
+- Reworks the README around install, one-session trial, first successful orchestration run, safety boundaries, and direct operator controls.
+- Proves the actual npm tarball contains every declared extension, skill, prompt, documentation, and license resource.
+
+### Release integrity
+
+- Replaces the mutable ad-hoc release path with a reviewed release-PR transaction and an automatic publisher that tags and publishes the exact merged source commit.
+- Locks releases to the `0.18.x` train. `0.19.0` and every other release line are rejected until `.release-policy.json` is changed in a dedicated reviewed pull request.
+- Keeps `package.json`, both package-lock root versions, the changelog, npm, the Git tag, and the GitHub Release on one version.
+- Makes npm publication recoverable and idempotent: an already-published package can complete a missing tag or GitHub Release without republishing.
+- Adds npm provenance and prepares the canonical `release.yml` workflow for trusted publishing through GitHub OIDC.
+
+### Runtime and security hardening
+
+- Canonicalizes agent identifiers before they are used in temporary worktree paths or Git branch names.
+- Preserves dirty worktrees with explicit recovery details when inspection, staging, commit, branch creation, or removal cannot be proven safe.
+- Aligns the runtime floor and release jobs on Node.js `22.19.0` while retaining Node 24 compatibility coverage.
+- Keeps multi-agent orchestration opt-in and preserves the no-merge, no-publish, and no-deploy boundaries in the packaged implementation workflow.
+
+### Validation
+
+- Full build, typecheck, Biome lint, test suite, package metadata checks, npm tarball inspection, lowest supported peer tests, dependency review, render benchmarks, Super-Linter, and Windows/macOS/Linux compatibility lanes must pass before the release PR can merge.
+
+### Additional changes since v0.17.1
+
 ### Changed
 
 - Package scope migrated from `@onlinechefgroep` to `@groeponline` after the
