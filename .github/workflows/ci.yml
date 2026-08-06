@@ -312,3 +312,55 @@ jobs:
           # Allow failure while Dependency graph / GHAS is still off after org transfer.
           test "$DEPENDENCY_REVIEW_RESULT" = "success" -o "$DEPENDENCY_REVIEW_RESULT" = "skipped" -o "$DEPENDENCY_REVIEW_RESULT" = "failure"
           test "$BENCHMARKS_RESULT" = "success"
+
+  notify-on-failure:
+    name: Notify Linear on CI failure
+    if: failure() && github.event_name != 'merge_group'
+    needs:
+      - quality
+      - compatibility
+      - lowest-peer-dependencies
+      - dependency-review
+      - benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create Linear issue
+        uses: actions/github-script@v7
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_CI }}
+        with:
+          script: |
+            const title = `CI Failure: ${{ github.workflow }} in pi-agent-orchestrator`;
+            const runUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const desc = [
+              `Workflow **${{ github.workflow }}** failed in [pi-agent-orchestrator](`https://github.com/${{ github.repository }}`)`,
+              ``,
+              `**Run:** ${runUrl}`,
+              `**Branch:** ${{ github.head_ref || github.ref_name }}`,
+              `**SHA:** ${{ github.sha.substring(0,7) }}`,
+              ``,
+              `Created automatically by CI failure tracker.`,
+            ].join('\n');
+            const query = `
+              mutation {
+                issueCreate(input: {
+                  title: "${title.replace(/"/g, '\\"')}",
+                  description: "${desc.replace(/"/g, '\\"').replace(/\\n/g, '\\n')}",
+                  teamId: "bbd2b9e0-e644-4717-9074-8d0eaa3f150a",
+                  priority: 2,
+                  labelIds: ["713eee90-d169-40a6-98b8-7c71502b9855", "73cc7952-aca3-48f9-8bbd-1193c20fdfe2"]
+                }) {
+                  issue { id identifier }
+                }
+              }
+            `;
+            const res = await fetch('https://api.linear.app/graphql', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': process.env.LINEAR_API_KEY },
+              body: JSON.stringify({ query })
+            });
+            const data = await res.json();
+            if (data.data?.issueCreate?.issue) {
+              console.log(`Created Linear issue: ${data.data.issueCreate.issue.identifier}`);
+            }
