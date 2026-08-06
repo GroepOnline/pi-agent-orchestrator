@@ -29,9 +29,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-          # Need credentials for the version-transition fetch below; without
-          # them `git fetch origin main` fails on transferred org remotes.
-          persist-credentials: true
+          # Keep credentials off the working tree. Version-transition prefers the
+          # PR base SHA already present from fetch-depth:0; any fallback fetch
+          # uses the job token explicitly (bare `git fetch origin main` exits
+          # 128 on transferred org remotes when auth is stripped).
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -49,10 +51,27 @@ jobs:
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
           CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          git remote set-url origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
-          git fetch origin main
-          node scripts/verify-version-transition.mjs origin/main HEAD "$CURRENT_BRANCH"
+          set -euo pipefail
+          # Prefer PR base SHA (normally already local with fetch-depth: 0).
+          # Do not use bare `git fetch origin main` — after org transfer that
+          # prompts for HTTPS credentials and fails the Quality gate with 128
+          # immediately after verify:release-policy.
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              git fetch --no-tags \
+                "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+                "${BASE_SHA}"
+            fi
+            node scripts/verify-version-transition.mjs "${BASE_SHA}" HEAD "$CURRENT_BRANCH"
+          else
+            git fetch --no-tags \
+              "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "+refs/heads/main:refs/remotes/origin/main"
+            node scripts/verify-version-transition.mjs origin/main HEAD "$CURRENT_BRANCH"
+          fi
 
       - name: Typecheck
         run: npm run typecheck
@@ -195,8 +214,10 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # GroepOnline transfer: Dependency graph / GHAS may be off until org
-    # security settings catch up. Soft-fail so cutover PRs are not blocked.
+    # GroepOnline transfer: Dependency graph / GHAS is often still off. Probe
+    # first and skip the action when unsupported so the check is green (not a
+    # red FAILURE that leaves the PR UNSTABLE). continue-on-error remains as a
+    # belt-and-suspenders for race/transient GHAS gaps — same class as #1.
     continue-on-error: true
     permissions:
       contents: read
@@ -206,7 +227,32 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Detect Dependency graph support
+        id: depgraph
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/dep-graph-probe.json -w '%{http_code}' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}" || true)
+          case "$code" in
+            200)
+              echo "supported=true" >> "$GITHUB_OUTPUT"
+              echo "Dependency graph available (HTTP 200); running review."
+              ;;
+            *)
+              echo "supported=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Dependency graph/GHAS unavailable (HTTP ${code:-curl-failed}); skipping dependency-review-action for org cutover."
+              ;;
+          esac
+
       - name: Review dependency changes
+        if: steps.depgraph.outputs.supported == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
