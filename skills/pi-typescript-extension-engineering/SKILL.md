@@ -61,7 +61,7 @@ For `pi-agent-orchestrator`, preserve its three-way boundary:
 
 - Pi TUI shapes are mirrored in `src/ui/tui-shim.ts`.
 - Required `@earendil-works/pi-coding-agent`, `pi-ai`, and `pi-agent-core` types are imported at named boundary sites.
-- Optional `@onlinechef/context-mode` behavior remains feature-gated in `src/context-mode-bridge.ts`.
+- Optional `@groeponline/context-mode` behavior remains feature-gated in `src/context-mode-bridge.ts`.
 
 ## Schema and tool design
 

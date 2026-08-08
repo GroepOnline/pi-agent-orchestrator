@@ -127,7 +127,7 @@ export function normalizeBuiltinToolNames(names: readonly string[] | undefined):
 }
 
 /**
- * Context-mode sandbox tool names from @onlinechef/context-mode (optional dependency).
+ * Context-mode sandbox tool names from @groeponline/context-mode (optional dependency).
  *
  * Re-exported here from `./ctx-tool-names.ts` for back-compat — pre-existing
  * consumers (notably `test/e2e-chain.test.ts`) import `CTX_TOOL_NAMES` from

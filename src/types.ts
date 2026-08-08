@@ -118,7 +118,7 @@ export interface AgentConfig {
     compactionKeepTurns?: number;
     /** Partitioned state: mapping partition name → allowed tool names for that partition. */
     partitionMembership?: Record<string, readonly string[]>;
-    /** Enable @onlinechef/context-mode ctx_* tools for sandboxed code execution and search. */
+    /** Enable @groeponline/context-mode ctx_* tools for sandboxed code execution and search. */
     useContextMode?: boolean;
     /** Per-agent prompt compression override. Falls back to global setting. */
     promptCompressionLevel?: PromptCompressionLevel;

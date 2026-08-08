@@ -51,7 +51,7 @@ this extension):
 
 - The Pi host platform ("@earendil-works/pi-coding-agent",
   "@earendil-works/pi-ai", "@earendil-works/pi-agent-core").
-- The optional "@onlinechef/context-mode" peer extension.
+- The optional "@groeponline/context-mode" peer extension.
 - Your local Pi host, your model provider, and your machine.
 
 ## A note on this project

@@ -1,5 +1,5 @@
 /**
- * context-mode-bridge.ts — Bridge between pi-subagents and @onlinechef/context-mode.
+ * context-mode-bridge.ts — Bridge between pi-subagents and @groeponline/context-mode.
  *
  * Provides optional ctx_* tool injection for sub-agents. When context-mode is
  * installed, sub-agents gain sandboxed code execution and BM25 FTS5 search.
@@ -17,7 +17,7 @@ import { CTX_TOOL_NAMES } from "./ctx-tool-names.js";
 let _contextModeAvailable: boolean | null = null;
 
 /**
- * Check if @onlinechef/context-mode is installed in the runtime.
+ * Check if @groeponline/context-mode is installed in the runtime.
  * Uses synchronous module resolution — pi's runtime provides `require`.
  * Cached after first call for zero-cost repeat checks.
  */
@@ -26,7 +26,7 @@ export function isContextModeAvailable(): boolean {
 
   try {
     // Synchronous resolution works in pi's ESM+CJS hybrid runtime
-    require.resolve("@onlinechef/context-mode");
+    require.resolve("@groeponline/context-mode");
     _contextModeAvailable = true;
   } catch {
     _contextModeAvailable = false;
@@ -51,7 +51,7 @@ export function getCtxToolNames(): string[] {
 export function buildCtxRoutingBlock(): string {
   return `# Context Mode Sandbox Tools
 
-You have access to sandboxed code execution and knowledge base tools via @onlinechef/context-mode. These save context by running data analysis in an isolated sandbox instead of flooding the LLM context window.
+You have access to sandboxed code execution and knowledge base tools via @groeponline/context-mode. These save context by running data analysis in an isolated sandbox instead of flooding the LLM context window.
 
 ## Available Tools
 

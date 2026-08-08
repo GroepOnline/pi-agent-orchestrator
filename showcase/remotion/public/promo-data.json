@@ -57,7 +57,7 @@
     {
       "Type": "Analysis",
       "Mode": "read-only + `ctx_*`",
-      "Use when": "Sandboxed data or compute through optional `@onlinechef/context-mode`"
+      "Use when": "Sandboxed data or compute through optional `@groeponline/context-mode`"
     },
     {
       "Type": "general-purpose",

@@ -58,7 +58,7 @@
     "@earendil-works/pi-coding-agent": ">=0.81.1"
   },
   "peerDependenciesMeta": {
-    "@onlinechef/context-mode": {
+    "@groeponline/context-mode": {
       "optional": true
     },
     "@earendil-works/pi-ai": {

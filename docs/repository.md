@@ -30,4 +30,4 @@ Published to GitHub Packages (`npm.pkg.github.com`). Install via `pi install npm
 
 | Package | Repository |
 |---------|------------|
-| `@onlinechef/context-mode` | optional peer (sandbox tools) |
+| `@groeponline/context-mode` | optional peer (sandbox tools) |

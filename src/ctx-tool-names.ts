@@ -1,5 +1,5 @@
 /**
- * ctx-tool-names.ts — Canonical list of @onlinechef/context-mode tool names.
+ * ctx-tool-names.ts — Canonical list of @groeponline/context-mode tool names.
  *
  * This is the **single source of truth** for the `CTX_TOOL_NAMES` constant.
  * Both `agent-types.ts` (which appends them to the agent's tool allowlist when
@@ -22,7 +22,7 @@
  * leaves of the import graph that everything else safely depends on.
  */
 
-/** List of `ctx_*` sandbox tool names provided by the optional `@onlinechef/context-mode` peer dependency. */
+/** List of `ctx_*` sandbox tool names provided by the optional `@groeponline/context-mode` peer dependency. */
 export const CTX_TOOL_NAMES: readonly string[] = [
   "ctx_execute",
   "ctx_execute_file",

@@ -110,7 +110,7 @@ The templates deliberately avoid automatic merge, publish, tag, or deploy action
 | --- | --- | --- |
 | Explore | read-only | Parallel codebase discovery and evidence collection |
 | Plan | read-only | Architecture and implementation planning before edits |
-| Analysis | read-only + `ctx_*` | Sandboxed data or compute through optional `@onlinechef/context-mode` |
+| Analysis | read-only + `ctx_*` | Sandboxed data or compute through optional `@groeponline/context-mode` |
 | general-purpose | full tools | Bounded implementation and multi-step execution |
 
 Create project agents in `.pi/agents/*.md`. See [Custom Agents](docs/custom-agents.md) for the complete frontmatter schema.

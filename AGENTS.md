@@ -10,7 +10,7 @@ Pi extension — runs inside the pi coding agent host, not standalone. Orchestra
 |------|--------|
 | **Spawn SSOT** | `src/default-agents.ts` (built-ins), `.pi/agents/*.md` (custom overrides), `src/settings.ts` + `.pi/subagents.json` (runtime) |
 | **Never** | Import `@earendil-works/pi-*` as direct deps; treat YAML booleans as truthy strings; sort agent lists (Map insertion order is intentional) |
-| **Peer extensions** | `@onlinechef/context-mode` → `ctx_*` tools (optional, feature-gated) |
+| **Peer extensions** | `@groeponline/context-mode` → `ctx_*` tools (optional, feature-gated) |
 
 ## V2 implementation lane
 
@@ -97,7 +97,7 @@ For modules where ALL imports are types, use the strict form `import type { Foo 
 
 ### 4. Host platform packages are NEVER direct deps
 
-> **Scope:** This rule covers `@earendil-works/pi-*` host-platform packages. The optional peer `@onlinechef/context-mode` is unrelated to that scope and falls under the third category below.
+> **Scope:** This rule covers `@earendil-works/pi-*` host-platform packages. The optional peer `@groeponline/context-mode` is unrelated to that scope and falls under the third category below.
 
 The host platform packages are libraries **used by** the host runtime, not the host itself. Never `import` from them in a way that assumes the package is present at runtime.
 
@@ -105,7 +105,7 @@ Three distinct categories:
 
 - **Category A — Avoidable platform types → local compat shim.** `@earendil-works/pi-tui` must never be imported: every shape this extension consumes (`Component`, `TUI`, `Text`, `visibleWidth`, `truncateToWidth`, `wrapTextWithAnsi`, `matchesKey`) is declared locally in `src/ui/tui-shim.ts`. The shim mirrors the host's `Component` exactly so structural typing aligns at boundary sites (e.g. `defineTool({ renderCall })`, `registerMessageRenderer`, `ctx.ui.custom(factory)`). Do not re-introduce any direct import of `@earendil-works/pi-tui`.
 - **Category B — Unavoidable platform types → `import type` at named sites.** `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, and `@earendil-works/pi-agent-core` (`pi-agent-core` is in `devDependencies` for the `ThinkingLevel` type currently consumed at `src/types.ts:5`, plus the agent-loop + session type family for future use) are required deps of this extension, so their type surfaces (`ExtensionCommandContext`, `AgentSession`, `Model`, `TextContent`, `ThinkingLevel`, the `defineTool` / `registerMessageRenderer` / `registerTool` signatures) are unavoidable. Import those types directly with `import type` at the call sites that need them. They are required, not optional.
-- **Category C — Optional peer → feature detection.** `@onlinechef/context-mode` is an OPTIONAL peer (separate scope, `@onlinechef/*`) that gates the `ctx_*` tools. That case DOES use the dynamic-import / feature-detection pattern, kept in `src/context-mode-bridge.ts`. This category is the only one where feature detection is appropriate — do not apply it to Category B packages.
+- **Category C — Optional peer → feature detection.** `@groeponline/context-mode` is an OPTIONAL peer (separate scope, `@groeponline/*`) that gates the `ctx_*` tools. That case DOES use the dynamic-import / feature-detection pattern, kept in `src/context-mode-bridge.ts`. This category is the only one where feature detection is appropriate — do not apply it to Category B packages.
 
 ### 5. Windows schedule tests are known-flaky
 
@@ -161,7 +161,7 @@ Use `.test.ts` extension. Use `describe`/`it`/`expect` from vitest. Do not co-lo
 
 ## Optional peer deps
 
-`@onlinechef/context-mode` enables `ctx_*` sandbox tools. Its code path is gated behind feature detection (`src/context-mode-bridge.ts`).
+`@groeponline/context-mode` enables `ctx_*` sandbox tools. Its code path is gated behind feature detection (`src/context-mode-bridge.ts`).
 
 ## Settings reference
 
