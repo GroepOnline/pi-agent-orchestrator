@@ -1,12 +1,12 @@
 # Pi Agent Orchestrator — Full Context
 
-> Source-grounded context for agents working with @onlinechefgroep/pi-agent-orchestrator.
+> Source-grounded context for agents working with @groeponline/pi-agent-orchestrator.
 
 ## Product
 
 Pi Agent Orchestrator is an ES-module Pi extension. It runs inside the Pi coding-agent host and does not operate as a standalone agent server. The package adds autonomous sub-agent orchestration, permission inheritance, structured handoffs, recurring schedules, swarm coordination, prompt compression, and a responsive terminal dashboard.
 
-Package: `@onlinechefgroep/pi-agent-orchestrator`
+Package: `@groeponline/pi-agent-orchestrator`
 License: MIT
 Runtime: Node.js 22 or newer
 Entry point: `dist/index.js` through `package.json` → `pi.extensions`
@@ -14,13 +14,13 @@ Entry point: `dist/index.js` through `package.json` → `pi.extensions`
 ## Installation
 
 ```bash
-pi install npm:@onlinechefgroep/pi-agent-orchestrator
+pi install npm:@groeponline/pi-agent-orchestrator
 ```
 
 Install locally for one project:
 
 ```bash
-pi install npm:@onlinechefgroep/pi-agent-orchestrator -l
+pi install npm:@groeponline/pi-agent-orchestrator -l
 ```
 
 Open the dashboard from a Pi session with `/agents`.

@@ -38,7 +38,7 @@ No unreleased changes. The repository remains locked to the 0.18.x stabilization
 
 ### Changed
 
-- Package scope migrated from `@onlinechefgroep` to `@groeponline` after the
+- Package scope migrated from `@groeponline` to `@groeponline` after the
   GitHub organization rename to GroepOnline. New installs come from
   `@groeponline/pi-agent-orchestrator`.
 - Host baseline bumped to `@earendil-works/pi-*` **0.81.1** (peers `>=0.81.1`).
@@ -650,7 +650,7 @@ This release transforms the extension from an internal project into a fully acce
 - **Deferred context engine**: Build context at session.create boundary, saving 15-48% tokens on queued agents. (from Droid Factory)
 - **Dual-phase compaction**: Prune old tool outputs + per-agent memory limits (default keep 5 turns). (from OpenCode)
 - **Partitioned agent state**: Isolated tool/skill subsets per partition. No cross-contamination. (from OpenCode)
-- **Context-mode-fork integration**: Optional ctx_* sandbox tool injection. New "Analysis" default agent type. (@onlinechef/context-mode peerDependency)
+- **Context-mode-fork integration**: Optional ctx_* sandbox tool injection. New "Analysis" default agent type. (@groeponline/context-mode peerDependency)
 - **Code health**: Removed agent-registry.ts duplication. Fixed 35 pre-existing schedule test failures.
 
 ### 📊 Metrics

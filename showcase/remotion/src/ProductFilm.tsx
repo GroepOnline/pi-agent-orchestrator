@@ -134,7 +134,7 @@ const IntroScene = ({version, tagline}: {version: string; tagline: string}) => {
           }}
         >
           <div style={{opacity: titleIn, transform: `translateX(${(1 - titleIn) * -30}px)`}}>
-            <Eyebrow>OnlineChefGroep / Pi extension</Eyebrow>
+            <Eyebrow>GroepOnline / Pi extension</Eyebrow>
             <div
               style={{
                 marginTop: 26,
@@ -439,7 +439,7 @@ const OutcomeScene = ({version, repository}: {version: string; repository: strin
             >
               <div style={{fontFamily: jetBrainsMonoFamily, fontSize: 22}}>
                 <span style={{color: theme.ok}}>➜ </span>
-                pi install npm:@onlinechefgroep/pi-agent-orchestrator
+                pi install npm:@groeponline/pi-agent-orchestrator
               </div>
               <div style={{marginTop: 12, color: theme.muted, fontFamily: jetBrainsMonoFamily, fontSize: 15}}>
                 {repository.replace("https://", "")}
