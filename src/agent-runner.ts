@@ -415,9 +415,26 @@ function getLastAssistantError(session: AgentSession): string | undefined {
   return undefined;
 }
 
-function forwardAbortSignal(session: AgentSession, signal?: AbortSignal): () => void {
+function forwardAbortSignal(
+  session: AgentSession,
+  signal?: AbortSignal,
+  onExternalAbort?: () => void,
+): () => void {
   if (!signal) return () => {};
-  const onAbort = () => session.abort();
+  const onAbort = () => {
+    // Mark the run aborted first so prompt()'s AbortError is treated as a
+    // graceful stop (CHE-19). Always abort the session even if the callback
+    // throws — cancellation must propagate.
+    try {
+      onExternalAbort?.();
+    } finally {
+      session.abort();
+    }
+  };
+  if (signal.aborted) {
+    onAbort();
+    return () => {};
+  }
   signal.addEventListener("abort", onAbort, { once: true });
   return () => signal.removeEventListener("abort", onAbort);
 }
@@ -772,9 +789,11 @@ ${chefPreflight.systemPromptAddition}`;
 
   let currentMessageText = "";
   const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
-    // Quota checks — guard re-entry: once timed out, stop re-aborting on
-    // every subsequent event (session.abort() can emit synchronously).
-    if (timedOut) return;
+    // Quota checks — guard re-entry: once timed out *or* externally aborted,
+    // stop re-aborting on every subsequent event (session.abort() can emit
+    // synchronously). Also prevents an external cancel from being mis-labeled
+    // as timedOut when duration has already elapsed (CHE-19 / CodeRabbit).
+    if (timedOut || aborted) return;
     if (checkDurationQuota()) {
       const elapsedMs = performance.now() - startTime;
       logger.warn(`Duration quota exceeded`, {
@@ -956,7 +975,9 @@ ${chefPreflight.systemPromptAddition}`;
   });
 
   const collector = collectResponseText(session);
-  const cleanupAbort = forwardAbortSignal(session, options.signal);
+  const cleanupAbort = forwardAbortSignal(session, options.signal, () => {
+    aborted = true;
+  });
   let gatedResponseText = "";
 
   try {
@@ -1018,11 +1039,13 @@ ${chefPreflight.systemPromptAddition}`;
       }
     }
   } catch (err) {
-    // A duration-quota (or token/tool) abort makes the active session.prompt()
-    // reject with an AbortError. That is the *expected* outcome of our own
-    // graceful abort — swallow it so runAgent resolves with { aborted, timedOut }
-    // instead of throwing and masking the timeout as an error.
-    if ((timedOut || aborted) && isAbortError(err)) {
+    // A duration-quota (or token/tool) abort — or an external AbortSignal —
+    // makes the active session.prompt() reject with an AbortError. That is the
+    // *expected* outcome of a graceful stop — swallow it so runAgent resolves
+    // with { aborted, timedOut } instead of throwing and masking the stop as an
+    // error (CHE-19 for external signals; quota path already set aborted=true).
+    if ((timedOut || aborted || options.signal?.aborted) && isAbortError(err)) {
+      aborted = true;
       // fall through to the graceful return path below
     } else {
     // End agent span with error status
@@ -1061,7 +1084,7 @@ ${chefPreflight.systemPromptAddition}`;
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);
   let runError: string | undefined;
-  const modelError = getLastAssistantError(session);
+  const modelError = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
   if (!responseText && modelError) {
     // The run produced no text because the model/provider errored on its final
     // turn (e.g. 401 auth, unavailable model). Surface it instead of returning
@@ -1083,7 +1106,7 @@ ${chefPreflight.systemPromptAddition}`;
 
   // Structured handoff parsing
   let handoff: AgentHandoff | undefined;
-  if (agentConfig?.handoff) {
+  if (!aborted && !options.signal?.aborted && agentConfig?.handoff) {
     const parsed = parseHandoff(responseText);
     if (parsed) {
       handoff = parsed;
@@ -1095,7 +1118,7 @@ ${chefPreflight.systemPromptAddition}`;
   let validationResults: ValidationResult[] | undefined;
   let validated: boolean | undefined;
 
-  if (!options.skipValidators && hasValidators(agentConfig)) {
+  if (!aborted && !options.signal?.aborted && !options.skipValidators && hasValidators(agentConfig)) {
     const result = await runAdversarialValidation(
       session,
       ctx,

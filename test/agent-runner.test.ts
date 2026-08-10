@@ -753,6 +753,73 @@ describe("duration quota (regression: must not crash the host)", () => {
   });
 });
 
+describe("external AbortSignal (CHE-19)", () => {
+  it("resolves with aborted=true instead of throwing when the caller aborts", async () => {
+    // External abort (manager.abort / parent signal) used to call session.abort()
+    // without setting the local aborted flag, so AbortError from prompt() was
+    // re-thrown as a subagent:error / OTel error span.
+    const controller = new AbortController();
+    const { session } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      controller.abort();
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", {
+      pi,
+      signal: controller.signal,
+      quotas: { maxDurationMs: 60_000 },
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(session.abort).toHaveBeenCalled();
+  });
+
+  it("treats an already-aborted signal as a graceful stop", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { session } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", {
+      pi,
+      signal: controller.signal,
+      quotas: { maxDurationMs: 60_000 },
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(session.abort).toHaveBeenCalled();
+  });
+
+  it("does not label an external cancel as timedOut when duration has also elapsed", async () => {
+    // External abort must not be reclassified as a duration timeout when the
+    // abort event re-enters the subscriber after maxDurationMs has elapsed.
+    const controller = new AbortController();
+    const { session, listeners } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      controller.abort();
+      for (const l of listeners) l({ type: "turn_start" } as AgentSessionEvent);
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", {
+      pi,
+      signal: controller.signal,
+      // Already elapsed — would trip the duration quota if aborted weren't guarded.
+      quotas: { maxDurationMs: -1 },
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(result.timedOut).toBe(false);
+  });
+});
+
 describe("ModelCircuitBreaker", () => {
   it("resets consecutive failures to 0 on a successful call in closed state", async () => {
     // Reset/ensure closed state and 0 failures
