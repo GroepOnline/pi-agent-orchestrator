@@ -210,7 +210,7 @@ describe("0.18 release policy", () => {
     const policy = JSON.parse(readRoot(".release-policy.json"));
     expect(policy.releaseTrain).toBe("0.18");
     expect(policy.initialRelease).toBe("0.18.0");
-    expect(policy.sourceBaselines).toEqual(["0.17.1", "0.17.5", "0.17.6"]);
+    expect(policy.sourceBaselines).toEqual(["0.17.1", "0.17.5", "0.17.6", "0.18.0"]);
     expect(policy.allowPrerelease).toBe(false);
     expect(policy.blockedNextMinor).toBe("0.19.0");
     expect(policy.releaseCommitTitle).toBe("chore(release): v0.18.0");
