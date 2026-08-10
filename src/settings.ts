@@ -59,10 +59,6 @@ export interface SubagentsSettings {
   showAgentTopWidget?: boolean;
   orchestrationMode?: OrchestrationMode;
   dashboardRefreshInterval?: number;
-  /** @deprecated Alias for `maxAgentsPerSession`; still loaded from JSON for one release. */
-  sessionMaxSpawns?: number;
-  /** @deprecated Alias for `maxTotalTurnsPerSession`; still loaded from JSON for one release. */
-  sessionMaxTurns?: number;
   promptCompressionLevel?: PromptCompressionLevel;
   debugCapture?: boolean;
   debugCapturePaths?: DebugCapturePathOverrides;
@@ -191,13 +187,21 @@ function sanitize(raw: unknown): SubagentsSettings {
     ["maxTotalTurnsPerSession", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING],
     ["graceTurns", 1, GRACE_TURNS_CEILING],
     ["dashboardRefreshInterval", 100, 60_000],
-    ["sessionMaxSpawns", 1, MAX_AGENTS_PER_SESSION_CEILING],
-    ["sessionMaxTurns", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING],
   ] as const;
 
   for (const [key, min, max] of integerFields) {
     const value = validateInt(source, key, min, max, 0);
     if (value > 0) (settings as Record<string, unknown>)[key] = value;
+  }
+
+  // Migrate deprecated aliases into canonical keys without retaining duplicate state.
+  if (settings.maxAgentsPerSession === undefined) {
+    const legacy = validateInt(source, "sessionMaxSpawns", 1, MAX_AGENTS_PER_SESSION_CEILING, 0);
+    if (legacy > 0) settings.maxAgentsPerSession = legacy;
+  }
+  if (settings.maxTotalTurnsPerSession === undefined) {
+    const legacy = validateInt(source, "sessionMaxTurns", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING, 0);
+    if (legacy > 0) settings.maxTotalTurnsPerSession = legacy;
   }
 
   const defaultMaxTurns = validateInt(source, "defaultMaxTurns", 0, MAX_TURNS_CEILING, -1);
@@ -301,29 +305,35 @@ export function loadSettings(cwd: string = process.cwd()): SubagentsSettings {
   return { ...readSettingsFile(globalPath()), ...readSettingsFile(projectPath(cwd)) };
 }
 
+/** Resolve canonical session limits. */
+export function resolveSessionLimits(settings: SubagentsSettings): {
+  maxAgentsPerSession?: number;
+  maxTotalTurnsPerSession?: number;
+} | undefined {
+  const { maxAgentsPerSession, maxTotalTurnsPerSession } = settings;
+  if (typeof maxAgentsPerSession !== "number" && typeof maxTotalTurnsPerSession !== "number") {
+    return undefined;
+  }
+  return { maxAgentsPerSession, maxTotalTurnsPerSession };
+}
+
+/** Prepare settings for persistence with canonical session-limit keys only. */
+export function prepareSettingsForSave(settings: SubagentsSettings): SubagentsSettings {
+  const limits = resolveSessionLimits(settings);
+  const canonical = limits ? { ...settings, ...limits } : { ...settings };
+  return stripDeprecatedSessionLimitAliases(canonical);
+}
+
 /** Persist project-local settings. Global defaults are never mutated. */
 export function saveSettings(settings: SubagentsSettings, cwd: string = process.cwd()): boolean {
   const path = projectPath(cwd);
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
+    writeFileSync(path, JSON.stringify(prepareSettingsForSave(settings), null, 2), "utf-8");
     return true;
   } catch {
     return false;
   }
-}
-
-/** Resolve canonical session limits, falling back to deprecated JSON aliases. */
-export function resolveSessionLimits(settings: SubagentsSettings): {
-  maxAgentsPerSession?: number;
-  maxTotalTurnsPerSession?: number;
-} | undefined {
-  const maxAgentsPerSession = settings.maxAgentsPerSession ?? settings.sessionMaxSpawns;
-  const maxTotalTurnsPerSession = settings.maxTotalTurnsPerSession ?? settings.sessionMaxTurns;
-  if (typeof maxAgentsPerSession !== "number" && typeof maxTotalTurnsPerSession !== "number") {
-    return undefined;
-  }
-  return { maxAgentsPerSession, maxTotalTurnsPerSession };
 }
 
 /** Drop deprecated session-limit aliases before persisting canonical keys. */
@@ -400,7 +410,7 @@ export function saveAndEmitChanged(
   // wipe them. Merge the snapshot over the persisted project file first, so
   // any field absent from the snapshot is carried through unchanged.
   const persistedFile = readSettingsFile(projectPath(cwd));
-  const merged = stripDeprecatedSessionLimitAliases({ ...persistedFile, ...snapshot });
+  const merged = prepareSettingsForSave({ ...persistedFile, ...snapshot });
   const persisted = saveSettings(merged, cwd);
   emit("subagents:settings_changed", { settings: merged, persisted });
   return persistToastFor(successMessage, persisted);
