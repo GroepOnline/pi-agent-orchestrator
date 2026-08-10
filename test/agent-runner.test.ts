@@ -81,7 +81,19 @@ vi.mock("../src/skill-loader.js", () => ({
 }));
 
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { AgentRunnerError, getGraceTurns, getMaxEndHookRevisions, globalCircuitBreaker, resolveConfiguredModel, resumeAgent, runAgent, setGraceTurns, setMaxEndHookRevisions } from "../src/agent-runner.js";
+import { getAgentConfig } from "../src/agent-types.js";
+import {
+  AgentRunnerError,
+  getGraceTurns,
+  getMaxEndHookRevisions,
+  globalCircuitBreaker,
+  isModelAuthFailure,
+  resolveConfiguredModel,
+  resumeAgent,
+  runAgent,
+  setGraceTurns,
+  setMaxEndHookRevisions,
+} from "../src/agent-runner.js";
 import { HookRegistry } from "../src/hooks.js";
 
 function createSession(finalText: string): {
@@ -192,6 +204,50 @@ function createSessionWithRecoveredError(errorMessage: string): {
   return { session, listeners };
 }
 
+/**
+ * First prompt: soft 401 on the pinned model. After setModel(parent), the
+ * second prompt succeeds — the CHE-15 Explore auth-fallback path.
+ */
+function createSessionWithAuthFallback(errorMessage: string, recoveredText: string): {
+  session: AgentSession;
+  listeners: Array<(event: AgentSessionEvent) => void>;
+} {
+  const listeners: Array<(event: AgentSessionEvent) => void> = [];
+  let call = 0;
+  const session = {
+    messages: [] as AgentSession["messages"],
+    subscribe: vi.fn((listener: (event: AgentSessionEvent) => void) => {
+      listeners.push(listener);
+      return () => {};
+    }),
+    prompt: vi.fn(async () => {
+      call++;
+      if (call === 1) {
+        session.messages.push({
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage,
+        } as AgentSession["messages"][number]);
+        return;
+      }
+      session.messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: recoveredText }],
+        stopReason: "end_turn",
+      } as AgentSession["messages"][number]);
+    }),
+    setModel: vi.fn(async () => {}),
+    abort: vi.fn(),
+    steer: vi.fn(),
+    getActiveToolNames: vi.fn(() => ["read"]),
+    setActiveToolsByName: vi.fn(),
+    setSessionName: vi.fn(),
+    bindExtensions: vi.fn(async () => {}),
+  } as unknown as AgentSession;
+  return { session, listeners };
+}
+
 const ctx = {
   cwd: "/tmp",
   model: { provider: "test", id: "test-model" },
@@ -237,6 +293,104 @@ describe("resolveConfiguredModel (subagentModel setting override)", () => {
 
   it("returns undefined when neither setting nor agent model is set", () => {
     expect(resolveConfiguredModel(undefined, undefined)).toBeUndefined();
+  });
+});
+
+describe("isModelAuthFailure (CHE-15)", () => {
+  it("matches PAID_MODEL_AUTH_REQUIRED and 401 auth shapes", () => {
+    expect(isModelAuthFailure("PAID_MODEL_AUTH_REQUIRED")).toBe(true);
+    expect(isModelAuthFailure('401: {"message":"User not found.","code":401}')).toBe(true);
+    expect(isModelAuthFailure("authentication required")).toBe(true);
+  });
+
+  it("does not treat rate limits as auth failures (no parent-model retry)", () => {
+    expect(isModelAuthFailure("429 rate limit exceeded")).toBe(false);
+    expect(isModelAuthFailure("model overloaded")).toBe(false);
+  });
+});
+
+describe("pinned-model auth fallback to session-default (CHE-15)", () => {
+  const pinned = { provider: "anthropic", id: "claude-haiku-4-5" };
+
+  beforeEach(() => {
+    vi.mocked(getAgentConfig).mockReturnValue({
+      name: "Explore",
+      description: "Explore",
+      builtinToolNames: ["read"],
+      extensions: false,
+      skills: false,
+      systemPrompt: "You are Explore.",
+      promptMode: "replace",
+      inheritContext: false,
+      runInBackground: false,
+      isolated: false,
+      model: "anthropic/claude-haiku-4-5",
+    } as ReturnType<typeof getAgentConfig>);
+    (ctx.modelRegistry.find as ReturnType<typeof vi.fn>).mockImplementation(
+      (provider: string, modelId: string) =>
+        provider === pinned.provider && modelId === pinned.id ? pinned : undefined,
+    );
+    (ctx.modelRegistry.getAvailable as ReturnType<typeof vi.fn>).mockReturnValue([
+      pinned,
+      ctx.model,
+    ]);
+  });
+
+  afterEach(() => {
+    vi.mocked(getAgentConfig).mockReset();
+    vi.mocked(getAgentConfig).mockReturnValue({
+      name: "Explore",
+      description: "Explore",
+      builtinToolNames: ["read"],
+      extensions: false,
+      skills: false,
+      systemPrompt: "You are Explore.",
+      promptMode: "replace",
+      inheritContext: false,
+      runInBackground: false,
+      isolated: false,
+    } as ReturnType<typeof getAgentConfig>);
+    (ctx.modelRegistry.find as ReturnType<typeof vi.fn>).mockReset();
+    (ctx.modelRegistry.getAvailable as ReturnType<typeof vi.fn>).mockReturnValue([]);
+  });
+
+  it("retries on the parent model after a pinned-model 401", async () => {
+    const errorMessage = 'PAID_MODEL_AUTH_REQUIRED: 401 {"message":"User not found."}';
+    const { session } = createSessionWithAuthFallback(errorMessage, "explored ok");
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx as any, "Explore", "scan src/", { pi });
+
+    expect(session.setModel).toHaveBeenCalledWith(ctx.model);
+    expect(session.prompt).toHaveBeenCalledTimes(2);
+    expect(result.error).toBeUndefined();
+    expect(result.responseText).toBe("explored ok");
+  });
+
+  it("does not fallback when options.model pins the run explicitly", async () => {
+    const { session } = createSessionWithError('401: {"message":"User not found.","code":401}');
+    (session as any).setModel = vi.fn(async () => {});
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx as any, "Explore", "scan", {
+      pi,
+      model: pinned as any,
+    });
+
+    expect(session.setModel).not.toHaveBeenCalled();
+    expect(session.prompt).toHaveBeenCalledTimes(1);
+    expect(result.error).toContain("401");
+  });
+
+  it("does not fallback on non-auth model failures (e.g. 429)", async () => {
+    const { session } = createSessionWithError("429 rate limit exceeded");
+    (session as any).setModel = vi.fn(async () => {});
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx as any, "Explore", "scan", { pi });
+
+    expect(session.setModel).not.toHaveBeenCalled();
+    expect(result.error).toContain("429");
   });
 });
 

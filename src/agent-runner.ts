@@ -170,17 +170,32 @@ export function isModelTransportFailure(err: unknown): boolean {
 
 export function isModelFailureMessage(message: string): boolean {
   return (
-    /PAID_MODEL_AUTH_REQUIRED/i.test(message)
-    || /\b401\b/.test(message)
+    isModelAuthFailure(message)
     || /\b403\b/.test(message)
     || /\b429\b/.test(message)
     || /rate[\s_-]?limit/i.test(message)
     || /model\s+(?:unavailable|not\s+found)/i.test(message)
     || /overloaded/i.test(message)
     || /insufficient[\s_-]?quota/i.test(message)
+  );
+}
+
+/**
+ * Auth-shaped model failures that justify one automatic retry on the
+ * session-default (parent) model — e.g. Explore's pinned haiku returning
+ * PAID_MODEL_AUTH_REQUIRED / 401 while the parent model still works (CHE-15).
+ */
+export function isModelAuthFailure(message: string): boolean {
+  return (
+    /PAID_MODEL_AUTH_REQUIRED/i.test(message)
+    || /\b401\b/.test(message)
     || /auth(?:entication|orization)?\s+(?:failed|required|error|denied)/i.test(message)
     || /User not found/i.test(message)
   );
+}
+
+function modelKey(model: Model<Api>): string {
+  return `${model.provider}/${model.id}`;
 }
 
 class ModelCircuitBreaker {
@@ -1065,6 +1080,36 @@ ${chefPreflight.systemPromptAddition}`;
   try {
     await promptWithCircuitBreaker(session, effectivePrompt);
     gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+
+    // CHE-15: a built-in pin (Explore → anthropic/claude-haiku-4-5) can 401 with
+    // PAID_MODEL_AUTH_REQUIRED while the session-default model still works.
+    // Retry once on the parent model instead of failing the spawn cold.
+    // Skip when the caller already chose options.model, when we were already
+    // on the parent (inherit / unavailable pin), or when output was produced.
+    const authError = !aborted && !options.signal?.aborted
+      ? getLastAssistantError(session)
+      : undefined;
+    const parentModel = ctx.model;
+    const canFallbackToParent =
+      !options.model
+      && !gatedResponseText
+      && !!authError
+      && isModelAuthFailure(authError)
+      && !!configuredModel
+      && !!parentModel
+      && modelKey(model) !== modelKey(parentModel);
+
+    if (canFallbackToParent && parentModel) {
+      logger.warn("Pinned model auth failed; falling back to session-default model", {
+        agentId: options.agentId ?? "unknown",
+        from: modelKey(model),
+        to: modelKey(parentModel),
+        error: authError,
+      });
+      await session.setModel(parentModel);
+      await promptWithCircuitBreaker(session, effectivePrompt);
+      gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+    }
 
     if (options.hooks) {
       const revisionBudget = clampMaxEndHookRevisions(
