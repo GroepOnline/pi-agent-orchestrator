@@ -35,6 +35,14 @@ function readAt(ref, path) {
   return git(["show", `${ref}:${path}`]);
 }
 
+function npmHasVersion(version) {
+  const result = spawnSync("npm", ["view", `@groeponline/pi-agent-orchestrator@${version}`, "version"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return result.status === 0 && result.stdout.trim() === version;
+}
+
 function existsAt(ref, path) {
   try {
     execFileSync("git", ["cat-file", "-e", `${ref}:${path}`], {
@@ -84,7 +92,16 @@ async function verify(parentRef, releaseRef, expectedVersion) {
     .split("\n")
     .filter(Boolean)
     .sort();
-  if (!sameJson(changed, [...expectedFiles].sort())) {
+  // Re-release: a previous attempt failed at a later gate, so the parent
+  // changelog already carries the target heading while npm never received
+  // the version. npm is the authority on "published" — if the exact version
+  // is absent, a partial re-finalization (e.g. CHANGELOG-only) is allowed
+  // as long as every changed file is within the expected set.
+  const parentChangelogForFlag = readAt(parentRef, "CHANGELOG.md");
+  const reRelease =
+    parentChangelogForFlag.includes(`## v${expectedVersion} (`) &&
+    !npmHasVersion(expectedVersion);
+  if (!reRelease && !sameJson(changed, [...expectedFiles].sort())) {
     const additionalRequirement = parentHasPromoData
       ? `; required additional file ${PROMO_DATA_PATH}`
       : "";
@@ -92,10 +109,13 @@ async function verify(parentRef, releaseRef, expectedVersion) {
       `changed files must be exactly ${ALLOWED_FILES.join(", ")}; received ${changed.join(", ")}${additionalRequirement}`,
     );
   }
+  if (reRelease && !changed.every((f) => [...expectedFiles].includes(f))) {
+    fail(`re-release changed unexpected files; received ${changed.join(", ")}`);
+  }
 
   const parentPackage = JSON.parse(readAt(parentRef, "package.json"));
   const releasePackage = JSON.parse(readAt(releaseRef, "package.json"));
-  if (!policy.sourceBaselines.includes(parentPackage.version)) {
+  if (!policy.sourceBaselines.includes(parentPackage.version) && !reRelease) {
     fail(`parent package version ${parentPackage.version} is not an approved source baseline`);
   }
   if (releasePackage.version !== expectedVersion) {
