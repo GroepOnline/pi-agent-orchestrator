@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-No unreleased changes. The repository remains locked to the 0.18.x stabilization train.
+### Fixed
+
+- **Workers without an explicit budget no longer run into the 10-minute duration quota and die silently** (from the 2026-08-10 268-session evaluation: 40/43 subagent aborts were `Duration quota exceeded`, median ~10min = `DEFAULT_MAX_DURATION_MS`). `defaultMaxTurns` now defaults to `30` instead of `undefined`, so every worker gets the soft-limit steer (with `graceTurns` headroom) and returns an end report before the duration kill fires. Oversized tasks should still pass an explicit `max_turns`.
+- Soft-limit steer message now demands an explicit end report (findings, done/blocked, file paths/SHAs) instead of a generic "wrap up".
 
 ---
 
