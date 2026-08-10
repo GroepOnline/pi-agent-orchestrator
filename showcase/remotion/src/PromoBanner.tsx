@@ -42,7 +42,7 @@ const PromoCard = ({compact = false}: PromoCardProps) => {
       >
         <div style={{display: "flex", flexDirection: "column", minWidth: 0}}>
           <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
-            <Eyebrow>OnlineChefGroep / Pi package</Eyebrow>
+            <Eyebrow>GroepOnline / Pi package</Eyebrow>
             <Badge tone="accent">v{data.version}</Badge>
           </div>
 

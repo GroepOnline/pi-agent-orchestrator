@@ -1105,8 +1105,8 @@ Session
 
 | Format | Function | Output | Dashboard hotkey |
 |--------|----------|--------|-----------------|
-| **Mermaid** | `buildAgentTreeMermaid(records)` | Mermaid `flowchart TD` — nodes with agent info, solid parent edges, dashed group edges | `t` (copy to clipboard) |
-| **Text** | `buildAgentTreeText(records)` | Unicode box-drawing (`├─`, `└─`, `│`) tree | `t` then select |
+| **Mermaid** | `buildAgentTreeMermaid(records)` | Mermaid `flowchart TD` — nodes with agent info, solid parent edges, dashed group edges | `y` (tree view) |
+| **Text** | `buildAgentTreeText(records)` | Unicode box-drawing (`├─`, `└─`, `│`) tree | `y` then select |
 | **JSON** | `buildAgentTreeJson(records)` | Recursive `{ id, type, status, description, children[] }` structure | API export |
 
 ### 20.3 Mermaid diagram features
@@ -1163,16 +1163,20 @@ The dashboard is a **read-only observer** of the autonomous loop. It reads state
 
 ### 21.2 Dashboard views
 
+Hotkeys below match `DEFAULT_DASHBOARD_KEYBINDINGS` in `src/ui/dashboard-keybindings.ts`. Override via `dashboardKeybindings` in `.pi/subagents.json`.
+
 | View | Hotkey | Reads from |
 |------|--------|-----------|
 | **Agent list** (default) | `/agents` | `manager.listAgents()` → records by status |
-| **Top view** (resource usage) | `v` | Agent records sorted by tokens/duration/turns/tools |
+| **Top view** (resource usage) | `t` | Agent records sorted by tokens/duration/turns/tools |
 | **Schedules** | `z` | `scheduler.listJobs()` + `scheduleStore` |
 | **Performance** | `/perf` | Render metrics, benchmark thresholds |
-| **Health check** | `h` | `buildHealthReport(manager, scheduler, coordinator, getters)` |
-| **Settings** | `s` | `buildSettingsSnapshot(manager, getters)` → editable TUI menu |
-| **Execution tree** | `t` | `buildAgentTreeMermaid(manager.listAgents())` |
+| **Health check** | `/agents` menu | `buildHealthReport(manager, scheduler, coordinator, getters)` |
+| **Settings** | `/agents` menu | `buildSettingsSnapshot(manager, getters)` → editable TUI menu |
+| **Execution tree** | `y` | `buildAgentTreeMermaid(manager.listAgents())` |
+| **Swarm view** | `w` | Swarm coordinator state |
 | **Agent detail** | `Enter` | `manager.getRecord(id)` + conversation viewer |
+| **Help** | `?` | Dashboard help overlay |
 
 ### 21.3 Refresh strategy
 
@@ -1187,10 +1191,10 @@ These are the ONLY dashboard interactions that modify loop state:
 
 | Action | Hotkey | Effect |
 |--------|--------|--------|
-| Abort agent | `s` (stop) | `manager.abort(id)` → sets abort signal |
-| Kill agent | `k` | Force kill via abort controller |
-| Create swarm (UI) | `j` | `uiCreateSwarm(selectedIds)` |
-| Join swarm (UI) | `J` | `uiJoinSwarm(swarmId, agentId)` |
+| Steer agent | `s` | Prompt the selected agent with a steer message |
+| Kill agent | `Shift+k` / `K` | Force kill via abort controller |
+| Permissions | `p` | Open permissions UI for the selection |
+| Refresh | `r` | Force dashboard refresh |
 | Open conversation | `Enter` | Read-only viewer (no state change) |
 | Settings mutate | `Enter` on setting | Applies setting immediately via getters/setters |
 
