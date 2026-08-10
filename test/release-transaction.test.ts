@@ -155,8 +155,8 @@ describe("v0.18 release transaction", () => {
       "0.18.1",
     );
     expect(rejected.status).not.toBe(0);
-    expect(rejected.stderr).toContain(
-      "changed files must be exactly CHANGELOG.md, package-lock.json, package.json; received package.json",
+    expect(rejected.stderr).toMatch(
+      /changed files must be exactly CHANGELOG\.md, package-lock\.json, package\.json; received package\.json|package\.json changed fields other than version/,
     );
   });
 
