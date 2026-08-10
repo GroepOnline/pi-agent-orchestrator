@@ -422,11 +422,14 @@ function forwardAbortSignal(
 ): () => void {
   if (!signal) return () => {};
   const onAbort = () => {
-    // Mark the run aborted *before* session.abort() so that when prompt()
-    // rejects with AbortError, the catch path treats it as a graceful stop
-    // (CHE-19) rather than a subagent:error / OTel error span.
-    onExternalAbort?.();
-    session.abort();
+    // Mark the run aborted first so prompt()'s AbortError is treated as a
+    // graceful stop (CHE-19). Always abort the session even if the callback
+    // throws — cancellation must propagate.
+    try {
+      onExternalAbort?.();
+    } finally {
+      session.abort();
+    }
   };
   if (signal.aborted) {
     onAbort();
@@ -786,9 +789,11 @@ ${chefPreflight.systemPromptAddition}`;
 
   let currentMessageText = "";
   const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
-    // Quota checks — guard re-entry: once timed out, stop re-aborting on
-    // every subsequent event (session.abort() can emit synchronously).
-    if (timedOut) return;
+    // Quota checks — guard re-entry: once timed out *or* externally aborted,
+    // stop re-aborting on every subsequent event (session.abort() can emit
+    // synchronously). Also prevents an external cancel from being mis-labeled
+    // as timedOut when duration has already elapsed (CHE-19 / CodeRabbit).
+    if (timedOut || aborted) return;
     if (checkDurationQuota()) {
       const elapsedMs = performance.now() - startTime;
       logger.warn(`Duration quota exceeded`, {
@@ -1079,7 +1084,7 @@ ${chefPreflight.systemPromptAddition}`;
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);
   let runError: string | undefined;
-  const modelError = getLastAssistantError(session);
+  const modelError = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
   if (!responseText && modelError) {
     // The run produced no text because the model/provider errored on its final
     // turn (e.g. 401 auth, unavailable model). Surface it instead of returning
