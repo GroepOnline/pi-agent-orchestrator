@@ -3,7 +3,6 @@
  *
  * Core execution engine that creates sessions, runs agents, collects results.
  * Enhanced with:
- * - Swarm integration (heartbeats, inter-agent messaging)
  * - Resource quotas (token budgets, time limits, tool limits)
  * - Circuit breaker for model calls
  * - Structured error classification
@@ -43,7 +42,6 @@ import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { loadSettings } from "./settings.js";
 import { preloadSkills } from "./skill-loader.js";
-import { getSwarmCoordinator } from "./swarm-join.js";
 import { emitTelemetry } from "./telemetry.js";
 import {
   endAgentSpan,
@@ -360,17 +358,6 @@ export interface ResourceQuotas {
   maxToolCalls?: number;
 }
 
-export interface SwarmOptions {
-  /** Enable swarm heartbeat reporting. */
-  enableHeartbeat?: boolean;
-  /** Heartbeat interval in ms (default: 10000). */
-  heartbeatIntervalMs?: number;
-  /** Enable inter-agent message polling. */
-  enableMessaging?: boolean;
-  /** Poll interval in ms (default: 5000). */
-  messagePollIntervalMs?: number;
-}
-
 export interface RunOptions {
   pi: ExtensionAPI;
   agentId?: string;
@@ -405,10 +392,6 @@ export interface RunOptions {
   onContextBuilt?: (timestamp: number) => void;
   /** Resource quotas for this run. */
   quotas?: ResourceQuotas;
-  /** Swarm collaboration options. */
-  swarm?: SwarmOptions;
-  /** Called when a swarm message is received. */
-  onSwarmMessage?: (from: string, payload: unknown) => void;
   /**
    * Override the module-level `maxEndHookRevisions` setting for this run.
    * `0` = fail closed on `subagent:end` block with no revision turn.
@@ -788,30 +771,6 @@ ${chefPreflight.systemPromptAddition}`;
     options.agentId ? `${baseSessionName}#${options.agentId.slice(0, 8)}` : baseSessionName,
   );
 
-  // Swarm integration: register heartbeat
-  let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
-  let messagePollInterval: ReturnType<typeof setInterval> | undefined;
-  const swarmCoord = getSwarmCoordinator();
-  if (swarmCoord && options.agentId && options.swarm?.enableHeartbeat) {
-    const interval = options.swarm.heartbeatIntervalMs ?? 10_000;
-    heartbeatInterval = setInterval(() => {
-      swarmCoord.heartbeat(options.agentId!);
-    }, interval);
-  }
-
-  // Swarm messaging poll
-  let lastMessagePoll = 0;
-  if (swarmCoord && options.agentId && options.swarm?.enableMessaging) {
-    const interval = options.swarm.messagePollIntervalMs ?? 5_000;
-    messagePollInterval = setInterval(() => {
-      const messages = swarmCoord.pollMessages(options.agentId!, lastMessagePoll);
-      for (const msg of messages) {
-        lastMessagePoll = Math.max(lastMessagePoll, msg.ts);
-        options.onSwarmMessage?.(msg.from, msg.payload);
-      }
-    }, interval);
-  }
-
   // Tool filtering
   const disallowedSet = agentConfig?.disallowedTools
     ? new Set(agentConfig.disallowedTools)
@@ -1160,8 +1119,6 @@ ${chefPreflight.systemPromptAddition}`;
     if (currentTurnSpan) { endTurnSpan(currentTurnSpan); currentTurnSpan = undefined; }
     for (const ts of activeToolSpans.values()) { endToolSpan(ts); }
     activeToolSpans.clear();
-    if (heartbeatInterval) clearInterval(heartbeatInterval);
-    if (messagePollInterval) clearInterval(messagePollInterval);
   }
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);

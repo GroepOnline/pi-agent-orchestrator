@@ -56,7 +56,7 @@ export interface SessionCapable extends SpawnCapable {
 }
 
 export interface SwarmCapable {
-  listSwarms(): Array<{ swarmId: string; name: string; agentCount: number; strategy: string; leaderId?: string }>;
+  listSwarms(): Array<{ swarmId: string; name: string; agentCount: number; strategy: string }>;
   getSwarmMetrics(swarmId?: string): {
     totalDeliveries: number;
     totalRecordsDelivered: number;

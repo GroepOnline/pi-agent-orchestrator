@@ -50,8 +50,6 @@ interface PendingAgent {
   joinMode: JoinMode;
   /** Optional per-agent swarm strategy override. */
   swarmStrategy?: SwarmStrategy;
-  /** Optional priority for leader election. */
-  priority?: number;
   addedAt: number;
 }
 
@@ -80,13 +78,12 @@ export class BatchOrchestrator {
    * Add an agent to the current batch.
    * Resets the debounce timer to capture parallel tool calls.
    */
-  addToBatch(id: string, joinMode: JoinMode, options?: { strategy?: SwarmStrategy; priority?: number }): void {
+  addToBatch(id: string, joinMode: JoinMode, options?: { strategy?: SwarmStrategy }): void {
     // Prevent adding duplicates
     const existing = this.currentBatch.find((a) => a.id === id);
     if (existing) {
       existing.joinMode = joinMode;
       if (options?.strategy) existing.swarmStrategy = options.strategy;
-      if (options?.priority !== undefined) existing.priority = options.priority;
       return;
     }
 
@@ -98,7 +95,6 @@ export class BatchOrchestrator {
       id,
       joinMode,
       swarmStrategy: options?.strategy,
-      priority: options?.priority ?? 0,
       addedAt: Date.now(),
     });
 
@@ -137,7 +133,8 @@ export class BatchOrchestrator {
     const startTime = this.batchStartTime;
 
     try {
-      // Partition agents by join mode
+      // Partition agents by join mode.
+      // smart and group share the same GroupJoinManager path (smart ≡ group for batching).
       const smartAgents = batchAgents.filter((a) => a.joinMode === "smart" || a.joinMode === "group");
       const swarmAgents = batchAgents.filter((a) => a.joinMode === "swarm");
       const _individualAgents = batchAgents.filter(
@@ -176,8 +173,8 @@ export class BatchOrchestrator {
         });
         swarmCount++;
 
-        for (const { id, priority } of swarmAgents) {
-          this.deps.swarmJoin.addAgentToSwarm(swarmId, id, priority);
+        for (const { id } of swarmAgents) {
+          this.deps.swarmJoin.addAgentToSwarm(swarmId, id);
           // If agent already completed before batch finalization, process it
           const record = this.deps.manager.getRecord(id);
           if (!record) continue;
