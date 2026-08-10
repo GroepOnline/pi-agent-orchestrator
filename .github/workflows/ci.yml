@@ -326,7 +326,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Create Linear issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_CI }}
         with:
