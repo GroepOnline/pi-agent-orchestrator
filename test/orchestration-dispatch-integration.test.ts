@@ -290,8 +290,8 @@ describe("orchestration-dispatch integration — Agent tool end-to-end", () => {
     // Coordinator was actually driven: 1 swarm created, 2 agents added.
     expect(swarmJoin.createSwarm).toHaveBeenCalledTimes(1);
     expect(swarmJoin.addAgentToSwarm).toHaveBeenCalledTimes(2);
-    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(1, "swarm-it-1", expect.any(String), 0);
-    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(2, "swarm-it-1", expect.any(String), 0);
+    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(1, "swarm-it-1", expect.any(String));
+    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(2, "swarm-it-1", expect.any(String));
 
     // Records carry the swarmId end-to-end.
     const records = manager.listAgents();
