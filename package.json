@@ -119,11 +119,11 @@
     "node": ">=22.19.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.5",
-    "@earendil-works/pi-agent-core": "^0.81.1",
-    "@earendil-works/pi-ai": "^0.81.1",
-    "@earendil-works/pi-coding-agent": "^0.81.1",
-    "@types/node": "^26.1.0",
+    "@biomejs/biome": "^2.5.7",
+    "@earendil-works/pi-agent-core": "^0.83.0",
+    "@earendil-works/pi-ai": "^0.83.0",
+    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@types/node": "^26.1.2",
     "@types/proper-lockfile": "^4.1.4",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
