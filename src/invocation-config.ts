@@ -28,7 +28,10 @@ export function resolveAgentInvocationConfig(
     modelInput: params.model ?? agentConfig?.model,
     modelFromParams: params.model != null,
     thinking: parseThinkingLevel(rawThinking),
-    maxTurns: agentConfig?.maxTurns ?? params.max_turns,
+    // Param-first for max_turns (same as model/thinking). A caller's
+    // Agent(..., max_turns: N) must win over the agent-profile default;
+    // config-first silently ignored explicit budgets (CHE-28).
+    maxTurns: params.max_turns ?? agentConfig?.maxTurns,
     inheritContext: agentConfig?.inheritContext ?? params.inherit_context ?? false,
     runInBackground: agentConfig?.runInBackground ?? params.run_in_background ?? false,
     isolated: agentConfig?.isolated ?? params.isolated ?? false,

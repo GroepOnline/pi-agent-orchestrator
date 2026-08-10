@@ -33,7 +33,7 @@ describe("resolveAgentInvocationConfig", () => {
     expect(resolved.thinking).toBe("high");
   });
 
-  it("uses explicit model/thinking overrides while preserving locked strategy fields", () => {
+  it("uses explicit model/thinking/max_turns overrides while preserving locked strategy fields", () => {
     const resolved = resolveAgentInvocationConfig(
       makeConfig({
         model: "provider/config-model",
@@ -58,11 +58,20 @@ describe("resolveAgentInvocationConfig", () => {
     expect(resolved.modelInput).toBe("provider/param-model");
     expect(resolved.modelFromParams).toBe(true);
     expect(resolved.thinking).toBe("minimal");
-    expect(resolved.maxTurns).toBe(42);
+    // CHE-28: caller max_turns wins over the agent-profile default.
+    expect(resolved.maxTurns).toBe(1);
     expect(resolved.inheritContext).toBe(false);
     expect(resolved.runInBackground).toBe(false);
     expect(resolved.isolated).toBe(false);
     expect(resolved.isolation).toBe("worktree");
+  });
+
+  it("falls back to agent-profile maxTurns when params omit max_turns (CHE-28)", () => {
+    const resolved = resolveAgentInvocationConfig(
+      makeConfig({ maxTurns: 42 }),
+      {},
+    );
+    expect(resolved.maxTurns).toBe(42);
   });
 
   it("uses tool-call params when no agent config is available", () => {
