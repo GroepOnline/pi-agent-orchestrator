@@ -104,20 +104,6 @@ describe("BatchOrchestrator", () => {
       const pending = orch.getPendingBatch();
       expect(pending!.agents[0].addedAt).toBeGreaterThanOrEqual(before);
     });
-
-    it("sets priority default to 0", () => {
-      const orch = new BatchOrchestrator(deps as any);
-      orch.addToBatch("agent-1", "smart");
-      const pending = orch.getPendingBatch();
-      expect(pending!.agents[0].priority).toBe(0);
-    });
-
-    it("accepts custom priority", () => {
-      const orch = new BatchOrchestrator(deps as any);
-      orch.addToBatch("agent-1", "smart", { priority: 5 });
-      const pending = orch.getPendingBatch();
-      expect(pending!.agents[0].priority).toBe(5);
-    });
   });
 
   describe("isPendingBatchFinalization", () => {
@@ -215,7 +201,6 @@ describe("BatchOrchestrator", () => {
       expect(deps.swarmJoin.addAgentToSwarm).toHaveBeenCalledWith(
         expect.any(String),
         "agent-1",
-        0,
       );
     });
 
