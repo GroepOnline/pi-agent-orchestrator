@@ -73,6 +73,7 @@ function createReleaseSandbox(): string {
     "docs/releases/v0.18.1.md",
     "scripts/prepare-release.mjs",
     "scripts/release-policy.mjs",
+    "scripts/release-recovery.mjs",
     "scripts/verify-release-transaction.mjs",
     "scripts/verify-version-transition.mjs",
   ]) {

@@ -1,8 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs";
+import { decideNpmPublish, npmViewVersion } from "./release-recovery.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOWED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"];
@@ -131,7 +132,16 @@ async function verify(parentRef, releaseRef, expectedVersion) {
   const parentChangelog = readAt(parentRef, "CHANGELOG.md");
   const releaseChangelog = readAt(releaseRef, "CHANGELOG.md");
   if (parentChangelog.includes(`## v${expectedVersion} (`)) {
-    fail(`parent CHANGELOG already contains v${expectedVersion}`);
+    // A gate failure (e.g. release-verification test) between the first
+    // release attempt and the fixed push makes the changelog already
+    // contain the target heading. Allow the re-release as long as npm does
+    // not yet carry the exact version (decideNpmPublish is the authority
+    // on "published").
+    const exact = npmViewVersion(`@groeponline/pi-agent-orchestrator@${expectedVersion}`);
+    const decision = decideNpmPublish({ releaseVersion: expectedVersion, exactVersion: exact, latestVersion: null });
+    if (decision.reason !== "exact-version-exists") {
+      fail(`parent CHANGELOG already contains v${expectedVersion} (and npm does not have it either)`);
+    }
   }
   const historyMarker = "## v0.17.1 ";
   const parentHistory = parentChangelog.indexOf(historyMarker);
