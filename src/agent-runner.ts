@@ -156,12 +156,40 @@ export function setMaxEndHookRevisions(n: number): void {
 // Circuit Breaker for Model Calls
 // ============================================================================
 
+/**
+ * True when a thrown error or soft assistant errorMessage looks like a model /
+ * provider transport failure (auth, rate limit, unavailable). Used so the
+ * circuit breaker trips on 401s during session.prompt — not on bad cwd / config
+ * failures from createAgentSession (CHE-17).
+ */
+export function isModelTransportFailure(err: unknown): boolean {
+  if (isAbortError(err)) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  return isModelFailureMessage(msg);
+}
+
+export function isModelFailureMessage(message: string): boolean {
+  return (
+    /PAID_MODEL_AUTH_REQUIRED/i.test(message)
+    || /\b401\b/.test(message)
+    || /\b403\b/.test(message)
+    || /\b429\b/.test(message)
+    || /rate[\s_-]?limit/i.test(message)
+    || /model\s+(?:unavailable|not\s+found)/i.test(message)
+    || /overloaded/i.test(message)
+    || /insufficient[\s_-]?quota/i.test(message)
+    || /auth(?:entication|orization)?\s+(?:failed|required|error|denied)/i.test(message)
+    || /User not found/i.test(message)
+  );
+}
+
 class ModelCircuitBreaker {
   private failures = 0;
   private lastFailureAt = 0;
   private state: "closed" | "open" | "half-open" = "closed";
 
-  call<T>(fn: () => Promise<T>): Promise<T> {
+  /** Throw if the breaker is open and the recovery window has not elapsed. */
+  assertAllow(): void {
     if (this.state === "open") {
       if (Date.now() - this.lastFailureAt > CB_RECOVERY_TIMEOUT_MS) {
         this.state = "half-open";
@@ -173,21 +201,41 @@ class ModelCircuitBreaker {
         );
       }
     }
+  }
+
+  recordSuccess(): void {
+    if (this.state === "half-open") {
+      this.state = "closed";
+    }
+    this.failures = 0;
+  }
+
+  recordFailure(): void {
+    this.failures++;
+    this.lastFailureAt = Date.now();
+    if (this.failures >= CB_FAILURE_THRESHOLD) {
+      this.state = "open";
+    }
+  }
+
+  /**
+   * Run `fn` under the breaker. By default every rejection counts; pass
+   * `countFailure` to ignore non-model errors (e.g. AbortError).
+   */
+  call<T>(
+    fn: () => Promise<T>,
+    options?: { countFailure?: (err: unknown) => boolean },
+  ): Promise<T> {
+    this.assertAllow();
+    const shouldCount = options?.countFailure ?? (() => true);
 
     return fn().then(
       (result) => {
-        if (this.state === "half-open") {
-          this.state = "closed";
-        }
-        this.failures = 0;
+        this.recordSuccess();
         return result;
       },
       (err) => {
-        this.failures++;
-        this.lastFailureAt = Date.now();
-        if (this.failures >= CB_FAILURE_THRESHOLD) {
-          this.state = "open";
-        }
+        if (shouldCount(err)) this.recordFailure();
         throw err;
       },
     );
@@ -196,10 +244,43 @@ class ModelCircuitBreaker {
   getState(): { state: string; failures: number; lastFailureAt: number } {
     return { state: this.state, failures: this.failures, lastFailureAt: this.lastFailureAt };
   }
+
+  /** Test helper — clear breaker state between cases. */
+  reset(): void {
+    this.failures = 0;
+    this.lastFailureAt = 0;
+    this.state = "closed";
+  }
 }
 
 const globalCircuitBreaker = new ModelCircuitBreaker();
 
+/**
+ * Run a model prompt under the circuit breaker.
+ *
+ * 401 / PAID_MODEL_AUTH_REQUIRED usually surface as a soft assistant
+ * `stopReason: "error"` after prompt resolves (not a thrown exception), so we
+ * inspect getLastAssistantError afterwards. Thrown model failures count too;
+ * AbortError does not (CHE-17).
+ */
+async function promptWithCircuitBreaker(
+  session: AgentSession,
+  text: string,
+): Promise<void> {
+  globalCircuitBreaker.assertAllow();
+  try {
+    await session.prompt(text);
+  } catch (err) {
+    if (isModelTransportFailure(err)) globalCircuitBreaker.recordFailure();
+    throw err;
+  }
+  const softError = getLastAssistantError(session);
+  if (softError && isModelFailureMessage(softError)) {
+    globalCircuitBreaker.recordFailure();
+  } else {
+    globalCircuitBreaker.recordSuccess();
+  }
+}
 // ============================================================================
 // Model Resolution
 // ============================================================================
@@ -698,9 +779,10 @@ ${chefPreflight.systemPromptAddition}`;
 
   const effectivePrompt = buildEffectivePrompt(ctx, prompt, options);
 
-  // Circuit breaker protected session creation
-  const { session } = await globalCircuitBreaker.call(() => createAgentSession(sessionOpts));
-
+  // Session creation is NOT under the model circuit breaker: bad cwd / invalid
+  // config must not trip a global spawn freeze. Model failures are counted on
+  // prompt() (incl. soft 401 assistant errors) — see promptWithCircuitBreaker (CHE-17).
+  const { session } = await createAgentSession(sessionOpts);
   const baseSessionName = agentConfig?.name ?? type;
   session.setSessionName(
     options.agentId ? `${baseSessionName}#${options.agentId.slice(0, 8)}` : baseSessionName,
@@ -981,7 +1063,7 @@ ${chefPreflight.systemPromptAddition}`;
   let gatedResponseText = "";
 
   try {
-    await session.prompt(effectivePrompt);
+    await promptWithCircuitBreaker(session, effectivePrompt);
     gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
 
     if (options.hooks) {
@@ -1033,7 +1115,7 @@ ${chefPreflight.systemPromptAddition}`;
         const revisionPrompt =
           endDecision.feedback?.trim() ||
           "Your previous output was rejected by a quality gate. Revise and improve it.";
-        await session.prompt(revisionPrompt);
+        await promptWithCircuitBreaker(session, revisionPrompt);
         gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
         attempt++;
       }
@@ -1268,7 +1350,7 @@ export async function resumeAgent(
   }
 
   try {
-    await session.prompt(effectivePrompt);
+    await promptWithCircuitBreaker(session, effectivePrompt);
   } finally {
     collector.unsubscribe();
     unsubEvents();

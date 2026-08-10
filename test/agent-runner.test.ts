@@ -210,6 +210,8 @@ beforeEach(() => {
   loadSettingsMock.mockReturnValue({});
   sessionManagerInMemory.mockClear();
   settingsManagerCreate.mockClear();
+  // Soft 401s now increment the model breaker (CHE-17); keep cases isolated.
+  globalCircuitBreaker.reset();
 });
 
 describe("resolveConfiguredModel (subagentModel setting override)", () => {
@@ -837,6 +839,58 @@ describe("ModelCircuitBreaker", () => {
     expect(val).toBe("ok");
 
     // Failures should be reset to 0
+    expect(globalCircuitBreaker.getState().failures).toBe(0);
+  });
+
+  it("does not count createAgentSession failures toward the breaker (CHE-17)", async () => {
+    createAgentSession.mockRejectedValue(new Error("ENOENT: no such file or directory, cwd"));
+
+    for (let i = 0; i < 5; i++) {
+      await expect(runAgent(ctx, "Explore", "do work", { pi })).rejects.toThrow(/ENOENT/);
+    }
+
+    expect(globalCircuitBreaker.getState().state).toBe("closed");
+    expect(globalCircuitBreaker.getState().failures).toBe(0);
+  });
+
+  it("opens after repeated soft 401 prompt failures and blocks further spawns (CHE-17)", async () => {
+    const errorMessage = '401: {"message":"User not found.","code":401}';
+
+    for (let i = 0; i < 5; i++) {
+      const { session } = createSessionWithError(errorMessage);
+      createAgentSession.mockResolvedValue({ session });
+      const result = await runAgent(ctx, "Explore", "do work", { pi });
+      expect(result.error).toBe(errorMessage);
+    }
+
+    expect(globalCircuitBreaker.getState().state).toBe("open");
+    expect(globalCircuitBreaker.getState().failures).toBeGreaterThanOrEqual(5);
+
+    const { session } = createSessionWithError(errorMessage);
+    createAgentSession.mockResolvedValue({ session });
+    await expect(runAgent(ctx, "Explore", "do work", { pi })).rejects.toMatchObject({
+      code: "model_unavailable",
+    });
+  });
+
+  it("does not count AbortError from prompt toward the breaker (CHE-17)", async () => {
+    for (let i = 0; i < 5; i++) {
+      const controller = new AbortController();
+      const { session } = createSession("");
+      (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        controller.abort();
+        throw new DOMException("The operation was aborted", "AbortError");
+      });
+      createAgentSession.mockResolvedValue({ session });
+      const result = await runAgent(ctx, "Explore", "do work", {
+        pi,
+        signal: controller.signal,
+        quotas: { maxDurationMs: 60_000 },
+      });
+      expect(result.aborted).toBe(true);
+    }
+
+    expect(globalCircuitBreaker.getState().state).toBe("closed");
     expect(globalCircuitBreaker.getState().failures).toBe(0);
   });
 });
