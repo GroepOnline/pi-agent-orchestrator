@@ -71,8 +71,18 @@ const EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "steer_subagent",
 ]);
 
-/** Default max turns. undefined = unlimited. */
-let defaultMaxTurns: number | undefined;
+/**
+ * Default max turns. undefined = unlimited.
+ * Data-driven default (2026-08-10, 268-session eval): workers without an
+ * explicit budget ran to the 10min duration quota (DEFAULT_MAX_DURATION_MS)
+ * and were aborted with no final report — 40/43 subagent aborts in the
+ * eval were exactly that. A finite default turns the duration kill into a
+ * soft-limit steer (with graceTurns of headroom for the report) so workers
+ * always return an end report instead of dying silently.
+ * 30 turns ≈ 4-8 min at typical model turn cost; oversize tasks should
+ * pass an explicit max_turns instead of relying on the ceiling.
+ */
+let defaultMaxTurns: number | undefined = 30;
 
 /** Additional turns allowed after the soft limit steer message. */
 let graceTurns = 5;
@@ -799,7 +809,7 @@ ${chefPreflight.systemPromptAddition}`;
       if (maxTurns != null) {
         if (!softLimitReached && turnCount >= maxTurns) {
           softLimitReached = true;
-          session.steer("You have reached your turn limit. Wrap up immediately — provide your final answer now.");
+          session.steer("You have reached your turn budget. Wrap up NOW: write your final end report — findings, what is done, what is blocked, exact file paths/commit SHAs. Do not start new work.");
         } else if (softLimitReached && turnCount >= maxTurns + graceTurns) {
           aborted = true;
           session.abort();
