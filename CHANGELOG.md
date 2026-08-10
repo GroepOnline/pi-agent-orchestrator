@@ -22,6 +22,8 @@ Oversized tasks should still pass an explicit `max_turns`; the ceiling is a safe
 - **Swarm cleanup**: prune dead SwarmCoordinator features (CHE-25).
 - **Org migration**: LICENSE copyright now reads GroepOnline (was OnlineChefGroep).
 - Docs synced for identity, hotkeys, tools, and PERFORMANCE (CHE-30).
+- **Release infra**: re-release allowed when npm lacks the exact version; prepare diff gate is a subset check.
+- Test fix: addAgentToSwarm assertions align with the CHE-25 two-arg signature.
 
 ### Fixed
 
