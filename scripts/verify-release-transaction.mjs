@@ -71,9 +71,13 @@ async function verify(parentRef, releaseRef, expectedVersion) {
   assertReleaseCandidate(expectedVersion, policy);
 
   const parentHasPromoData = existsAt(parentRef, PROMO_DATA_PATH);
-  const expectedFiles = parentHasPromoData
-    ? [...ALLOWED_FILES, PROMO_DATA_PATH]
-    : ALLOWED_FILES;
+  const releaseNotesPath = `docs/releases/v${expectedVersion}.md`;
+  const releaseAddsNotes = !existsAt(parentRef, releaseNotesPath) && existsAt(releaseRef, releaseNotesPath);
+  const expectedFiles = [
+    ...ALLOWED_FILES,
+    ...(parentHasPromoData ? [PROMO_DATA_PATH] : []),
+    ...(releaseAddsNotes ? [releaseNotesPath] : []),
+  ];
   const changed = git(["diff", "--name-only", parentRef, releaseRef])
     .trim()
     .split("\n")
