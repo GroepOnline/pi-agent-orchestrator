@@ -37,7 +37,7 @@ constructor(
 setCleanupTtl(ms: number): void {
   this.cleanupTtlMs = Math.max(10_000, ms); // ← minimum floor
 }
-```
+```text
 
 ---
 
@@ -76,7 +76,7 @@ if (snapshot !== this.agentSnapshot) {
 if (!this.dirty && this.widgetRegistered) {
   return; // skip TUI re-render
 }
-```
+```text
 
 ### Trade-offs
 - **Pro**: prevents ~90% of `requestRender()` calls during idle/stable periods
@@ -174,7 +174,7 @@ private getTheme(): DashboardTheme {
   this.lastUiStyle = currentStyle;
   return this.cachedTheme;
 }
-```
+```text
 
 The cache is invalidated in the `invalidate()` method (called by the TUI on style changes).
 
@@ -206,7 +206,7 @@ On small terminals (laptops, split screens) every line is costly. Less chrome = 
 AgentManager.removeRecord() 
   → onRecordRemoved(id) 
   → index.ts: agentActivity.delete(id)
-```
+```text
 
 This happens at three moments:
 1. **Periodic cleanup** (every 30s, after TTL)
@@ -251,7 +251,7 @@ For bulk spawns (multiple background agents started at once), we use a **two-sta
 When there are 3+ agents of the same type in "queued" status, they are shown as a compact line:
 ```
 ├── ◦ 5× Explore queued
-```
+```text
 instead of 5 individual lines. This saves vertical space and reduces render overhead.
 
 ### Why no strict batching at spawn level
@@ -296,7 +296,7 @@ The data can be viewed live via the `/perf` command in the dashboard.
 
 ```typescript
 const metrics = new RenderMetrics(label: string, slowThresholdMs?: number);
-```
+```text
 
 #### Public API
 
@@ -360,7 +360,7 @@ interface RenderMetricsSnapshot {
 - **setFirstSpawnTimestamp()**: called in `update()` on the first active agent
 
 **Flow:**
-```
+```text
 update()
   ├─ snapshot changed? ─► set dirty = true
   ├─ first spawn? ──────► setFirstSpawnTimestamp()
@@ -383,7 +383,7 @@ renderWidget()
 - **setFirstSpawnTimestamp()**: called in `render()` on the first agent
 
 **Flow:**
-```
+```text
 requestRender()
   ├─ recordRequested()                    ← counts all requests
   ├─ rate limit check?
@@ -418,7 +418,7 @@ Since command mode was implemented, the `/perf` command is available in the agen
 
 #### What the perf panel shows
 
-```
+```text
 ▸ Render Duration
   last                   2.34ms
   mean                   1.87ms
@@ -467,7 +467,7 @@ Render metrics log at `debug` level via the existing `logger` utility. This is *
 ```bash
 # Enable debug logging for render metrics
 PI_SUBAGENTS_LOG_LEVEL=debug npm start
-```
+```text
 
 When `record()` detects that render duration exceeds `slowThresholdMs`, a structured log message is emitted:
 
@@ -563,7 +563,7 @@ There are also **11 RenderMetrics unit tests** in `test/render-metrics.test.ts`:
 npx vitest run test/render-metrics.test.ts test/agent-widget.test.ts test/widget-render-perf.test.ts
 
 # Expected: 64 tests passing
-```
+```text
 
 ---
 
@@ -598,7 +598,7 @@ node --experimental-specifier-resolution=node test/compaction.benchmark.ts
 ### Critical metrics
 - **`listAgents()` time**: should be < 1ms for < 500 agents
 - **`buildSnapshot()` time**: should be < 0.1ms for < 100 agents
-- **`requestRender()` calls per second**: dashboard max 5-10fps, max 60fps with debounce
+- **Actual TUI renders per second**: dashboard typically 5–10fps; the 16ms `MIN_RENDER_GAP_MS` coalesces nested `tui.requestRender()` work. Note that `requestRender()` *invocations* may exceed 60/s (the counter increments before the gap check); use the render metrics / actual paint rate when diagnosing bypassed rate limits.
 - **Widget render mean**: < 5ms for < 50 agents
 - **Dashboard render mean**: < 50ms for < 200 agents
 - **Memory per `AgentRecord`**: ~2-5KB (excluding session messages)
