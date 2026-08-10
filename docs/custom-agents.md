@@ -36,7 +36,7 @@ Project scope strictly overrides global scope collisions.
 
 ---
 
-> **Allowed `tools` values** match `BUILTIN_TOOL_NAMES` in `src/agent-types.ts`: `read`, `bash`, `edit`, `write`, `grep` (plus `*` for all). Host tools named `find` / `ls` are **not** in the allowlist and are rejected or ignored by the loader.
+> **Tool names:** The conventional built-in values are `read`, `bash`, `edit`, `write`, and `grep` (plus `*` for all). The loader preserves unknown tool names such as host tools `find` and `ls` in the effective agent configuration, while emitting telemetry for them; they are not rejected or filtered.
 
 ## // DEFINITION FORMAT
 
