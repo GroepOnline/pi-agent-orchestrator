@@ -43,6 +43,15 @@ export function invalidateModelCache(): void {
   cachedAll = null;
 }
 
+/** Build the "Model not found" error that lists every available model. */
+function modelNotFound(input: string, all: ModelEntry[]): string {
+  const modelList = all
+    .map(m => `  ${m.provider}/${m.id}`)
+    .sort()
+    .join("\n");
+  return `Model not found: "${input}".\n\nAvailable models:\n${modelList}`;
+}
+
 /**
  * Resolve a model identifier to a registered model.
  *
@@ -58,6 +67,15 @@ export function resolveModel<T extends ModelEntry>(
 ): T | string {
   // Available models (those with auth configured) — cached per registry instance
   const { set: availableSet, all } = getAvailableSet(registry);
+
+  // Reject empty/blank input up front. An empty query makes `id.includes(query)`
+  // and the multi-part `every()` check vacuously true, so it would otherwise
+  // resolve to the first model. Cross-extension RPC (subagents:rpc:spawn) forwards
+  // the caller's string straight into resolveModel, so a blank string must fail
+  // loudly instead of silently spawning an agent on an arbitrary model.
+  if (typeof input !== "string" || input.trim() === "") {
+    return modelNotFound(typeof input === "string" ? input : "", all);
+  }
 
   // 1. Exact match: "provider/modelId" — only if available (has auth)
   const lowercasedInput = input.toLowerCase();
@@ -106,9 +124,5 @@ export function resolveModel<T extends ModelEntry>(
   }
 
   // 3. No match — list available models
-  const modelList = all
-    .map(m => `  ${m.provider}/${m.id}`)
-    .sort()
-    .join("\n");
-  return `Model not found: "${input}".\n\nAvailable models:\n${modelList}`;
+  return modelNotFound(input, all);
 }

@@ -137,11 +137,20 @@ describe("resolveModel", () => {
       expect(result).toContain("openai/gpt-4o");
     });
 
-    it("empty string matches a model (multi-part vacuous truth)", () => {
-      // Empty string splits to empty parts; every() on empty array is true
-      // This is fine — callers guard against empty input
+    it("empty string returns an error instead of the first model (CHE-21)", () => {
+      // A blank query makes id.includes("") / the multi-part every() vacuously
+      // true, which used to resolve to the first model. It must fail loudly so
+      // the RPC spawn path cannot launch an agent on an arbitrary model.
       const result = resolveModel("", makeRegistry());
-      expect(typeof result).toBe("object");
+      expect(typeof result).toBe("string");
+      expect(result).toContain("Model not found");
+      expect(result).toContain("Available models:");
+    });
+
+    it("whitespace-only string returns an error (CHE-21)", () => {
+      const result = resolveModel("   ", makeRegistry());
+      expect(typeof result).toBe("string");
+      expect(result).toContain("Model not found");
     });
   });
 
