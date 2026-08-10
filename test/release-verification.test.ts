@@ -117,7 +117,7 @@ describe("license verification", () => {
     expect(fileExists("LICENSE")).toBe(true);
     const license = readRoot("LICENSE");
     expect(license).toContain("MIT License");
-    expect(license).toContain("Copyright (c) 2026 OnlineChef");
+    expect(license).toContain("Copyright (c) 2026 GroepOnline");
   });
 
   it("package.json declares MIT license", () => {
