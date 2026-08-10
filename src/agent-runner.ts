@@ -415,9 +415,23 @@ function getLastAssistantError(session: AgentSession): string | undefined {
   return undefined;
 }
 
-function forwardAbortSignal(session: AgentSession, signal?: AbortSignal): () => void {
+function forwardAbortSignal(
+  session: AgentSession,
+  signal?: AbortSignal,
+  onExternalAbort?: () => void,
+): () => void {
   if (!signal) return () => {};
-  const onAbort = () => session.abort();
+  const onAbort = () => {
+    // Mark the run aborted *before* session.abort() so that when prompt()
+    // rejects with AbortError, the catch path treats it as a graceful stop
+    // (CHE-19) rather than a subagent:error / OTel error span.
+    onExternalAbort?.();
+    session.abort();
+  };
+  if (signal.aborted) {
+    onAbort();
+    return () => {};
+  }
   signal.addEventListener("abort", onAbort, { once: true });
   return () => signal.removeEventListener("abort", onAbort);
 }
@@ -956,7 +970,9 @@ ${chefPreflight.systemPromptAddition}`;
   });
 
   const collector = collectResponseText(session);
-  const cleanupAbort = forwardAbortSignal(session, options.signal);
+  const cleanupAbort = forwardAbortSignal(session, options.signal, () => {
+    aborted = true;
+  });
   let gatedResponseText = "";
 
   try {
@@ -1018,11 +1034,13 @@ ${chefPreflight.systemPromptAddition}`;
       }
     }
   } catch (err) {
-    // A duration-quota (or token/tool) abort makes the active session.prompt()
-    // reject with an AbortError. That is the *expected* outcome of our own
-    // graceful abort — swallow it so runAgent resolves with { aborted, timedOut }
-    // instead of throwing and masking the timeout as an error.
-    if ((timedOut || aborted) && isAbortError(err)) {
+    // A duration-quota (or token/tool) abort — or an external AbortSignal —
+    // makes the active session.prompt() reject with an AbortError. That is the
+    // *expected* outcome of a graceful stop — swallow it so runAgent resolves
+    // with { aborted, timedOut } instead of throwing and masking the stop as an
+    // error (CHE-19 for external signals; quota path already set aborted=true).
+    if ((timedOut || aborted || options.signal?.aborted) && isAbortError(err)) {
+      aborted = true;
       // fall through to the graceful return path below
     } else {
     // End agent span with error status
