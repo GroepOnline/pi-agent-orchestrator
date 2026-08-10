@@ -1170,9 +1170,9 @@ Hotkeys below match `DEFAULT_DASHBOARD_KEYBINDINGS` in `src/ui/dashboard-keybind
 | **Agent list** (default) | `/agents` | `manager.listAgents()` → records by status |
 | **Top view** (resource usage) | `t` | Agent records sorted by tokens/duration/turns/tools |
 | **Schedules** | `z` | `scheduler.listJobs()` + `scheduleStore` |
-| **Performance** | `/agents perf` | Render metrics, benchmark thresholds |
-| **Health check** | `/agents health` | `buildHealthReport(manager, scheduler, coordinator, getters)` (no single-letter dashboard binding) |
-| **Settings** | `/agents settings` | `buildSettingsSnapshot(manager, getters)` → editable TUI menu |
+| **Performance** | `/perf` | Render metrics, benchmark thresholds |
+| **Health check** | `/agents` menu | `buildHealthReport(manager, scheduler, coordinator, getters)` |
+| **Settings** | `/agents` menu | `buildSettingsSnapshot(manager, getters)` → editable TUI menu |
 | **Execution tree** | `y` | `buildAgentTreeMermaid(manager.listAgents())` |
 | **Swarm view** | `w` | Swarm coordinator state |
 | **Agent detail** | `Enter` | `manager.getRecord(id)` + conversation viewer |
