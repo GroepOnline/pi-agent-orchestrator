@@ -2,28 +2,12 @@
 
 ## [Unreleased]
 
-No unreleased changes. The repository remains locked to the 0.18.x stabilization train.
-
----
-
-## v0.18.1 (2026-08-10)
-
-### Subagent budget fix (data-driven)
-
-- **Default max turns: unlimited → 30.** Workers without an explicit `max_turns` ran into the 10-minute duration quota (`DEFAULT_MAX_DURATION_MS`) and were aborted with no final report — 40/43 subagent aborts across a 268-session evaluation were exactly this. A finite default turns the duration kill into a soft-limit steer (with `graceTurns` headroom for the report) so workers always return an end report instead of dying silently.
-- **Soft-limit steer message** now demands an explicit end report (findings, done/blocked, exact file paths/commit SHAs) instead of a generic "wrap up".
-
-Oversized tasks should still pass an explicit `max_turns`; the ceiling is a safety net, not a sizing tool.
-
-### Additional changes since v0.18.0
-
 ### Fixed
 
 - **Workers without an explicit budget no longer run into the 10-minute duration quota and die silently** (from the 2026-08-10 268-session evaluation: 40/43 subagent aborts were `Duration quota exceeded`, median ~10min = `DEFAULT_MAX_DURATION_MS`). `defaultMaxTurns` now defaults to `30` instead of `undefined`, so every worker gets the soft-limit steer (with `graceTurns` headroom) and returns an end report before the duration kill fires. Oversized tasks should still pass an explicit `max_turns`.
 - Soft-limit steer message now demands an explicit end report (findings, done/blocked, file paths/SHAs) instead of a generic "wrap up".
 
 ---
-
 
 ## v0.18.0 (2026-08-05)
 
