@@ -113,20 +113,8 @@ describe("buildSettingsSnapshot — manager-owned fields", () => {
     );
     expect(snapshot.maxAgentsPerSession).toBe(12);
     expect(snapshot.maxTotalTurnsPerSession).toBe(80);
-  });
-
-  it("propagates sessionMaxSpawns and sessionMaxTurns from the manager", () => {
-    const snapshot = buildSettingsSnapshot(
-      asManager(
-        makeManager({
-          getSessionMaxSpawns: () => 12,
-          getSessionMaxTurns: () => 80,
-        }),
-      ),
-      makeGetters(),
-    );
-    expect(snapshot.sessionMaxSpawns).toBe(12);
-    expect(snapshot.sessionMaxTurns).toBe(80);
+    expect(snapshot.sessionMaxSpawns).toBeUndefined();
+    expect(snapshot.sessionMaxTurns).toBeUndefined();
   });
 
   it("omits session-limit fields when getSessionLimits() returns {}", () => {
@@ -234,8 +222,8 @@ describe("buildSettingsSnapshot — call-count invariants", () => {
     buildSettingsSnapshot(asManager(spy), makeGetters());
     expect(spy.getMaxConcurrent).toHaveBeenCalledTimes(1);
     expect(spy.getSessionLimits).toHaveBeenCalledTimes(1);
-    expect(spy.getSessionMaxSpawns).toHaveBeenCalledTimes(1);
-    expect(spy.getSessionMaxTurns).toHaveBeenCalledTimes(1);
+    expect(spy.getSessionMaxSpawns).not.toHaveBeenCalled();
+    expect(spy.getSessionMaxTurns).not.toHaveBeenCalled();
   });
 
   it("calls each getter exactly once per snapshot (no double-reads)", () => {
@@ -276,8 +264,6 @@ describe("buildSettingsSnapshot — snapshot shape", () => {
       "uiStyle",
       "orchestrationMode",
       "dashboardRefreshInterval",
-      "sessionMaxSpawns",
-      "sessionMaxTurns",
       "promptCompressionLevel",
       "showAgentTopWidget",
     ];

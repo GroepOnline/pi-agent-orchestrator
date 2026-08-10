@@ -29,8 +29,6 @@ function appliers(setAnimationStyle: (style: Parameters<SettingsAppliers["setAni
     setShowTurnProgress: noop,
     setOrchestrationMode: noop,
     setDashboardRefreshInterval: noop,
-    setSessionMaxSpawns: noop,
-    setSessionMaxTurns: noop,
     setPromptCompressionLevel: noop,
     setDebugCapture: noop,
     setDebugCapturePaths: noop,

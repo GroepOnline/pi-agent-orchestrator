@@ -28,8 +28,6 @@ export function buildSettingsSnapshot(manager: AgentManager, getters: SettingsGe
     uiStyle: getUiStyle(),
     orchestrationMode: getOrchestrationMode(),
     dashboardRefreshInterval: getDashboardRefreshInterval(),
-    sessionMaxSpawns: manager.getSessionMaxSpawns(),
-    sessionMaxTurns: manager.getSessionMaxTurns(),
     promptCompressionLevel: getPromptCompressionLevel(),
     showAgentTopWidget: isShowAgentTopWidget(),
   };

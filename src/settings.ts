@@ -59,7 +59,9 @@ export interface SubagentsSettings {
   showAgentTopWidget?: boolean;
   orchestrationMode?: OrchestrationMode;
   dashboardRefreshInterval?: number;
+  /** @deprecated Alias for `maxAgentsPerSession`; still loaded from JSON for one release. */
   sessionMaxSpawns?: number;
+  /** @deprecated Alias for `maxTotalTurnsPerSession`; still loaded from JSON for one release. */
   sessionMaxTurns?: number;
   promptCompressionLevel?: PromptCompressionLevel;
   debugCapture?: boolean;
@@ -87,8 +89,6 @@ export interface SettingsAppliers {
   setShowAgentTopWidget: (enabled: boolean) => void;
   setOrchestrationMode: (mode: OrchestrationMode) => void;
   setDashboardRefreshInterval: (interval: number) => void;
-  setSessionMaxSpawns: (value: number) => void;
-  setSessionMaxTurns: (value: number) => void;
   setPromptCompressionLevel: (level: PromptCompressionLevel) => void;
   setDebugCapture: (enabled: boolean) => void;
   setDebugCapturePaths: (paths: DebugCapturePathOverrides) => void;
@@ -138,8 +138,7 @@ const MAX_TURNS_CEILING = 10_000;
 const MAX_TOTAL_TURNS_PER_SESSION_CEILING = 100_000;
 const GRACE_TURNS_CEILING = 1_000;
 const MAX_END_HOOK_REVISIONS_CEILING = 10;
-const SESSION_MAX_SPAWNS_CEILING = 10_000;
-const SESSION_MAX_TURNS_CEILING = 100_000;
+const DEPRECATED_SESSION_LIMIT_ALIASES = ["sessionMaxSpawns", "sessionMaxTurns"] as const;
 
 function validateInt(
   raw: Record<string, unknown>,
@@ -192,8 +191,8 @@ function sanitize(raw: unknown): SubagentsSettings {
     ["maxTotalTurnsPerSession", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING],
     ["graceTurns", 1, GRACE_TURNS_CEILING],
     ["dashboardRefreshInterval", 100, 60_000],
-    ["sessionMaxSpawns", 1, SESSION_MAX_SPAWNS_CEILING],
-    ["sessionMaxTurns", 1, SESSION_MAX_TURNS_CEILING],
+    ["sessionMaxSpawns", 1, MAX_AGENTS_PER_SESSION_CEILING],
+    ["sessionMaxTurns", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING],
   ] as const;
 
   for (const [key, min, max] of integerFields) {
@@ -314,15 +313,33 @@ export function saveSettings(settings: SubagentsSettings, cwd: string = process.
   }
 }
 
+/** Resolve canonical session limits, falling back to deprecated JSON aliases. */
+export function resolveSessionLimits(settings: SubagentsSettings): {
+  maxAgentsPerSession?: number;
+  maxTotalTurnsPerSession?: number;
+} | undefined {
+  const maxAgentsPerSession = settings.maxAgentsPerSession ?? settings.sessionMaxSpawns;
+  const maxTotalTurnsPerSession = settings.maxTotalTurnsPerSession ?? settings.sessionMaxTurns;
+  if (typeof maxAgentsPerSession !== "number" && typeof maxTotalTurnsPerSession !== "number") {
+    return undefined;
+  }
+  return { maxAgentsPerSession, maxTotalTurnsPerSession };
+}
+
+/** Drop deprecated session-limit aliases before persisting canonical keys. */
+export function stripDeprecatedSessionLimitAliases(settings: SubagentsSettings): SubagentsSettings {
+  const copy = { ...settings };
+  for (const key of DEPRECATED_SESSION_LIMIT_ALIASES) {
+    delete (copy as Record<string, unknown>)[key];
+  }
+  return copy;
+}
+
 /** Apply persisted settings to in-memory state. */
 export function applySettings(settings: SubagentsSettings, appliers: SettingsAppliers): void {
   if (typeof settings.maxConcurrent === "number") appliers.setMaxConcurrent(settings.maxConcurrent);
-  if (typeof settings.maxAgentsPerSession === "number" || typeof settings.maxTotalTurnsPerSession === "number") {
-    appliers.setSessionLimits({
-      maxAgentsPerSession: settings.maxAgentsPerSession,
-      maxTotalTurnsPerSession: settings.maxTotalTurnsPerSession,
-    });
-  }
+  const sessionLimits = resolveSessionLimits(settings);
+  if (sessionLimits) appliers.setSessionLimits(sessionLimits);
   if (typeof settings.defaultMaxTurns === "number") appliers.setDefaultMaxTurns(settings.defaultMaxTurns);
   if (typeof settings.graceTurns === "number") appliers.setGraceTurns(settings.graceTurns);
   if (typeof settings.maxEndHookRevisions === "number") {
@@ -341,8 +358,6 @@ export function applySettings(settings: SubagentsSettings, appliers: SettingsApp
   if (typeof settings.dashboardRefreshInterval === "number") {
     appliers.setDashboardRefreshInterval(settings.dashboardRefreshInterval);
   }
-  if (typeof settings.sessionMaxSpawns === "number") appliers.setSessionMaxSpawns(settings.sessionMaxSpawns);
-  if (typeof settings.sessionMaxTurns === "number") appliers.setSessionMaxTurns(settings.sessionMaxTurns);
   if (settings.promptCompressionLevel) appliers.setPromptCompressionLevel(settings.promptCompressionLevel);
   if (typeof settings.debugCapture === "boolean") appliers.setDebugCapture(settings.debugCapture);
   if (settings.debugCapturePaths !== undefined) appliers.setDebugCapturePaths(settings.debugCapturePaths);
@@ -385,7 +400,7 @@ export function saveAndEmitChanged(
   // wipe them. Merge the snapshot over the persisted project file first, so
   // any field absent from the snapshot is carried through unchanged.
   const persistedFile = readSettingsFile(projectPath(cwd));
-  const merged: SubagentsSettings = { ...persistedFile, ...snapshot };
+  const merged = stripDeprecatedSessionLimitAliases({ ...persistedFile, ...snapshot });
   const persisted = saveSettings(merged, cwd);
   emit("subagents:settings_changed", { settings: merged, persisted });
   return persistToastFor(successMessage, persisted);
