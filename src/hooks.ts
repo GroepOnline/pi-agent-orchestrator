@@ -142,10 +142,12 @@ export class HookRegistry {
       id?: string;
     },
   ): string {
-    // `id` is the primary key for `handlerEventMap`; a collision would leave a
-    // ghost handler that runHandlers() silently skips. Use a UUID suffix and,
-    // for auto-generated ids, regenerate on the vanishingly rare clash.
+    // `id` is the primary key for `handlerEventMap`; reject explicit
+    // collisions so every registered handler remains removable by ID.
     let id = options?.id;
+    if (id && this.handlerEventMap.has(id)) {
+      throw new Error(`A hook handler with id "${id}" is already registered`);
+    }
     if (!id) {
       do {
         id = `${event}-${Date.now().toString(36)}-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
