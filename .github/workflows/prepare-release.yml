@@ -107,9 +107,12 @@ jobs:
           git diff --check
           ACTUAL="$(git diff --name-only | sort)"
           EXPECTED="$(printf '%s\n' CHANGELOG.md package-lock.json package.json showcase/remotion/public/promo-data.json docs/releases/v0.18.1.md | sort)"
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
+          # Every changed file must be expected; prepare may leave files it
+          # already finds in the repo (e.g. the release notes template) untouched.
+          UNEXPECTED="$(comm -23 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$EXPECTED"))"
+          if [ -n "$UNEXPECTED" ]; then
             echo "Release preparation changed unexpected files:" >&2
-            printf '%s\n' "$ACTUAL" >&2
+            printf '%s\n' "$UNEXPECTED" >&2
             exit 1
           fi
 
