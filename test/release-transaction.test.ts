@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const sourceRoot = resolve(import.meta.dirname ?? ".", "..");
 const sandboxes: string[] = [];
-const BASELINE_VERSION = "0.17.5";
+const BASELINE_VERSION = "0.18.0";
 const BASELINE_CHANGELOG = `# Changelog
 
 ## [Unreleased]
@@ -15,15 +15,9 @@ Release transaction fixture changes.
 
 ---
 
-## v0.17.5 (2026-07-16)
+## v0.18.0 (2026-07-16)
 
-Maintenance baseline fixture.
-
----
-
-## v0.17.1 (2026-07-14)
-
-Initial public baseline fixture.
+In-train baseline fixture.
 `;
 
 function copyFixture(root: string, path: string): void {
