@@ -48,7 +48,9 @@ function createBaselinePolicySandbox(version = "0.17.5"): string {
     "CHANGELOG.md",
     "package.json",
     "package-lock.json",
-    "docs/releases/v0.18.0.md",
+    // Repository/publish gates look up docs/releases/v${initialRelease}.md —
+    // keep the live train template (0.18.1) in the sandbox.
+    "docs/releases/v0.18.1.md",
     "scripts/release-policy.mjs",
   ]) {
     const destination = join(sandbox, path);
@@ -209,16 +211,19 @@ describe("0.18 release policy", () => {
   it("declares 0.18.x as the only allowed train and blocks 0.19.0", () => {
     const policy = JSON.parse(readRoot(".release-policy.json"));
     expect(policy.releaseTrain).toBe("0.18");
-    expect(policy.initialRelease).toBe("0.18.0");
+    expect(policy.initialRelease).toBe("0.18.1");
     expect(policy.sourceBaselines).toEqual(["0.17.1", "0.17.5", "0.17.6", "0.18.0"]);
     expect(policy.allowPrerelease).toBe(false);
     expect(policy.blockedNextMinor).toBe("0.19.0");
-    expect(policy.releaseCommitTitle).toBe("chore(release): v0.18.0");
+    expect(policy.releaseBranch).toBe("release/v0.18.1");
+    expect(policy.releaseCommitTitle).toBe("chore(release): v0.18.1");
   });
 
-  it("accepts stable 0.18 candidates", () => {
-    expect(runReleasePolicy("candidate", "0.18.0").status).toBe(0);
+  it("accepts stable 0.18 candidates at or above the initial release", () => {
+    expect(runReleasePolicy("candidate", "0.18.1").status).toBe(0);
     expect(runReleasePolicy("candidate", "0.18.7").status).toBe(0);
+    // 0.18.0 is a sourceBaseline, not a release candidate once initialRelease moved on.
+    expect(runReleasePolicy("candidate", "0.18.0").status).not.toBe(0);
   });
 
   it("rejects 0.19, old trains, and prereleases", () => {
@@ -242,7 +247,10 @@ describe("0.18 release policy", () => {
     const baseline = runReleasePolicyAt(sandbox, "baseline", "0.17.5");
     expect(baseline.status, baseline.stderr).toBe(0);
     expect(baseline.stdout).toContain("Maintenance baseline accepted");
-    const blocked = runReleasePolicyAt(sandbox, "baseline", "0.18.0");
+    // 0.18.0 is now an approved sourceBaseline (pre-0.18.1), so use the
+    // live initialRelease itself — that must stay on the release train, not
+    // the maintenance-baseline publish path.
+    const blocked = runReleasePolicyAt(sandbox, "baseline", "0.18.1");
     expect(blocked.status).not.toBe(0);
   });
 
@@ -300,23 +308,25 @@ describe("0.18 release policy", () => {
     },
   );
 
-  it("ships a non-empty v0.18.0 release record template", () => {
-    const notes = readRoot("docs/releases/v0.18.0.md");
-    expect(notes).toContain("### Pi package distribution");
-    expect(notes).toContain("### Release integrity");
-    expect(notes).toContain("### Runtime and security hardening");
+  it("ships non-empty release record templates for the 0.18 train", () => {
+    const notes0180 = readRoot("docs/releases/v0.18.0.md");
+    expect(notes0180).toContain("### Pi package distribution");
+    expect(notes0180).toContain("### Release integrity");
+    expect(notes0180).toContain("### Runtime and security hardening");
+    const notes0181 = readRoot("docs/releases/v0.18.1.md");
+    expect(notes0181.trim().length).toBeGreaterThan(0);
   });
 });
 
 // ── Transactional release workflows ─────────────────────────────────────────
 
 describe("transactional release workflow", () => {
-  it("provides an explicit guarded Prepare Release 0.18.0 button", () => {
+  it("provides an explicit guarded Prepare Release 0.18.1 button", () => {
     expect(fileExists(".github/workflows/prepare-release.yml")).toBe(true);
     const content = readRoot(".github/workflows/prepare-release.yml");
-    expect(content).toMatch(/name:\s*Prepare Release 0\.18\.0/);
+    expect(content).toMatch(/name:\s*Prepare Release 0\.18\.1/);
     expect(content).toMatch(/workflow_dispatch:/);
-    expect(content).toContain("RELEASE 0.18.0");
+    expect(content).toContain("RELEASE 0.18.1");
     expect(content).toContain("node scripts/prepare-release.mjs");
     expect(content).toContain("node scripts/verify-release-transaction.mjs HEAD^ HEAD");
     expect(content).toContain("gh pr create");

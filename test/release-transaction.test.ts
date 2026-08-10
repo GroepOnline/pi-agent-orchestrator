@@ -70,7 +70,7 @@ function createReleaseSandbox(): string {
     "CHANGELOG.md",
     "package.json",
     "package-lock.json",
-    "docs/releases/v0.18.0.md",
+    "docs/releases/v0.18.1.md",
     "scripts/prepare-release.mjs",
     "scripts/release-policy.mjs",
     "scripts/verify-release-transaction.mjs",
@@ -96,31 +96,31 @@ afterEach(() => {
 describe("v0.18 release transaction", () => {
   it("prepares, validates, and rejects manipulated release paths", { timeout: 30000 }, () => {
     const root = createReleaseSandbox();
-    const prepare = node(root, "scripts/prepare-release.mjs", "0.18.0", "2026-07-14");
+    const prepare = node(root, "scripts/prepare-release.mjs", "0.18.1", "2026-08-10");
     expect(prepare.status, prepare.stderr).toBe(0);
 
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
     const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8");
-    expect(pkg.version).toBe("0.18.0");
-    expect(lock.version).toBe("0.18.0");
-    expect(lock.packages[""].version).toBe("0.18.0");
+    expect(pkg.version).toBe("0.18.1");
+    expect(lock.version).toBe("0.18.1");
+    expect(lock.packages[""].version).toBe("0.18.1");
     expect(lock.packages[""].peerDependencies).toEqual(pkg.peerDependencies);
     expect(lock.packages[""].engines).toEqual(pkg.engines);
-    expect(changelog).toContain("## v0.18.0 (2026-07-14)");
+    expect(changelog).toContain("## v0.18.1 (2026-08-10)");
     expect(changelog).toContain("No unreleased changes");
 
     const publishPolicy = node(root, "scripts/release-policy.mjs", "publish");
     expect(publishPolicy.status, publishPolicy.stderr).toBe(0);
 
     git(root, "add", "CHANGELOG.md", "package.json", "package-lock.json");
-    git(root, "commit", "-m", "chore(release): v0.18.0");
+    git(root, "commit", "-m", "chore(release): v0.18.1");
     const verify = node(
       root,
       "scripts/verify-release-transaction.mjs",
       "HEAD^",
       "HEAD",
-      "0.18.0",
+      "0.18.1",
     );
     expect(verify.status, verify.stderr).toBe(0);
 
@@ -129,7 +129,7 @@ describe("v0.18 release transaction", () => {
       "scripts/verify-version-transition.mjs",
       "HEAD^",
       "HEAD",
-      "release/v0.18.0",
+      "release/v0.18.1",
     );
     expect(transition.status, transition.stderr).toBe(0);
     const wrongBranch = node(
@@ -140,18 +140,18 @@ describe("v0.18 release transaction", () => {
       "feature/version-bump",
     );
     expect(wrongBranch.status).not.toBe(0);
-    expect(wrongBranch.stderr).toContain("version changes are allowed only on release/v0.18.0");
+    expect(wrongBranch.stderr).toContain("version changes are allowed only on release/v0.18.1");
 
     pkg.description = "tampered after release preparation";
     writeFileSync(join(root, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
     git(root, "add", "package.json");
-    git(root, "commit", "-m", "chore(release): v0.18.0");
+    git(root, "commit", "-m", "chore(release): v0.18.1");
     const rejected = node(
       root,
       "scripts/verify-release-transaction.mjs",
       "HEAD^",
       "HEAD",
-      "0.18.0",
+      "0.18.1",
     );
     expect(rejected.status).not.toBe(0);
     expect(rejected.stderr).toContain(
