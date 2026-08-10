@@ -49,6 +49,7 @@ function createBaselinePolicySandbox(version = "0.17.5"): string {
     "package.json",
     "package-lock.json",
     "docs/releases/v0.18.0.md",
+    "docs/releases/v0.18.1.md",
     "scripts/release-policy.mjs",
   ]) {
     const destination = join(sandbox, path);
@@ -209,15 +210,15 @@ describe("0.18 release policy", () => {
   it("declares 0.18.x as the only allowed train and blocks 0.19.0", () => {
     const policy = JSON.parse(readRoot(".release-policy.json"));
     expect(policy.releaseTrain).toBe("0.18");
-    expect(policy.initialRelease).toBe("0.18.0");
+    expect(policy.initialRelease).toBe("0.18.1");
     expect(policy.sourceBaselines).toEqual(["0.17.1", "0.17.5", "0.17.6", "0.18.0"]);
     expect(policy.allowPrerelease).toBe(false);
     expect(policy.blockedNextMinor).toBe("0.19.0");
-    expect(policy.releaseCommitTitle).toBe("chore(release): v0.18.0");
+    expect(policy.releaseCommitTitle).toBe("chore(release): v0.18.1");
   });
 
   it("accepts stable 0.18 candidates", () => {
-    expect(runReleasePolicy("candidate", "0.18.0").status).toBe(0);
+    expect(runReleasePolicy("candidate", "0.18.1").status).toBe(0);
     expect(runReleasePolicy("candidate", "0.18.7").status).toBe(0);
   });
 
@@ -311,12 +312,12 @@ describe("0.18 release policy", () => {
 // ── Transactional release workflows ─────────────────────────────────────────
 
 describe("transactional release workflow", () => {
-  it("provides an explicit guarded Prepare Release 0.18.0 button", () => {
+  it("provides an explicit guarded Prepare Release 0.18.1 button", () => {
     expect(fileExists(".github/workflows/prepare-release.yml")).toBe(true);
     const content = readRoot(".github/workflows/prepare-release.yml");
-    expect(content).toMatch(/name:\s*Prepare Release 0\.18\.0/);
+    expect(content).toMatch(/name:\s*Prepare Release 0\.18\.1/);
     expect(content).toMatch(/workflow_dispatch:/);
-    expect(content).toContain("RELEASE 0.18.0");
+    expect(content).toContain("RELEASE 0.18.1");
     expect(content).toContain("node scripts/prepare-release.mjs");
     expect(content).toContain("node scripts/verify-release-transaction.mjs HEAD^ HEAD");
     expect(content).toContain("gh pr create");
