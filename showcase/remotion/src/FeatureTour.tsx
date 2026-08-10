@@ -96,7 +96,7 @@ const IntroScene = ({version, capabilityCount}: {version: string; capabilityCoun
         }}
       >
         <div>
-          <Eyebrow>OnlineChefGroep / Pi extension</Eyebrow>
+          <Eyebrow>GroepOnline / Pi extension</Eyebrow>
           <div
             style={{
               marginTop: 28,
@@ -330,7 +330,7 @@ const OutroScene = ({repository}: {repository: string}) => (
         <Panel style={{marginTop: 52, padding: "28px 36px"}}>
           <div style={{fontFamily: jetBrainsMonoFamily, fontSize: 25}}>
             <span style={{color: theme.ok}}>➜ </span>
-            pi install npm:@onlinechefgroep/pi-agent-orchestrator
+            pi install npm:@groeponline/pi-agent-orchestrator
           </div>
         </Panel>
         <div style={{marginTop: 34, color: theme.muted, fontFamily: jetBrainsMonoFamily, fontSize: 18}}>

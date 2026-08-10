@@ -12,11 +12,11 @@ Pi extension — runs inside the pi coding agent host, not standalone. Orchestra
 | **Never** | Import `@earendil-works/pi-*` as direct deps; treat YAML booleans as truthy strings; sort agent lists (Map insertion order is intentional) |
 | **Peer extensions** | `@groeponline/context-mode` → `ctx_*` tools (optional, feature-gated) |
 
-## V2 implementation lane
+## Dashboard / motion notes
 
-The files under `docs/handoff/v2-refactor/` are an execution roadmap, not a replacement for the current codebase SSOT. Implement the roadmap incrementally and keep existing behavior covered while modules move toward clearer orchestration, model, and UI boundaries.
+The v2 dashboard rewrite has shipped. Files under `docs/handoff/v2-refactor/` are a **historical archive** of that roadmap, not an active implementation lane. Prefer the live code under `src/ui/` and `docs/PERFORMANCE.md` as SSOT.
 
-For dashboard and animation work:
+When touching dashboard / animation code:
 
 - Keep dashboard animation glyphs single-cell unless a renderer explicitly reserves a fixed multi-cell width.
 - Use ANSI-aware helpers (`visibleWidth`, `padAndTruncate`, `fastTruncate`) instead of native string padding on colored content.
@@ -24,7 +24,6 @@ For dashboard and animation work:
 - Prefer semantic motion roles (`header`, `queue`, `handoff`, `swarm`, `tool`) over one global spinner everywhere.
 - Preserve responsive rendering at 60, 80, 100, and 140 terminal columns.
 - Add focused tests for frame wrapping, deterministic assignment, width safety, and responsive column selection.
-- Treat reduced-motion support and user-selectable animation packs as settings-backed follow-up work, not environment-only flags.
 
 ## Spawn rules
 
@@ -32,7 +31,7 @@ For dashboard and animation work:
 
 | Built-in type | Mode | Use when |
 |---------------|------|----------|
-| `Explore` | read-only | Parallel codebase audit, grep/find sweeps, SSOT boundary checks |
+| `Explore` | read-only | Parallel codebase audit, grep sweeps, SSOT boundary checks |
 | `Plan` | read-only | Architecture pass before multi-file edits |
 | `Analysis` | read-only + `ctx_*` | Data/compute via sandbox (requires context-mode peer) |
 | `general-purpose` | full tools | Bounded implementation after Plan/Explore land |

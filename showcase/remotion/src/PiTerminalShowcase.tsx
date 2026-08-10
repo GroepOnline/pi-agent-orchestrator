@@ -164,7 +164,7 @@ export const PiTerminalShowcase = ({
               marginBottom: 8,
             }}
           >
-            OnlineChefGroep / Pi CLI
+            GroepOnline / Pi CLI
           </div>
           <div style={{fontSize: 42, fontWeight: 720, letterSpacing: -1.8, lineHeight: 1}}>
             Pi Agent Orchestrator

@@ -12,7 +12,7 @@ Target directory: `.pi/agents/typescript-reviewer.md` at project root.
 ---
 display_name: "TypeScript Reviewer"
 description: "Read-only reviewer for TypeScript changes"
-tools: read, grep, find, ls, bash
+tools: read, grep, bash
 disallowed_tools: write, edit
 extensions: false
 skills: true
@@ -36,6 +36,8 @@ Project scope strictly overrides global scope collisions.
 
 ---
 
+> **Allowed `tools` values** match `BUILTIN_TOOL_NAMES` in `src/agent-types.ts`: `read`, `bash`, `edit`, `write`, `grep` (plus `*` for all). Host tools named `find` / `ls` are **not** in the allowlist and are rejected or ignored by the loader.
+
 ## // DEFINITION FORMAT
 
 Markdown primitive format with YAML frontmatter. Post-frontmatter body block parses as the system prompt directive.
@@ -43,7 +45,7 @@ Markdown primitive format with YAML frontmatter. Post-frontmatter body block par
 ```markdown
 ---
 description: "Short description shown in menus"
-tools: read, grep, find
+tools: read, grep
 ---
 System prompt starts here.
 ```
@@ -92,13 +94,11 @@ Valid primitive values:
 | `edit` | Mutate block state. |
 | `bash` | Execute shell commands. |
 | `grep` | Stream content search. |
-| `find` | Object metadata queries. |
-| `ls` | Directory structure enumeration. |
 
 Syntax:
 
 ```yaml
-tools: read, grep, find, ls
+tools: read, grep
 disallowed_tools: write, edit
 ```
 
@@ -113,7 +113,7 @@ Syntax for nullified execution (prompt-only): `tools: none`.
 Read-only agents mandate both an allowlist and a disallow list:
 
 ```yaml
-tools: read, grep, find, ls, bash
+tools: read, grep, bash
 disallowed_tools: write, edit
 ```
 
@@ -128,7 +128,7 @@ Extensions expand attack surface matrices. Nullify default access for narrow rev
 ### Worktree State Separation
 
 ```yaml
-tools: read, write, edit, grep, find, ls, bash
+tools: read, write, edit, grep, bash
 isolation: worktree
 ```
 
@@ -193,7 +193,7 @@ Compression levels affect only the generated handoff instructions; they do not r
 ```markdown
 ---
 display_name: "Researcher"
-tools: read, grep, find
+tools: read, grep
 handoff: true
 prompt_compression: minimal
 ---

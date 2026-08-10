@@ -95,7 +95,7 @@ export function LandingPage() {
         </p>
         <Card className="border-border/80 bg-[#080a0d]">
           <CardContent className="overflow-x-auto p-6 font-mono text-sm leading-7 text-[#dfe4e8]">
-            <pre className="m-0 whitespace-pre-wrap">{`pi install npm:@onlinechefgroep/pi-agent-orchestrator
+            <pre className="m-0 whitespace-pre-wrap">{`pi install npm:@groeponline/pi-agent-orchestrator
 
 # Open the dashboard inside Pi
 /agents`}</pre>

@@ -199,9 +199,18 @@ interface SubagentsSettings {
   promptCompressionLevel?: PromptCompressionLevel;  // "minimal" | "balanced" | "aggressive" (default: "balanced")
   debugCapture?: boolean;               // **OFF BY DEFAULT.** Master switch for the offline capture sink (default: false). Captures agent events, errors + stacks, schedule executions, RPC audit, and per-agent metrics to a local folder. See the `### DEBUG CAPTURE` section below.
   debugCapturePaths?: DebugCapturePathOverrides;  // Override the two capture roots (default: `<cwd>/.pi/subagent-debug` + `<agent-dir>/subagent-debug`). Absolute paths only; failed validation is silently dropped at enable-time (does not crash startup).
+  dashboardKeybindings?: Partial<Record<DashboardAction, readonly string[]>>;  // Per-action key lists for the interactive dashboard and top view. See `DEFAULT_DASHBOARD_KEYBINDINGS` in `src/ui/dashboard-keybindings.ts` (e.g. topView defaults to `t`, tree to `y`).
+  footerStatus?: Partial<FooterStatusConfig>;  // Pi footer status slot (`subagents` bar): `enabled`, `slot`, `showWhenIdle`, optional `template` with `{running}`/`{queued}`/`{total}`.
 }
 ```
 
+### `DashboardAction` / `FooterStatusConfig`
+
+**FILE:** `src/ui/dashboard-keybindings.ts`, `src/ui/footer-status-config.ts`
+
+`dashboardKeybindings` overrides individual dashboard actions without replacing the full map. Unknown actions and non-array values are dropped at load time.
+
+`footerStatus` defaults to `{ enabled: true, slot: "subagents", showWhenIdle: false }`.
 ### `PromptCompressionLevel`
 
 **FILE:** `src/types.ts`

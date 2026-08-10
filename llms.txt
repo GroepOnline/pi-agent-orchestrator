@@ -4,7 +4,7 @@
 
 ## Primary documentation (installed package)
 
-After `pi install npm:@onlinechefgroep/pi-agent-orchestrator`, read raw markdown from the package root (e.g. `node_modules/@onlinechefgroep/pi-agent-orchestrator/`):
+After `pi install npm:@groeponline/pi-agent-orchestrator`, read raw markdown from the package root (e.g. `node_modules/@groeponline/pi-agent-orchestrator/`):
 
 - `README.md` — overview and installation
 - `docs/architecture.md` — system topology and permission model

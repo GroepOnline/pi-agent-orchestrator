@@ -1,27 +1,27 @@
 # Performance Architecture
 
-## Overzicht
+## Overview
 
-Dit document beschrijft de belangrijkste performance-architectuur beslissingen in de pi-agent-orchestrator. Het legt uit _waarom_ bepaalde patronen zijn gekozen, zodat toekomstige contributors dezelfde afwegingen kunnen maken zonder de code tot in detail te hoeven analyseren.
+This document describes the key performance architecture decisions in pi-agent-orchestrator. It explains _why_ certain patterns were chosen, so future contributors can make the same trade-offs without having to analyze the code in detail.
 
 ---
 
 ## 1. Agent Cleanup TTL (AgentManager)
 
-### Beslissing
-- **Configurable cleanup TTL** via constructor parameter (default: 60 seconden)
-- Periodic cleanup interval: 30 seconden
-- Minimum TTL: 10 seconden (clamped via `setCleanupTtl()`)
-- `clearCompleted()` verwijdert _alle_ completed/stopped/errored records direct
+### Decision
+- **Configurable cleanup TTL** via constructor parameter (default: 60 seconds)
+- Periodic cleanup interval: 30 seconds
+- Minimum TTL: 10 seconds (clamped via `setCleanupTtl()`)
+- `clearCompleted()` removes _all_ completed/stopped/errored records immediately
 
-### Waarom
-- **Memory pressure**: tijdens lange sessies met veel agent spawns kunnen honderden `AgentRecord` objecten accumuleren. Elk record bevat o.a. sessie-objecten, lifetime usage data, en result text.
-- **Trade-off**: een korte TTL betekent dat gebruikers geen oude agent resultaten kunnen terugzien via `/agents`. `clearCompleted()` op sessie-grenzen (`session_start`, `session_before_switch`) zorgt voor een harde reset.
-- **30s interval** is een compromis: frequent genoeg om geheugen laag te houden, maar niet zo frequent dat de O(n) iterate over de agents map merkbaar wordt.
+### Why
+- **Memory pressure**: during long sessions with many agent spawns, hundreds of `AgentRecord` objects can accumulate. Each record contains session objects, lifetime usage data, and result text.
+- **Trade-off**: a short TTL means users cannot look up old agent results via `/agents`. `clearCompleted()` on session boundaries (`session_start`, `session_before_switch`) provides a hard reset.
+- **30s interval** is a compromise: frequent enough to keep memory low, but not so frequent that the O(n) iterate over the agents map becomes noticeable.
 
-### Wanneer aanpassen
-- Voor sessies met extreem veel spawns (>1000): verlaag TTL naar 30s
-- Voor debug sessies waar historie bewaard moet blijven: verhoog TTL naar 5min of gebruik `clearCompleted()` niet
+### When to adjust
+- For sessions with extremely many spawns (>1000): lower TTL to 30s
+- For debug sessions where history must be preserved: raise TTL to 5min or avoid calling `clearCompleted()`
 
 ### Key code
 ```typescript
@@ -43,17 +43,17 @@ setCleanupTtl(ms: number): void {
 
 ## 2. Dirty Checking (Dashboard + Widget)
 
-### Beslissing
-Beide UI-componenten gebruiken een **lightweight structural snapshot** om te detecteren of de agent lijst echt veranderd is:
+### Decision
+Both UI components use a **lightweight structural snapshot** to detect whether the agent list has actually changed:
 
-- **Snapshot**: een string hash van `id:status,` voor elke agent
-- **Alleen status-transities** triggeren een `dirty = true` — toolUses/turnCount wijzigingen niet
-- **Sneller dan deep-compare**: O(n) string concatenatie vs O(n) object vergelijking
+- **Snapshot**: a string hash of `id:status,` for each agent
+- **Only status transitions** trigger `dirty = true` — toolUses/turnCount changes do not
+- **Faster than deep-compare**: O(n) string concatenation vs O(n) object comparison
 
-### Waarom geen toolUses/turnCount in de snapshot
-ToolUses en turnCount veranderen binnen een turn (elke tool call). Als we die zouden tracken, zou de snapshot _continu_ veranderen tijdens actieve agent-executie, waardoor de dirty flag nooit false wordt en de optimalisatie zinloos is. Status-transities (queued → running → completed) zijn de enige _structurele_ veranderingen die de UI layout beïnvloeden.
+### Why toolUses/turnCount are not in the snapshot
+ToolUses and turnCount change within a turn (every tool call). If we tracked those, the snapshot would _continuously_ change during active agent execution, so the dirty flag would never become false and the optimization would be pointless. Status transitions (queued → running → completed) are the only _structural_ changes that affect the UI layout.
 
-### Dashboard specifiek
+### Dashboard specific
 ```typescript
 // src/ui/agent-dashboard.ts — refreshAgents()
 const snapshot = this.buildSnapshot();
@@ -64,7 +64,7 @@ if (snapshot !== this.agentSnapshot) {
 }
 ```
 
-### Widget specifiek
+### Widget specific
 ```typescript
 // src/ui/agent-widget.ts — update()
 const snapshot = this.buildSnapshot(allAgents);
@@ -79,8 +79,8 @@ if (!this.dirty && this.widgetRegistered) {
 ```
 
 ### Trade-offs
-- **Pro**: voorkomt ~90% van de `requestRender()` calls tijdens idle/stabiele periodes
-- **Con**: mist incrementele progress (tool counts, token burn rate) tot de volgende turn boundary of status transitie. Dit is acceptabel omdat de UI een overview geeft, geen real-time monitor.
+- **Pro**: prevents ~90% of `requestRender()` calls during idle/stable periods
+- **Con**: misses incremental progress (tool counts, token burn rate) until the next turn boundary or status transition. This is acceptable because the UI is an overview, not a real-time monitor.
 
 ---
 
@@ -88,47 +88,47 @@ if (!this.dirty && this.widgetRegistered) {
 
 ### Dashboard (agent-dashboard.ts)
 
-| Aantal agents | Status | Interval | fps |
+| Agent count | Status | Interval | fps |
 |---|---|---|---|
 | ≥ 100 | any | 100ms (TURBO) | 10 |
 | 50–99 | any | 150ms (HIGH_LOAD) | 6.7 |
 | any | running/queued | 200ms (ACTIVE) | 5 |
 | < 50 | idle | 750ms (configurable via settings) | 1.3 |
 
-Het interval wordt dynamisch aangepast: elke timer tick checkt `computeRefreshInterval()` en herstart de timer als de waarde veranderd is.
+The interval is adjusted dynamically: each timer tick checks `computeRefreshInterval()` and restarts the timer if the value has changed.
 
 ### Widget (agent-widget.ts)
 
 | Status | Interval | fps |
 |---|---|---|
 | Agents running/queued | 200ms | 5 |
-| Alle agents finished | 1000ms | 1 |
+| All agents finished | 1000ms | 1 |
 
-De widget past zijn interval aan wanneer de snapshot verandert (en dus een status-transitie heeft plaatsgevonden). Dit gebeurt via `currentIntervalMs` tracking: de timer wordt alleen herstart als de target interval echt verschilt van de huidige.
+The widget adjusts its interval when the snapshot changes (and thus a status transition has occurred). This happens via `currentIntervalMs` tracking: the timer is only restarted if the target interval actually differs from the current one.
 
-### Waarom deze intervallen
-- **200ms** is snel genoeg voor vloeiende spinner-animatie en snelle status-updates
-- **1000ms** idle is langzaam genoeg om CPU te sparen, maar frequent genoeg om een nieuwe spawn binnen 1 seconde te tonen
-- **100ms/150ms** voor grote agent lijsten omdat status-transities frequenter zijn bij veel agents
+### Why these intervals
+- **200ms** is fast enough for smooth spinner animation and quick status updates
+- **1000ms** idle is slow enough to save CPU, but frequent enough to show a new spawn within 1 second
+- **100ms/150ms** for large agent lists because status transitions are more frequent with many agents
 
 ---
 
 ## 4. Debounced requestRender (Conversation Viewer)
 
-### Beslissing
-In plaats van direct `this.tui.requestRender()` aan te roepen bij elke session event, gebruiken we een **drie-fasen debounce**:
+### Decision
+Instead of calling `this.tui.requestRender()` directly on every session event, we use a **three-phase debounce**:
 
-1. **Rate limit check**: als er binnen de laatste 16ms een render is geweest, skip
-2. **Coalesce fallback**: als de rate-limit actief is, plan een `setTimeout` voor als de window verloopt
-3. **queueMicrotask**: als de rate-limit niet actief is, plan een microtask (coalesceert alle events in de huidige synchrone burst)
+1. **Rate limit check**: if a render occurred within the last 16ms, skip
+2. **Coalesce fallback**: if the rate limit is active, schedule a `setTimeout` for when the window expires
+3. **queueMicrotask**: if the rate limit is not active, schedule a microtask (coalesces all events in the current synchronous burst)
 
-### Waarom geen directe requestRender
-De session subscription vuurt op elk session event: text deltas, turn ends, compaction, etc. Tijdens streaming kan dit tientallen keren per seconde zijn. Zonder debounce zou de TUI ~60+ renders per seconde doen — allemaal identiek (de content is nog niet veranderd omdat de microtask de state pas na de burst update).
+### Why not direct requestRender
+The session subscription fires on every session event: text deltas, turn ends, compaction, etc. During streaming this can happen dozens of times per second. Without debounce the TUI would render ~60+ times per second — all identical (the content has not changed yet because the microtask updates state only after the burst).
 
-### Waarom geen vaste requestAnimationFrame
-De TUI is terminal-gebaseerd en heeft geen `requestAnimationFrame`. `queueMicrotask` is het dichtste equivalent: het vuurt na de huidige synchrone call stack, maar voor eventuele I/O callbacks.
+### Why not fixed requestAnimationFrame
+The TUI is terminal-based and has no `requestAnimationFrame`. `queueMicrotask` is the closest equivalent: it fires after the current synchronous call stack, but before any I/O callbacks.
 
-### Pattern (ook gebruikt in dashboard)
+### Pattern (also used in dashboard)
 ```typescript
 private requestRender(): void {
   // 1. Rate limit
@@ -137,7 +137,7 @@ private requestRender(): void {
       this.coalesceTimer = setTimeout(() => {
         this.coalesceTimer = null;
         this.lastRenderTime = 0;
-        this.requestRender(); // retry na window
+        this.requestRender(); // retry after window
       }, MIN_RENDER_GAP_MS - elapsed);
     }
     return;
@@ -158,11 +158,11 @@ private requestRender(): void {
 
 ## 5. Memoized Theme (Dashboard)
 
-### Beslissing
-Dashboard theme (colors + box chars) wordt gecached en alleen herberekend als de UI style verandert.
+### Decision
+Dashboard theme (colors + box chars) is cached and only recomputed when the UI style changes.
 
-### Waarom
-`getThemeColors()` en `getBoxChars()` doen ANSI-string constructie. Voor elke render (elke 200ms) zou dit overhead geven. Met caching is het O(1) lookup.
+### Why
+`getThemeColors()` and `getBoxChars()` perform ANSI string construction. On every render (every 200ms) this would add overhead. With caching it is an O(1) lookup.
 
 ```typescript
 private getTheme(): DashboardTheme {
@@ -176,31 +176,31 @@ private getTheme(): DashboardTheme {
 }
 ```
 
-Cache wordt geïnvalideerd in de `invalidate()` methode (aangeroepen door de TUI bij style changes).
+The cache is invalidated in the `invalidate()` method (called by the TUI on style changes).
 
 ---
 
-## 6. Dynamische chromeLines (Dashboard)
+## 6. Dynamic chromeLines (Dashboard)
 
-### Beslissing
-Chrome lines (aantal regels voor headers, footers, borders) past zich aan aan terminal hoogte:
+### Decision
+Chrome lines (number of lines for headers, footers, borders) adapt to terminal height:
 
-| Terminal hoogte | Chrome lines |
+| Terminal height | Chrome lines |
 |---|---|
-| < 30 rijen | 10 |
+| < 30 rows | 10 |
 | 30–50 | 13 |
 | 50–80 | 16 |
 | > 80 | 19 |
 
-### Waarom
-Op kleine terminals (laptops, gesplitste schermen) is elke regel kostbaar. Minder chrome = meer ruimte voor agent data. Op grote terminals is extra chrome acceptabel voor een rijkere UI.
+### Why
+On small terminals (laptops, split screens) every line is costly. Less chrome = more room for agent data. On large terminals extra chrome is acceptable for a richer UI.
 
 ---
 
 ## 7. AgentActivity Cleanup
 
-### Beslissing
-`AgentActivity` entries worden opgeruimd via een callback chain:
+### Decision
+`AgentActivity` entries are cleaned up via a callback chain:
 
 ```
 AgentManager.removeRecord() 
@@ -208,30 +208,30 @@ AgentManager.removeRecord()
   → index.ts: agentActivity.delete(id)
 ```
 
-Dit gebeurt op drie momenten:
-1. **Periodieke cleanup** (elke 30s, na TTL)
-2. **`clearCompleted()`** (sessie start/switch)
+This happens at three moments:
+1. **Periodic cleanup** (every 30s, after TTL)
+2. **`clearCompleted()`** (session start/switch)
 3. **Agent completion** (via `sendIndividualNudge`, `groupJoin.onAgentComplete`, `swarmJoin.onAgentComplete`)
 
-### Waarom geen extra GC
-De `AgentActivity` map groeit alleen als agents actief zijn of net voltooid. Na voltooiing wordt de entry binnen 1-2 turn boundaries verwijderd. De callback chain zorgt dat verwijdering altijd gepaard gaat met activity cleanup — er is geen aparte sweep nodig.
+### Why no extra GC
+The `AgentActivity` map only grows while agents are active or just completed. After completion the entry is removed within 1-2 turn boundaries. The callback chain ensures removal always goes together with activity cleanup — no separate sweep is needed.
 
 ---
 
-## 8. Overzicht RequestRender Strategie
+## 8. RequestRender Strategy Overview
 
 | Component | Timer | Debounce | Dirty check | Interval |
 |---|---|---|---|---|
-| Dashboard | Adaptief | Ja (16ms + microtask + coalesce) | Ja (snapshot) | 100–750ms |
-| AgentWidget | Adaptief (`AdaptiveTick`) | Spawn-batch 16ms | Ja (snapshot) | 160–1000ms |
-| AgentTopWidget | Adaptief (`AdaptiveTick`) | Nee | Ja (`buildSnapshotHash`) | 200–1000ms |
-| ConversationViewer | Event-driven | Ja (16ms + microtask + coalesce) | Nee | — |
+| Dashboard | Adaptive | Yes (16ms + microtask + coalesce) | Yes (snapshot) | 100–750ms |
+| AgentWidget | Adaptive (`AdaptiveTick`) | Spawn-batch 16ms | Yes (snapshot) | 160–1000ms |
+| AgentTopWidget | Adaptive (`AdaptiveTick`) | No | Yes (`buildSnapshotHash`) | 200–1000ms |
+| ConversationViewer | Event-driven | Yes (16ms + microtask + coalesce) | No | — |
 
-### Waarom conversation-viewer geen dirty check heeft
-De conversation viewer toont de _volledige_ agent conversation. Elke session event (text delta, tool call, tool result) verandert de visible state. Een dirty check zou altijd true zijn tijdens streaming. De rate limit alleen is voldoende.
+### Why conversation-viewer has no dirty check
+The conversation viewer shows the _full_ agent conversation. Every session event (text delta, tool call, tool result) changes the visible state. A dirty check would always be true during streaming. The rate limit alone is sufficient.
 
-### Waarom AgentTopWidget geen aparte debounce heeft
-De strip deelt `LiveWidgets` fan-out met `AgentWidget` en rate-limiteert via `AdaptiveTick`. Structurele changes gebruiken `buildSnapshotHash`; idle ticks blijven lopen zolang er UI-context is zodat settings-toggles zonder registry-callback worden opgepikt.
+### Why AgentTopWidget has no separate debounce
+The strip shares `LiveWidgets` fan-out with `AgentWidget` and rate-limits via `AdaptiveTick`. Structural changes use `buildSnapshotHash`; idle ticks keep running as long as there is UI context so settings toggles without registry callbacks are picked up.
 
 ---
 
@@ -239,36 +239,36 @@ De strip deelt `LiveWidgets` fan-out met `AgentWidget` en rate-limiteert via `Ad
 
 ## 9. Spawn Batching (Phase 3.1)
 
-### Beslissing
-Bij bulk spawns (meerdere achtergrond agents die tegelijk worden gestart), gebruiken we een **tweetraps debounce** om de widget-updates te coalesceren:
+### Decision
+For bulk spawns (multiple background agents started at once), we use a **two-stage debounce** to coalesce widget updates:
 
-1. **Eerste spawn**: `debouncedUpdate()` roept `update()` direct aan voor onmiddellijke feedback
-2. **Timer (16ms)**: een korte setTimeout wordt gestart om eventuele volgende spawns binnen 16ms op te vangen
-3. **Timer callback**: een tweede `update()` wordt uitgevoerd met de volledige batch
-4. **Tussentijdse calls**: alle `debouncedUpdate()` calls tijdens de 16ms window worden overgeslagen
+1. **First spawn**: `debouncedUpdate()` calls `update()` directly for immediate feedback
+2. **Timer (16ms)**: a short setTimeout is started to catch any subsequent spawns within 16ms
+3. **Timer callback**: a second `update()` runs with the full batch
+4. **Intermediate calls**: all `debouncedUpdate()` calls during the 16ms window are skipped
 
-### Compacte batch rendering
-Wanneer er 3+ agents van hetzelfde type in "queued" status zijn, worden ze getoond als een compacte regel:
+### Compact batch rendering
+When there are 3+ agents of the same type in "queued" status, they are shown as a compact line:
 ```
 ├── ◦ 5× Explore queued
 ```
-in plaats van 5 individuele regels. Dit bespaart verticale ruimte en vermindert render overhead.
+instead of 5 individual lines. This saves vertical space and reduces render overhead.
 
-### Waarom geen strict batching op spawn-niveau
-Anders dan de batch orchestrator (die completions debounced), hebben spawns geen aparte buffer nodig omdat:
-- De `AgentManager.spawn()` is synchroon — alle records worden in dezelfde call stack toegevoegd
-- De widget timer (200ms actief) ziet alle records in één keer
-- De dashboard requestRender is al rate gelimiteerd op 16ms
+### Why no strict batching at spawn level
+Unlike the batch orchestrator (which debounces completions), spawns do not need a separate buffer because:
+- `AgentManager.spawn()` is synchronous — all records are added in the same call stack
+- The widget timer (200ms active) sees all records at once
+- The dashboard requestRender is already rate limited at 16ms
 
-De debounce in `debouncedUpdate()` voorkomt alleen dat `widget.update()` 20x wordt aangeroepen voor 20 spawns — de snapshot build en `listAgents()` sort worden zo teruggebracht van 20 naar 2 calls.
+The debounce in `debouncedUpdate()` only prevents `widget.update()` from being called 20 times for 20 spawns — snapshot build and `listAgents()` sort are reduced from 20 to 2 calls.
 
 ### Key code
 ```typescript
 // src/ui/agent-widget.ts
 debouncedUpdate(): void {
   if (this.updateTimer) return;          // timer pending → skip
-  this.update();                          // immediate: eerste spawn
-  this.updateTimer = setTimeout(() => {    // coalesce volgende spawns
+  this.update();                          // immediate: first spawn
+  this.updateTimer = setTimeout(() => {    // coalesce subsequent spawns
     this.updateTimer = undefined;
     this.update();
   }, AgentWidget.SPAWN_BATCH_MS);          // 16ms
@@ -276,19 +276,19 @@ debouncedUpdate(): void {
 ```
 
 ### Trade-offs
-- **Pro**: `listAgents()` en snapshot build worden 10-20x minder aangeroepen bij bulk spawns
-- **Con**: eerste render toont 1 agent, tweede render 16ms later toont de volledige batch — korte visuele flits
-- **Con**: compacte weergave verbergt individuele descriptions voor batches van 3+ agents
+- **Pro**: `listAgents()` and snapshot build are called 10-20x less often during bulk spawns
+- **Con**: first render shows 1 agent, second render 16ms later shows the full batch — brief visual flash
+- **Con**: compact display hides individual descriptions for batches of 3+ agents
 
 ---
 
 ## 10. Render Metrics Architecture (Phase 3.3)
 
-### Overzicht
+### Overview
 
-Sinds Phase 3.3 beschikt de gehele UI over een **unified render performance tracking system** via de `RenderMetrics` class. Deze class wordt geïnstantieerd door zowel de `AgentWidget` als de `AgentDashboard` en trackt real-time metrics over hoe lang renders duren, hoe effectief de debounce is, en hoeveel agents er gemiddeld per render worden verwerkt.
+Since Phase 3.3 the entire UI has a **unified render performance tracking system** via the `RenderMetrics` class. This class is instantiated by both `AgentWidget` and `AgentDashboard` and tracks real-time metrics on how long renders take, how effective debounce is, and how many agents are processed per render on average.
 
-De data is live te bekijken via de `/perf` command in de dashboard.
+The data can be viewed live via the `/perf` command in the dashboard.
 
 ---
 
@@ -298,66 +298,66 @@ De data is live te bekijken via de `/perf` command in de dashboard.
 const metrics = new RenderMetrics(label: string, slowThresholdMs?: number);
 ```
 
-#### Publieke API
+#### Public API
 
-| Methode | Beschrijving |
+| Method | Description |
 |---|---|
-| `record(durationMs, activeAgents?)` | Registreer een render execution. Optioneel aantal agents. Returnt `true` als de render langzamer was dan `slowThresholdMs`. |
-| `recordRequested()` | Registreer een _request_ om te renderen (vóór debounce/dirty filtering). Returnt het netto requested count. |
-| `setFirstSpawnTimestamp(ts)` | Zet de timestamp van de eerste agent spawn (earliest wint). |
-| `reset()` | Reset alle counters. |
-| `snapshot()` | Returnt een `RenderMetricsSnapshot` met alle huidige waarden. |
+| `record(durationMs, activeAgents?)` | Record a render execution. Optional agent count. Returns `true` if the render was slower than `slowThresholdMs`. |
+| `recordRequested()` | Record a _request_ to render (before debounce/dirty filtering). Returns the net requested count. |
+| `setFirstSpawnTimestamp(ts)` | Set the timestamp of the first agent spawn (earliest wins). |
+| `reset()` | Reset all counters. |
+| `snapshot()` | Returns a `RenderMetricsSnapshot` with all current values. |
 
-#### Volledige Snapshot Velden
+#### Full Snapshot Fields
 
 ```typescript
 interface RenderMetricsSnapshot {
-  label: string;                          // "widget-update" of "dashboard-render"
+  label: string;                          // "widget-update" or "dashboard-render"
 
   // ── Render duration stats ──
-  renderCount: number;                    // Hoe vaak record() is aangeroepen
-  meanMs: number;                         // Gemiddelde render duur
-  minMs: number;                          // Snelste render
-  maxMs: number;                          // Langzaamste render
-  lastMs: number;                         // Laatste render duur
+  renderCount: number;                    // How often record() was called
+  meanMs: number;                         // Average render duration
+  minMs: number;                          // Fastest render
+  maxMs: number;                          // Slowest render
+  lastMs: number;                         // Last render duration
 
   // ── Request vs actual (debounce effectiveness) ──
-  requestedRenderCount: number;           // Hoe vaak render is gevraagd
-  skippedRenderCount: number;             // request - actual (gedebounced)
-  requestToActualRatio: number;           // Verhouding (bv. 2.5x)
+  requestedRenderCount: number;           // How often render was requested
+  skippedRenderCount: number;             // request - actual (debounced)
+  requestToActualRatio: number;           // Ratio (e.g. 2.5x)
 
   // ── Agent context ──
-  activeAgentCount: number;               // Hoe vaak activeAgents is meegegeven
-  activeAgentMin: number;                 // Minimum agents tijdens een render
-  activeAgentMax: number;                 // Maximum agents tijdens een render
-  activeAgentMean: number;                // Gemiddeld aantal agents per render
+  activeAgentCount: number;               // How often activeAgents was provided
+  activeAgentMin: number;                 // Minimum agents during a render
+  activeAgentMax: number;                 // Maximum agents during a render
+  activeAgentMean: number;                // Average number of agents per render
 
   // ── Time to first visible ──
-  firstRenderTimestamp: number;           // Timestamp van eerste render
-  firstSpawnTimestamp: number;            // Timestamp van eerste spawn
-  timeToFirstVisibleMs: number;           // Verschil (perceived lag)
+  firstRenderTimestamp: number;           // Timestamp of first render
+  firstSpawnTimestamp: number;            // Timestamp of first spawn
+  timeToFirstVisibleMs: number;           // Difference (perceived lag)
 
   // ── Render rate ──
-  startedAt: number;                      // Timestamp van start/laatste reset
-  elapsedMs: number;                      // Verstreken tijd sinds startedAt
-  rendersPerSecond: number;               // Huidige render frequentie
-  rendersPerMinute: number;               // Huidige render frequentie (minuut)
+  startedAt: number;                      // Timestamp of start/last reset
+  elapsedMs: number;                      // Elapsed time since startedAt
+  rendersPerSecond: number;               // Current render frequency
+  rendersPerMinute: number;               // Current render frequency (minute)
 }
 ```
 
 ---
 
-### 10.2 Instrumentatie Punten
+### 10.2 Instrumentation Points
 
 #### AgentWidget — `renderWidget()` (src/ui/agent-widget.ts)
 
 - **Label**: `"widget-update"`
 - **Slow threshold**: 16ms (~60fps budget)
-- **Wat er wordt gemeten**: de daadwerkelijke line-building tijd in `renderWidget()`
-- **Wanneer `record()` wordt aangeroepen**: in de `finally` van `renderWidget()`, zodat de timing altijd wordt geregistreerd, zelfs bij fouten
+- **What is measured**: the actual line-building time in `renderWidget()`
+- **When `record()` is called**: in the `finally` of `renderWidget()`, so timing is always recorded, even on errors
 - **activeAgents**: `allAgents.filter(a => a.status === "running" || a.status === "queued").length`
-- **recordRequested()**: wordt aangeroepen in `update()` wanneer de dirty-skip path (snapshot is unchanged) wordt genomen — dit zijn de renders die door debounce zijn overgeslagen
-- **setFirstSpawnTimestamp()**: wordt aangeroepen in `update()` bij de eerste actieve agent
+- **recordRequested()**: called in `update()` when the dirty-skip path (snapshot is unchanged) is taken — these are renders skipped by debounce
+- **setFirstSpawnTimestamp()**: called in `update()` on the first active agent
 
 **Flow:**
 ```
@@ -376,19 +376,19 @@ renderWidget()
 #### AgentDashboard — `render()` (src/ui/agent-dashboard.ts)
 
 - **Label**: `"dashboard-render"`
-- **Slow threshold**: 50ms (dashboard heeft meer werk dan widget)
-- **Wat er wordt gemeten**: de volledige `render()` methode (header + body + detail panel + footer)
-- **Wanneer `record()` wordt aangeroepen**: aan het einde van `render()`, vlak voor return
-- **recordRequested()**: wordt aangeroepen in `requestRender()` vóór de debounce/rate-limit checks — telt ALLE requests, ook rate-limited
-- **setFirstSpawnTimestamp()**: wordt aangeroepen in `render()` bij de eerste agent
+- **Slow threshold**: 50ms (dashboard has more work than widget)
+- **What is measured**: the full `render()` method (header + body + detail panel + footer)
+- **When `record()` is called**: at the end of `render()`, just before return
+- **recordRequested()**: called in `requestRender()` before debounce/rate-limit checks — counts ALL requests, including rate-limited ones
+- **setFirstSpawnTimestamp()**: called in `render()` on the first agent
 
 **Flow:**
 ```
 requestRender()
-  ├─ recordRequested()                    ← telt alle requests
+  ├─ recordRequested()                    ← counts all requests
   ├─ rate limit check?
-  │   ├─ nog in window? ─► coalesce via setTimeout
-  │   └─ window verlopen? ─► queueMicrotask → tui.requestRender()
+  │   ├─ still in window? ─► coalesce via setTimeout
+  │   └─ window expired? ─► queueMicrotask → tui.requestRender()
   └─ renderPending guard
 
 render(width)
@@ -404,19 +404,19 @@ render(width)
 
 ### 10.3 `/perf` Debug Command
 
-Sinds de implementatie van command mode is de `/perf` command beschikbaar in de agent dashboard.
+Since command mode was implemented, the `/perf` command is available in the agent dashboard.
 
-#### Gebruik
+#### Usage
 
-| Actie | Toets |
+| Action | Key |
 |---|---|
 | Open command mode | `/` |
 | Toggle perf panel | `/perf` + Enter |
 | Reset counters | `/perf reset` + Enter |
-| Annuleer command | Esc |
-| Sluit perf panel | `q` of Esc |
+| Cancel command | Esc |
+| Close perf panel | `q` or Esc |
 
-#### Wat de perf panel toont
+#### What the perf panel shows
 
 ```
 ▸ Render Duration
@@ -446,30 +446,30 @@ Sinds de implementatie van command mode is de `/perf` command beschikbaar in de 
   [/perf reset]          [q/esc] close perf panel
 ```
 
-#### Hoe te interpreteren
+#### How to interpret
 
-| Metric | Gezond | Waarschuwing | Actie |
+| Metric | Healthy | Warning | Action |
 |---|---|---|---|
-| **lastMs / meanMs** | < 16ms (widget), < 50ms (dashboard) | > 50ms (widget), > 100ms (dashboard) | Verminder aantal agents, optimaliseer render code |
-| **maxMs** | < 50ms | > 200ms | Zoek de outlier: welke agent/config veroorzaakt de piek? |
-| **requestToActualRatio** | 1.0–3.0x | > 10x | Debounce is te agressief of er worden te veel onnodige requests gedaan |
-| **skippedRenderCount** | ≈ request - actual | Zeer hoog t.o.v. actual | Check of dirty detection goed werkt (snapshot hash collision?) |
-| **timeToFirstVisibleMs** | < 500ms | > 2000ms | Dashboard/widget wordt te langzaam zichtbaar — check init code |
-| **rendersPerSecond** | 3–10 (dashboard), 1–5 (widget) | > 60 | Rate limit wordt omzeild — check debounce logic |
-| **activeAgentMax vs mean** | Max ≈ 2× mean | Grote spreiding | Sommige renders verwerken veel meer agents dan gemiddeld — check virtual scrolling |
+| **lastMs / meanMs** | < 16ms (widget), < 50ms (dashboard) | > 50ms (widget), > 100ms (dashboard) | Reduce agent count, optimize render code |
+| **maxMs** | < 50ms | > 200ms | Find the outlier: which agent/config causes the spike? |
+| **requestToActualRatio** | 1.0–3.0x | > 10x | Debounce is too aggressive or too many unnecessary requests are being made |
+| **skippedRenderCount** | ≈ request - actual | Very high vs actual | Check whether dirty detection works (snapshot hash collision?) |
+| **timeToFirstVisibleMs** | < 500ms | > 2000ms | Dashboard/widget becomes visible too slowly — check init code |
+| **rendersPerSecond** | 3–10 (dashboard), 1–5 (widget) | > 60 | Rate limit is being bypassed — check debounce logic |
+| **activeAgentMax vs mean** | Max ≈ 2× mean | Large spread | Some renders process many more agents than average — check virtual scrolling |
 
 ---
 
 ### 10.4 Debug Logging
 
-Render metrics logt op `debug` level via de bestaande `logger` utility. Dit is standaard **uitgeschakeld** en moet worden geactiveerd:
+Render metrics log at `debug` level via the existing `logger` utility. This is **disabled by default** and must be enabled:
 
 ```bash
-# Activeer debug logging voor render metrics
+# Enable debug logging for render metrics
 PI_SUBAGENTS_LOG_LEVEL=debug npm start
 ```
 
-Wanneer `record()` detecteert dat de render duur de `slowThresholdMs` overschrijdt, wordt een gestructureerd log bericht uitgezonden:
+When `record()` detects that render duration exceeds `slowThresholdMs`, a structured log message is emitted:
 
 ```json
 {
@@ -485,76 +485,76 @@ Wanneer `record()` detecteert dat de render duur de `slowThresholdMs` overschrij
 }
 ```
 
-Dit is nuttig voor:
-- **Performance regression hunting**: vergelijk meanMs over tijd
-- **CI monitoring**: detecteer of een code change renders significant vertraagt
-- **User reports**: vraag een `PI_SUBAGENTS_LOG_LEVEL=debug` log bij klachten over trage UI
+This is useful for:
+- **Performance regression hunting**: compare meanMs over time
+- **CI monitoring**: detect whether a code change significantly slows renders
+- **User reports**: ask for a `PI_SUBAGENTS_LOG_LEVEL=debug` log when users report slow UI
 
 ---
 
-### 10.5 Render Rate en Elapsed Time
+### 10.5 Render Rate and Elapsed Time
 
-- `startedAt` wordt gezet bij constructie of na `reset()`
+- `startedAt` is set on construction or after `reset()`
 - `elapsedMs` = `Date.now() - startedAt`
 - `rendersPerSecond` = `renderCount / (elapsedMs / 1000)`
 - `rendersPerMinute` = `renderCount / (elapsedMs / 60000)`
 
-De rates zijn **instantaneous**: ze reflecteren de gemiddelde frequentie sinds de laatste reset. Bij een lange sessie met veel idle tijd zullen de rates laag zijn, ook als de renders zelf snel waren. Reset de counters met `/perf reset` voor een frisse meting tijdens een specifieke workload.
+The rates are **instantaneous**: they reflect average frequency since the last reset. During a long session with much idle time the rates will be low, even if renders themselves were fast. Reset counters with `/perf reset` for a fresh measurement during a specific workload.
 
 ---
 
 ### 10.6 Time to First Visible
 
-`timeToFirstVisibleMs` meet de tijd tussen de eerste `setFirstSpawnTimestamp()` call (meestal in `update()` of `render()` bij detectie van de eerste agent) en de eerste `record()` call (de eerste daadwerkelijke render).
+`timeToFirstVisibleMs` measures the time between the first `setFirstSpawnTimestamp()` call (usually in `update()` or `render()` when the first agent is detected) and the first `record()` call (the first actual render).
 
-Dit is een proxy voor **perceived startup lag**: hoelang duurt het voordat een gebruiker de eerste agent ziet in de UI na spawn?
+This is a proxy for **perceived startup lag**: how long until a user sees the first agent in the UI after spawn?
 
-**Noot**: dit is geen exacte meting van spawn-to-display latency, omdat:
-- De spawn timestamp wordt gezet in de eerstvolgende `update()` of `render()` cyclus, niet op het exacte moment van spawn
-- De TUI framework heeft zijn eigen render scheduling die niet in deze meting zit
-- Het is desondanks een goede indicator voor regressies in perceived performance
+**Note**: this is not an exact measurement of spawn-to-display latency, because:
+- The spawn timestamp is set in the next `update()` or `render()` cycle, not at the exact moment of spawn
+- The TUI framework has its own render scheduling that is not included in this measurement
+- It is still a good indicator for regressions in perceived performance
 
 ---
 
 ### 10.7 Widget Render Metrics
 
-Naast de dashboard metrics heeft de `AgentWidget` ook zijn eigen `RenderMetrics` instantie, toegankelijk via `getRenderMetrics()`.
+In addition to dashboard metrics, `AgentWidget` has its own `RenderMetrics` instance, accessible via `getRenderMetrics()`.
 
-**Verschillen met dashboard metrics:**
+**Differences from dashboard metrics:**
 
 | Aspect | Widget | Dashboard |
 |---|---|---|
 | Threshold | 16ms | 50ms |
-| Wat wordt gemeten | Alleen line-building in `renderWidget()` | Volledige `render()` (incl. header, footer, detail panel) |
-| `recordRequested()` | Alleen in dirty-skip path (snapshot unchanged) | In `requestRender()` vóór alle debounce checks |
-| `activeAgents` | Alle agents (`this.manager.listAgents()` gefilterd op running/queued) | Alle agents (dashboard toont alles) |
-| Rate limiting | Via timer interval (200ms actief / 1000ms idle) | Via debounce in `requestRender()` + microtask |
+| What is measured | Line-building in `renderWidget()` only | Full `render()` (incl. header, footer, detail panel) |
+| `recordRequested()` | Only in dirty-skip path (snapshot unchanged) | In `requestRender()` before all debounce checks |
+| `activeAgents` | All agents (`this.manager.listAgents()` filtered on running/queued) | All agents (dashboard shows everything) |
+| Rate limiting | Via timer interval (200ms active / 1000ms idle) | Via debounce in `requestRender()` + microtask |
 
 ---
 
 ### 10.8 Benchmark Tests
 
-Alle benchmark tests gebruiken de gedeelde helper `test/helpers/benchmark-log.ts`. Interne waarden zijn altijd milliseconden (`performance.now()`); sub-ms werk wordt als `µs` weergegeven (×1000). CI draait `node scripts/check-benchmark-thresholds.mjs` als **blocking** required gate met `--retry=0`.
+All benchmark tests use the shared helper `test/helpers/benchmark-log.ts`. Internal values are always milliseconds (`performance.now()`); sub-ms work is shown as `µs` (×1000). CI runs `node scripts/check-benchmark-thresholds.mjs` as a **blocking** required gate with `--retry=0`.
 
-Er zijn **14 render performance benchmarks** in `test/widget-render-perf.test.ts`:
+There are **14 render performance benchmarks** in `test/widget-render-perf.test.ts`:
 
-| Groep | Tests | Wat wordt gemeten |
+| Group | Tests | What is measured |
 |---|---|---|
-| renderAgentWidget pure throughput | 4 | 10/50/200/all-running agents render tijd |
-| renderAgentWidget met activity data | 2 | 50/200 agents + activity heatmap entries |
-| buildSnapshot dirty checking | 3 | 10/50/200 agents snapshot hash snelheid |
+| renderAgentWidget pure throughput | 4 | 10/50/200/all-running agents render time |
+| renderAgentWidget with activity data | 2 | 50/200 agents + activity heatmap entries |
+| buildSnapshot dirty checking | 3 | 10/50/200 agents snapshot hash speed |
 | getVisibleWindow virtual scrolling | 3 | 200/1000 agents, scroll latency |
 | debouncedUpdate coalescing | 1 | 100 rapid calls → 1 immediate + 1 timer |
 | Sustained update throughput | 1 | 50 ticks × 20 agents < 2ms per tick |
 
-Daarnaast zijn er **11 RenderMetrics unit tests** in `test/render-metrics.test.ts`:
+There are also **11 RenderMetrics unit tests** in `test/render-metrics.test.ts`:
 
-| Groep | Tests | Wat wordt getest |
+| Group | Tests | What is tested |
 |---|---|---|
 | Basic tracking | 4 | Zero state, single record, min/mean/max, reset |
 | Requested vs actual | 6 | recordRequested, skippedCount, ratio, edge cases |
-| Active agents tracking | 2 | Agents per render, zonder agent data |
-| Time to first visible | 4 | Zonder spawn, met spawn, earliest timestamp, ignore later |
+| Active agents tracking | 2 | Agents per render, without agent data |
+| Time to first visible | 4 | Without spawn, with spawn, earliest timestamp, ignore later |
 | Render rate | 3 | Zero state, elapsed time, increasing time |
 | Getters | 3 | count, requestedCount, mean/min/max/last |
 
@@ -569,23 +569,23 @@ npx vitest run test/render-metrics.test.ts test/agent-widget.test.ts test/widget
 
 ### 10.9 Best Practices
 
-1. **Reset voor metingen**: gebruik `/perf reset` voordat je een specifieke workload test, zodat de rates en averages alleen die workload reflecteren
-2. **Kijk naar mean, niet max**: de max kan een eenmalige JIT-compilatie of GC-pauze zijn. De mean is representatiever voor steady-state performance
-3. **Debounce ratio > 10x is verdacht**: als er 10+ requests per daadwerkelijke render zijn, check of er ergens een render request storm is zonder rate limiting
-4. **Time to first visible > 2s**: dit wijst op een startup bottleneck. Check de init code van dashboard en widget
-5. **Renders/sec > 60**: de MIN_RENDER_GAP_MS (16ms) wordt omzeild. Check of `requestRender()` direct wordt aangeroepen in plaats van via de debounce
+1. **Reset before measurements**: use `/perf reset` before testing a specific workload so rates and averages reflect only that workload
+2. **Look at mean, not max**: max can be a one-off JIT compilation or GC pause. Mean is more representative for steady-state performance
+3. **Debounce ratio > 10x is suspicious**: if there are 10+ requests per actual render, check for a render request storm somewhere without rate limiting
+4. **Time to first visible > 2s**: this points to a startup bottleneck. Check dashboard and widget init code
+5. **Renders/sec > 60**: MIN_RENDER_GAP_MS (16ms) is being bypassed. Check whether `requestRender()` is called directly instead of via debounce
 
 ---
 
-## 11. Aanbevolen Benchmarks
+## 11. Recommended Benchmarks
 
-Voor het valideren van performance veranderingen:
+For validating performance changes:
 
 ```bash
-# Basislijn: typecheck + lint + test suite
+# Baseline: typecheck + lint + test suite
 npm run typecheck && npm run lint && npm test
 
-# Dashboard rendering performance (bestaande test)
+# Dashboard rendering performance (existing test)
 npm test -- test/dashboard-components.test.ts
 
 # Render metrics + widget + benchmark tests
@@ -595,10 +595,10 @@ npx vitest run test/render-metrics.test.ts test/agent-widget.test.ts test/widget
 node --experimental-specifier-resolution=node test/compaction.benchmark.ts
 ```
 
-### Kritische metrics
-- **`listAgents()` tijd**: zou < 1ms moeten zijn voor < 500 agents
-- **`buildSnapshot()` tijd**: zou < 0.1ms moeten zijn voor < 100 agents
-- **`requestRender()` calls per seconde**: dashboard max 5-10fps, max 60fps met debounce
-- **Widget render mean**: < 5ms voor < 50 agents
-- **Dashboard render mean**: < 50ms voor < 200 agents
-- **Geheugen per `AgentRecord`**: ~2-5KB (excl. session messages)
+### Critical metrics
+- **`listAgents()` time**: should be < 1ms for < 500 agents
+- **`buildSnapshot()` time**: should be < 0.1ms for < 100 agents
+- **`requestRender()` calls per second**: dashboard max 5-10fps, max 60fps with debounce
+- **Widget render mean**: < 5ms for < 50 agents
+- **Dashboard render mean**: < 50ms for < 200 agents
+- **Memory per `AgentRecord`**: ~2-5KB (excluding session messages)
