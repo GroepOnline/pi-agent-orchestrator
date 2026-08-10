@@ -1101,7 +1101,7 @@ ${chefPreflight.systemPromptAddition}`;
 
   // Structured handoff parsing
   let handoff: AgentHandoff | undefined;
-  if (agentConfig?.handoff) {
+  if (!aborted && !options.signal?.aborted && agentConfig?.handoff) {
     const parsed = parseHandoff(responseText);
     if (parsed) {
       handoff = parsed;
@@ -1113,7 +1113,7 @@ ${chefPreflight.systemPromptAddition}`;
   let validationResults: ValidationResult[] | undefined;
   let validated: boolean | undefined;
 
-  if (!options.skipValidators && hasValidators(agentConfig)) {
+  if (!aborted && !options.signal?.aborted && !options.skipValidators && hasValidators(agentConfig)) {
     const result = await runAdversarialValidation(
       session,
       ctx,
