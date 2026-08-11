@@ -450,8 +450,6 @@ describe("settings persistence", () => {
         setShowTurnProgress: vi.fn(),
         setOrchestrationMode: vi.fn(),
         setDashboardRefreshInterval: vi.fn(),
-        setSessionMaxSpawns: vi.fn(),
-        setSessionMaxTurns: vi.fn(),
         setPromptCompressionLevel: vi.fn(),
         setDebugCapture: vi.fn(),
         setDebugCapturePaths: vi.fn(),
@@ -525,6 +523,29 @@ describe("settings persistence", () => {
       expect(appliers.setSessionLimits).toHaveBeenCalledWith({
         maxAgentsPerSession: 3,
         maxTotalTurnsPerSession: undefined,
+      });
+    });
+
+    it("loads deprecated sessionMaxSpawns/sessionMaxTurns aliases via setSessionLimits", () => {
+      writeProject({ sessionMaxSpawns: 12, sessionMaxTurns: 80 });
+      applySettings(loadSettings(projectDir), appliers);
+      expect(appliers.setSessionLimits).toHaveBeenCalledWith({
+        maxAgentsPerSession: 12,
+        maxTotalTurnsPerSession: 80,
+      });
+    });
+
+    it("prefers canonical session limit keys over deprecated aliases", () => {
+      writeProject({
+        maxAgentsPerSession: 5,
+        maxTotalTurnsPerSession: 50,
+        sessionMaxSpawns: 99,
+        sessionMaxTurns: 999,
+      });
+      applySettings(loadSettings(projectDir), appliers);
+      expect(appliers.setSessionLimits).toHaveBeenCalledWith({
+        maxAgentsPerSession: 5,
+        maxTotalTurnsPerSession: 50,
       });
     });
 
@@ -625,8 +646,6 @@ describe("settings persistence", () => {
         setShowTurnProgress: vi.fn(),
         setOrchestrationMode: vi.fn(),
         setDashboardRefreshInterval: vi.fn(),
-        setSessionMaxSpawns: vi.fn(),
-        setSessionMaxTurns: vi.fn(),
         setPromptCompressionLevel: vi.fn(),
         setDebugCapture: vi.fn(),
         setDebugCapturePaths: vi.fn(),
@@ -718,6 +737,29 @@ describe("settings persistence", () => {
       expect(toast).toEqual({ message: "Max concurrency set to 5", level: "info" });
       // File actually written
       expect(JSON.parse(readFileSync(projectFile(), "utf-8"))).toEqual(snapshot);
+    });
+
+    it("strips deprecated session limit aliases when persisting canonical keys", () => {
+      writeProject({
+        maxConcurrent: 4,
+        sessionMaxSpawns: 100,
+        sessionMaxTurns: 1000,
+      });
+      const emit = vi.fn();
+      saveAndEmitChanged(
+        { maxConcurrent: 4, maxAgentsPerSession: 100, maxTotalTurnsPerSession: 1000 },
+        "Session limits updated",
+        emit,
+        projectDir,
+      );
+      const persisted = JSON.parse(readFileSync(projectFile(), "utf-8"));
+      expect(persisted.sessionMaxSpawns).toBeUndefined();
+      expect(persisted.sessionMaxTurns).toBeUndefined();
+      expect(loadSettings(projectDir)).toEqual({
+        maxConcurrent: 4,
+        maxAgentsPerSession: 100,
+        maxTotalTurnsPerSession: 1000,
+      });
     });
 
     it("emits with persisted=false and returns warning toast on save failure", () => {

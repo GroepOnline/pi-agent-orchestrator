@@ -657,8 +657,6 @@ export default async function (pi: ExtensionAPI) {
       },
       setOrchestrationMode,
       setDashboardRefreshInterval,
-      setSessionMaxSpawns: (n) => manager.setSessionMaxSpawns(n),
-      setSessionMaxTurns: (n) => manager.setSessionMaxTurns(n),
       setPromptCompressionLevel,
       setDebugCapture,
       setDebugCapturePaths,

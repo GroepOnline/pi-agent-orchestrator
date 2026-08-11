@@ -60,8 +60,6 @@ export async function showSettings(
     `Motion profile (current: ${getAnimationStyle()})`,
     `UI/UX Style (current: ${getUiStyle()})`,
     `Dashboard refresh interval (current: ${getDashboardRefreshInterval()}ms)`,
-    `Session spawn limit (current: ${manager.getSessionMaxSpawns()})`,
-    `Session turn limit (current: ${manager.getSessionMaxTurns()})`,
     `Prompt compression (current: ${getPromptCompressionLevel()})`,
   ]);
   if (!choice) return;
@@ -227,26 +225,6 @@ export async function showSettings(
     }
     setDashboardRefreshInterval(parsed);
     notifyApplied(ctx, pi, manager, getters, `Dashboard refresh interval set to ${parsed}ms`);
-    return;
-  }
-
-  if (choice.startsWith("Session spawn limit")) {
-    const value = await ctx.ui.input("Session max spawns", String(manager.getSessionMaxSpawns()));
-    if (!value) return;
-    const parsed = Number.parseInt(value, 10);
-    if (parsed < 1) return ctx.ui.notify("Must be a positive integer.", "warning");
-    manager.setSessionMaxSpawns(parsed);
-    notifyApplied(ctx, pi, manager, getters, `Session spawn limit set to ${parsed}`);
-    return;
-  }
-
-  if (choice.startsWith("Session turn limit")) {
-    const value = await ctx.ui.input("Session max turns", String(manager.getSessionMaxTurns()));
-    if (!value) return;
-    const parsed = Number.parseInt(value, 10);
-    if (parsed < 1) return ctx.ui.notify("Must be a positive integer.", "warning");
-    manager.setSessionMaxTurns(parsed);
-    notifyApplied(ctx, pi, manager, getters, `Session turn limit set to ${parsed}`);
     return;
   }
 
