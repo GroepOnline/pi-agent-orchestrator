@@ -45,7 +45,7 @@ jobs:
     # Production publish is main-only (matches Cloudflare Pages deploy guard).
     # workflow_dispatch on other refs must not stage/enable production Pages.
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     permissions:
       contents: read
       pages: write
@@ -68,7 +68,7 @@ jobs:
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     permissions:
       pages: write
       id-token: write

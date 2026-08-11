@@ -21,7 +21,8 @@ env:
 jobs:
   quality:
     name: Quality gate
-    runs-on: ubuntu-latest
+    # PR → pr-isolated (no docker/secrets). Push to main → trusted-heavy.
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -120,22 +121,27 @@ jobs:
           node scripts/verify-npm-pack.mjs npm-pack.json
 
   compatibility:
-    name: Compatibility (${{ matrix.os }}, Node ${{ matrix.node }})
-    runs-on: ${{ matrix.os }}
+    name: Compatibility (${{ matrix.label }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - label: Linux (fleet)
+            runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
             node: 24
-          - os: windows-latest
+          - label: windows-latest
+            runs-on: windows-latest
             node: 22
-          - os: windows-latest
+          - label: windows-latest
+            runs-on: windows-latest
             node: 24
-          - os: macos-latest
+          - label: macos-latest
+            runs-on: macos-latest
             node: 22
-          - os: macos-latest
+          - label: macos-latest
+            runs-on: macos-latest
             node: 24
     steps:
       - name: Checkout
@@ -163,13 +169,13 @@ jobs:
         if: failure() && steps.tests.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: compatibility-${{ matrix.os }}-node-${{ matrix.node }}-${{ github.run_id }}
+          name: compatibility-${{ matrix.label }}-node-${{ matrix.node }}-${{ github.run_id }}
           path: test.log
           retention-days: 14
 
   lowest-peer-dependencies:
     name: Lowest supported peer dependencies
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -212,7 +218,7 @@ jobs:
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 10
     # GroepOnline transfer: Dependency graph / GHAS is often still off. Probe
     # first and skip the action when unsupported so the check is green (not a
@@ -260,7 +266,7 @@ jobs:
   benchmarks:
     name: Render benchmarks
     needs: quality
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -295,7 +301,7 @@ jobs:
       - lowest-peer-dependencies
       - dependency-review
       - benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     steps:
       - name: Verify required jobs
@@ -322,7 +328,7 @@ jobs:
       - lowest-peer-dependencies
       - dependency-review
       - benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     steps:
       - name: Create Linear issue

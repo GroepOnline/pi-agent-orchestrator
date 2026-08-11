@@ -27,7 +27,7 @@ concurrency:
 jobs:
   sync:
     name: Sync GitHub item to Linear
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     steps:
       - name: Checkout trusted default branch
