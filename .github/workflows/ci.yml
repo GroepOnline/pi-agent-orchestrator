@@ -128,21 +128,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # BILLING_QUARANTINE 2026-08-12: windows-latest/macos-latest matrix legs removed until GroepOnline Actions spending restored.
           - label: Linux (fleet)
             runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
             node: 24
-          - label: windows-latest
-            runs-on: windows-latest
+          - label: Linux (fleet)
+            runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
             node: 22
-          - label: windows-latest
-            runs-on: windows-latest
-            node: 24
-          - label: macos-latest
-            runs-on: macos-latest
-            node: 22
-          - label: macos-latest
-            runs-on: macos-latest
-            node: 24
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
