@@ -527,7 +527,8 @@ describe("settings persistence", () => {
     });
 
     it("loads deprecated sessionMaxSpawns/sessionMaxTurns aliases via setSessionLimits", () => {
-      applySettings({ sessionMaxSpawns: 12, sessionMaxTurns: 80 }, appliers);
+      writeProject({ sessionMaxSpawns: 12, sessionMaxTurns: 80 });
+      applySettings(loadSettings(projectDir), appliers);
       expect(appliers.setSessionLimits).toHaveBeenCalledWith({
         maxAgentsPerSession: 12,
         maxTotalTurnsPerSession: 80,
@@ -535,15 +536,13 @@ describe("settings persistence", () => {
     });
 
     it("prefers canonical session limit keys over deprecated aliases", () => {
-      applySettings(
-        {
-          maxAgentsPerSession: 5,
-          maxTotalTurnsPerSession: 50,
-          sessionMaxSpawns: 99,
-          sessionMaxTurns: 999,
-        },
-        appliers,
-      );
+      writeProject({
+        maxAgentsPerSession: 5,
+        maxTotalTurnsPerSession: 50,
+        sessionMaxSpawns: 99,
+        sessionMaxTurns: 999,
+      });
+      applySettings(loadSettings(projectDir), appliers);
       expect(appliers.setSessionLimits).toHaveBeenCalledWith({
         maxAgentsPerSession: 5,
         maxTotalTurnsPerSession: 50,
@@ -753,6 +752,9 @@ describe("settings persistence", () => {
         emit,
         projectDir,
       );
+      const persisted = JSON.parse(readFileSync(projectFile(), "utf-8"));
+      expect(persisted.sessionMaxSpawns).toBeUndefined();
+      expect(persisted.sessionMaxTurns).toBeUndefined();
       expect(loadSettings(projectDir)).toEqual({
         maxConcurrent: 4,
         maxAgentsPerSession: 100,
