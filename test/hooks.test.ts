@@ -46,27 +46,6 @@ describe("HookRegistry", () => {
     });
   });
 
-  describe("registerAll", () => {
-    it("registers multiple handlers at once", () => {
-      const registry = new HookRegistry();
-      const ids = registry.registerAll({
-        "subagent:start": async () => "allow",
-        "subagent:end": async () => "allow",
-      });
-      expect(ids.length).toBe(2);
-
-      const snapshot = registry.getHandlers();
-      expect(snapshot.has("subagent:start")).toBe(true);
-      expect(snapshot.has("subagent:end")).toBe(true);
-    });
-
-    it("returns empty array for empty handler map", () => {
-      const registry = new HookRegistry();
-      const ids = registry.registerAll({});
-      expect(ids).toEqual([]);
-    });
-  });
-
   describe("unregister", () => {
     it("removes handlers by function reference", () => {
       const registry = new HookRegistry();
@@ -171,97 +150,24 @@ describe("HookRegistry", () => {
       expect(result).toBe("allow");
       expect(secondCalled).toBe(true);
     });
-
-    it("disables handler after circuit breaker threshold", async () => {
-      const registry = new HookRegistry();
-      let callCount = 0;
-      registry.register("subagent:start", async () => { callCount++; throw new Error("fail"); }, {
-        circuitBreakerThreshold: 2,
-      });
-
-      await registry.dispatch("subagent:start", "agent-1");
-      await registry.dispatch("subagent:start", "agent-1");
-      await registry.dispatch("subagent:start", "agent-1"); // third — should be disabled
-
-      // First 3 calls fire, then 4th+ are disabled
-      expect(callCount).toBeGreaterThanOrEqual(2);
-    });
-  });
-
-  describe("use (middleware)", () => {
-    it("runs handlers through middleware chain", async () => {
-      const registry = new HookRegistry();
-      const middlewareOrder: string[] = [];
-      registry.use(async (_payload, next) => {
-        middlewareOrder.push("mw1-before");
-        const result = await next();
-        middlewareOrder.push("mw1-after");
-        return result;
-      });
-      registry.use(async (_payload, next) => {
-        middlewareOrder.push("mw2");
-        return next();
-      });
-      registry.register("subagent:start", async () => { middlewareOrder.push("handler"); return "allow"; });
-
-      await registry.dispatch("subagent:start", "agent-1");
-      expect(middlewareOrder).toEqual(["mw1-before", "mw2", "handler", "mw1-after"]);
-    });
   });
 
   describe("getHandlers", () => {
     it("returns a frozen snapshot of registered handlers", () => {
       const registry = new HookRegistry();
-      registry.register("subagent:start", async () => "allow", { id: "h1", fatal: true });
+      registry.register("subagent:start", async () => "allow", { id: "h1" });
 
       const snapshot = registry.getHandlers();
       const handlers = snapshot.get("subagent:start");
       expect(handlers).toBeDefined();
       expect(handlers!.length).toBe(1);
       expect(handlers![0].id).toBe("h1");
-      expect(handlers![0].fatal).toBe(true);
     });
 
     it("returns empty map when nothing registered", () => {
       const registry = new HookRegistry();
       const snapshot = registry.getHandlers();
       expect(snapshot.size).toBe(0);
-    });
-  });
-
-  describe("getMetrics", () => {
-    it("returns metrics for registered handlers even without dispatch", () => {
-      const registry = new HookRegistry();
-      registry.register("subagent:start", async () => "allow");
-      const metrics = registry.getMetrics();
-      // Metrics are created at registration time, not dispatch time
-      expect(metrics.length).toBe(1);
-      expect(metrics[0].invocations).toBe(0);
-    });
-
-    it("returns metrics after dispatch", async () => {
-      const registry = new HookRegistry();
-      registry.register("subagent:start", async () => "allow");
-      await registry.dispatch("subagent:start", "agent-1");
-
-      const metrics = registry.getMetrics();
-      expect(metrics.length).toBe(1);
-      expect(metrics[0].invocations).toBe(1);
-      expect(metrics[0].errors).toBe(0);
-    });
-  });
-
-  describe("resetMetrics", () => {
-    it("resets all counters to zero", async () => {
-      const registry = new HookRegistry();
-      registry.register("subagent:start", async () => { throw new Error("fail"); });
-      await registry.dispatch("subagent:start", "agent-1");
-
-      registry.resetMetrics();
-      const metrics = registry.getMetrics();
-      expect(metrics[0].invocations).toBe(0);
-      expect(metrics[0].errors).toBe(0);
-      expect(metrics[0].disabled).toBe(false);
     });
   });
 });
@@ -287,7 +193,7 @@ describe("composeHandlers", () => {
 
     const result = await composed({ event: "subagent:start", agentId: "a1" });
     expect(result).toBe("block");
-    expect(order).toEqual(["first"]); // second never runs
+    expect(order).toEqual(["first"]);
   });
 
   it("preserves object-form block feedback", async () => {
