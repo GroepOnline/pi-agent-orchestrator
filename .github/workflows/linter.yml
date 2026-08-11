@@ -14,7 +14,7 @@ concurrency:
 jobs:
   super-lint:
     name: Lint Code Base
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     permissions:
       # Super-Linter publishes check contexts while only reading repository data.

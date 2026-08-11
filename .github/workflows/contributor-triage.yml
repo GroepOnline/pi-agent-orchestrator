@@ -16,7 +16,7 @@ jobs:
   pull-request:
     name: Classify pull request
     if: github.event_name == 'pull_request_target'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     permissions:
       # PR metadata and labels are exposed through both pull-request and issue APIs.
@@ -134,7 +134,7 @@ jobs:
   issue:
     name: Prepare contributor issue
     if: github.event_name == 'issues'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     permissions:
       # Issue labels and comments are the only mutable resources in this job.

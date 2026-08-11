@@ -24,7 +24,7 @@ concurrency:
 jobs:
   prepare:
     if: ${{ inputs.confirmation == 'RELEASE 0.18.1' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 35
     env:
       RELEASE_VERSION: 0.18.1
