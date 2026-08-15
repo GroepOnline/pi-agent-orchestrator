@@ -128,23 +128,30 @@ cc_refresh_system_packages() {
 }
 
 # Ensure the Pi.dev host CLI (`pi`) is on PATH and matches the repo's locked
-# @earendil-works/pi-coding-agent version after npm ci. Always installs globally
-# with --ignore-scripts (official pi.dev guidance) so `pi` works outside
-# node_modules/.bin (bare shells, smoke, manual tests).
+# @earendil-works/pi-coding-agent version after npm ci. Prefers an already-correct
+# PATH binary (Dockerfile install). Reinstalls with sudo when available, otherwise
+# into ~/.local (user-writable) so Cloud install never hits EACCES on /usr/local.
 cc_ensure_pi_cli() {
-  local wanted wanted_pkg npm_bin active
+  local wanted wanted_pkg active npm_bin user_prefix
   if [ ! -f "$CC_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json" ]; then
     echo "ERROR: local @earendil-works/pi-coding-agent missing; run npm ci first." >&2
     exit 1
   fi
   wanted="$(node -p "require('$CC_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json').version")"
   wanted_pkg="@earendil-works/pi-coding-agent@$wanted"
+  user_prefix="${HOME}/.local"
   npm_bin="$(npm prefix -g)/bin"
 
-  echo "pi ensure  : npm install -g --ignore-scripts $wanted_pkg"
-  npm install -g --ignore-scripts "$wanted_pkg"
-  hash -r 2>/dev/null || true
-
+  # User-local npm bin first so a prior user install wins over a stale root one.
+  if [ -d "$user_prefix/bin" ]; then
+    case ":$PATH:" in
+      *":$user_prefix/bin:"*) ;;
+      *)
+        PATH="$user_prefix/bin:$PATH"
+        export PATH
+        ;;
+    esac
+  fi
   case ":$PATH:" in
     *":$npm_bin:"*) ;;
     *)
@@ -152,17 +159,30 @@ cc_ensure_pi_cli() {
       export PATH
       ;;
   esac
+  hash -r 2>/dev/null || true
 
-  # Prefer the global binary over a shadowed node_modules/.bin/pi when both exist.
-  if [ -x "$npm_bin/pi" ]; then
-    PATH="$npm_bin:$PATH"
-    export PATH
-    hash -r 2>/dev/null || true
+  active=""
+  if command -v pi >/dev/null 2>&1; then
+    active="$(pi --version 2>/dev/null | head -n1 | tr -d ' \t\r\n' || true)"
+  fi
+  if [ "$active" = "$wanted" ]; then
+    echo "pi         : $(command -v pi) ($active)"
+    return 0
   fi
 
+  echo "pi ensure  : installing $wanted_pkg (have: ${active:-none})"
+  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo npm install -g --ignore-scripts "$wanted_pkg"
+  else
+    mkdir -p "$user_prefix"
+    npm install -g --prefix "$user_prefix" --ignore-scripts "$wanted_pkg"
+    PATH="$user_prefix/bin:$PATH"
+    export PATH
+  fi
+  hash -r 2>/dev/null || true
+
   if ! command -v pi >/dev/null 2>&1; then
-    echo "ERROR: pi CLI still not on PATH after global install (npm bin: $npm_bin)." >&2
-    ls -la "$npm_bin" 2>&1 || true
+    echo "ERROR: pi CLI still not on PATH after install (npm bin: $npm_bin, user: $user_prefix/bin)." >&2
     exit 1
   fi
 
