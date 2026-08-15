@@ -153,12 +153,12 @@ describe("license verification", () => {
 describe("Node.js version consistency", () => {
   it(".nvmrc pins the exact Node version used by release-critical CI", () => {
     expect(fileExists(".nvmrc")).toBe(true);
-    expect(readRoot(".nvmrc").trim()).toBe("22.19.0");
+    expect(readRoot(".nvmrc").trim()).toBe("22.22.3");
   });
 
   it("package.json engines.node requires at least the .nvmrc version", () => {
     const pkg = JSON.parse(readRoot("package.json"));
-    expect(pkg.engines?.node).toBe(">=22.19.0");
+    expect(pkg.engines?.node).toBe(">=22.22.3");
   });
 
   it("package-lock root metadata matches package.json", () => {
@@ -172,12 +172,12 @@ describe("Node.js version consistency", () => {
     expect(rootPackage?.version).toBe(pkg.version);
   });
 
-  it("ci.yml pins release-critical Linux jobs to Node 22.19", () => {
+  it("ci.yml pins release-critical Linux jobs to Node 22.22.3", () => {
     const ci = readRoot(".github/workflows/ci.yml");
-    const pinned = [...ci.matchAll(/node-version:\s*22\.19/g)];
+    const pinned = [...ci.matchAll(/node-version:\s*22\.22\.3/g)];
     expect(pinned.length).toBeGreaterThanOrEqual(3);
     const qualityJob = ci.match(/quality:[\s\S]*?compatibility:/)?.[0] ?? "";
-    expect(qualityJob).toMatch(/node-version:\s*22\.19/);
+    expect(qualityJob).toMatch(/node-version:\s*22\.22\.3/);
     expect(qualityJob).not.toMatch(/node-version:\s*22\s*$/m);
   });
 

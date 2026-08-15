@@ -1,7 +1,7 @@
 # Cursor Cloud base image for pi-agent-orchestrator.
 #
 # Debian bookworm + Node pinned to the repository's .nvmrc / package.json
-# engines (22.19.0), so a compliant `node` is the default on PATH for every
+# engines (22.22.3), so a compliant `node` is the default on PATH for every
 # shell — including bare interactive shells, not just the cursor-cloud-* scripts.
 # Debian-based per Cursor's computer-use requirement. Does not COPY the project;
 # Cursor manages the workspace checkout.
@@ -11,7 +11,7 @@
 # Apt packages are then installed from that frozen snapshot without further
 # version pins (bookworm stable; pinning individual versions would be brittle
 # across point releases and is unnecessary once the base digest is fixed).
-FROM node:22.19.0-bookworm@sha256:afff6d8c97964a438d2e6a9c96509367e45d8bf93f790ad561a1eaea926303d9
+FROM node:22.22.3-bookworm@sha256:2d178f2785b96dfbf62a416ca2e40f50e30150b4ff3320d706f0d96e90600eb3
 
 # Tools Cursor Cloud expects: git (repo clone), sudo, curl, CA certs.
 RUN apt-get update \

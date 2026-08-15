@@ -29,7 +29,7 @@ For a project-local install:
 pi install npm:@groeponline/pi-agent-orchestrator -l
 ```
 
-Requires Node.js 22.19.0 or newer and `@earendil-works/pi-coding-agent` 0.81.1 or newer.
+Requires Node.js 22.22.3 or newer and `@earendil-works/pi-coding-agent` 0.81.1 or newer.
 Use `pi install`; running `npm install` alone does not register the package resources with Pi.
 
 ## Why this package
@@ -162,7 +162,7 @@ npm run verify:package
 
 The repository ships a deterministic [Cursor Cloud](https://cursor.com/docs/cloud-agent/setup)
 environment in `.cursor/environment.json` + `.cursor/Dockerfile`. The Dockerfile
-pins Node to the `.nvmrc` version (`node:22.19.0-bookworm`) so bare shells use a
+pins Node to the `.nvmrc` version (`node:22.22.3-bookworm`) so bare shells use a
 compliant Node by default; it installs with `scripts/cursor-cloud-install.sh` and
 exposes one canonical gate:
 

@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-No unreleased changes. The repository remains locked to the 0.18.x stabilization train.
+- Raise the Node.js floor to `22.22.3` (`.nvmrc`, Cloud Dockerfile digest, `engines.node`, and release-critical CI) so `posthog-node@5.47.3` engine requirements no longer fail Cursor Cloud install.
 
 ---
 

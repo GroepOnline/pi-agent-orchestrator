@@ -2,7 +2,7 @@
 name: pi-typescript-extension-engineering
 description: Engineer, review, debug, and harden TypeScript for pi.dev extensions and SDK-hosted agent systems. Use when changing Pi extension entry points, custom tools, AgentSession orchestration, steering/abort flows, settings, persistence, TUI components, package metadata, tests, or release gates. Includes the stricter GroepOnline pi-agent-orchestrator conventions.
 license: MIT
-compatibility: Pi TypeScript extensions or SDK integrations using @earendil-works/pi-* packages; Node.js >=22.19.0. Repository-local AGENTS.md and package versions remain authoritative.
+compatibility: Pi TypeScript extensions or SDK integrations using @earendil-works/pi-* packages; Node.js >=22.22.3. Repository-local AGENTS.md and package versions remain authoritative.
 metadata:
   author: GroepOnline
   version: "1.0.0"
@@ -176,7 +176,7 @@ Build complete typed fixtures. Verify both the accepted path and at least one re
 
 When working in `GroepOnline/pi-agent-orchestrator`, preserve these invariants:
 
-- Node.js must satisfy the repository's exact minimum, currently `>=22.19.0`.
+- Node.js must satisfy the repository's exact minimum, currently `>=22.22.3`.
 - TypeScript is strict, emits declarations, targets ESM, and resolves with `moduleResolution: "bundler"`.
 - Biome is the only linter; formatting is disabled; strings use double quotes.
 - Schema imports use the pinned `@sinclair/typebox` family from `package.json`, not the newer bare `typebox` package, unless an explicit migration is underway.
