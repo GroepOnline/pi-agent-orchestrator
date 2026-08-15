@@ -15,6 +15,9 @@ cc_ensure_node
 cc_assert_node
 cc_print_versions
 
+echo "== apt refresh =="
+cc_refresh_system_packages
+
 echo "== npm ci =="
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT

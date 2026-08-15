@@ -92,6 +92,41 @@ cc_print_versions() {
   fi
 }
 
+# Refresh Debian packages and ensure Google Chrome stable is installed/updated.
+# Runs only when passwordless sudo is available (Cursor Cloud image). Safe to
+# skip on developer laptops without sudo so local installs stay fast.
+cc_refresh_system_packages() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "apt refresh: skipped (sudo not available)"
+    return 0
+  fi
+  if ! sudo -n true 2>/dev/null; then
+    echo "apt refresh: skipped (passwordless sudo not available)"
+    return 0
+  fi
+
+  echo "apt refresh: updating package indexes"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+
+  echo "apt refresh: upgrading installed packages"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends
+
+  if apt-cache show google-chrome-stable >/dev/null 2>&1; then
+    echo "apt refresh: ensuring google-chrome-stable"
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends google-chrome-stable
+  else
+    echo "apt refresh: google-chrome-stable not in apt sources (skipped)"
+  fi
+
+  if command -v google-chrome-stable >/dev/null 2>&1; then
+    echo "chrome      : $(google-chrome-stable --version 2>/dev/null || echo unknown)"
+  elif command -v google-chrome >/dev/null 2>&1; then
+    echo "chrome      : $(google-chrome --version 2>/dev/null || echo unknown)"
+  else
+    echo "chrome      : not installed"
+  fi
+}
+
 # Resolve a writable artifact directory. Prefers Cursor's artifact dir, falls
 # back to a git-ignored local directory for non-Cursor environments.
 cc_artifact_dir() {
