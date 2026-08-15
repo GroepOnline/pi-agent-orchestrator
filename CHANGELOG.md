@@ -4,6 +4,7 @@
 
 - Raise the Node.js floor to `22.22.3` (`.nvmrc`, Cloud Dockerfile digest, `engines.node`, and release-critical CI) so `posthog-node@5.47.3` engine requirements no longer fail Cursor Cloud install.
 - Keep Cursor Cloud system packages current (`apt-get update/upgrade`) and ship Google Chrome stable in the Dockerfile + install refresh for computer-use.
+- Install the Pi.dev host CLI (`pi` / `@earendil-works/pi-coding-agent`) in the Cloud image and align it during install; run the Pi-host extension smoke as part of Cloud install so agents can actually load-test the extension.
 
 ---
 

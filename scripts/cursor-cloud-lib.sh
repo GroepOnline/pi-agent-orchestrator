@@ -127,6 +127,53 @@ cc_refresh_system_packages() {
   fi
 }
 
+# Ensure the Pi.dev host CLI (`pi`) is on PATH and matches the repo's locked
+# @earendil-works/pi-coding-agent version after npm ci. Always installs globally
+# with --ignore-scripts (official pi.dev guidance) so `pi` works outside
+# node_modules/.bin (bare shells, smoke, manual tests).
+cc_ensure_pi_cli() {
+  local wanted wanted_pkg npm_bin active
+  if [ ! -f "$CC_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json" ]; then
+    echo "ERROR: local @earendil-works/pi-coding-agent missing; run npm ci first." >&2
+    exit 1
+  fi
+  wanted="$(node -p "require('$CC_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json').version")"
+  wanted_pkg="@earendil-works/pi-coding-agent@$wanted"
+  npm_bin="$(npm prefix -g)/bin"
+
+  echo "pi ensure  : npm install -g --ignore-scripts $wanted_pkg"
+  npm install -g --ignore-scripts "$wanted_pkg"
+  hash -r 2>/dev/null || true
+
+  case ":$PATH:" in
+    *":$npm_bin:"*) ;;
+    *)
+      PATH="$npm_bin:$PATH"
+      export PATH
+      ;;
+  esac
+
+  # Prefer the global binary over a shadowed node_modules/.bin/pi when both exist.
+  if [ -x "$npm_bin/pi" ]; then
+    PATH="$npm_bin:$PATH"
+    export PATH
+    hash -r 2>/dev/null || true
+  fi
+
+  if ! command -v pi >/dev/null 2>&1; then
+    echo "ERROR: pi CLI still not on PATH after global install (npm bin: $npm_bin)." >&2
+    ls -la "$npm_bin" 2>&1 || true
+    exit 1
+  fi
+
+  active="$(pi --version 2>/dev/null | head -n1 | tr -d ' \t\r\n' || true)"
+  if [ "$active" != "$wanted" ]; then
+    echo "ERROR: pi version mismatch (active=$active wanted=$wanted path=$(command -v pi))." >&2
+    exit 1
+  fi
+  echo "pi         : $(command -v pi) ($active)"
+}
+
 # Resolve a writable artifact directory. Prefers Cursor's artifact dir, falls
 # back to a git-ignored local directory for non-Cursor environments.
 cc_artifact_dir() {

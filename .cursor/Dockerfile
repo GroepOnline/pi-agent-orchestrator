@@ -36,6 +36,13 @@ RUN apt-get update \
         google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
+# Pi.dev host CLI on PATH for smoke tests and manual extension loading.
+# --ignore-scripts matches the official pi.dev install guidance. The install
+# script later re-aligns this to the repo's locked @earendil-works/pi-coding-agent.
+RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent \
+    && command -v pi \
+    && pi --version
+
 # Non-root user Cursor Cloud runs as, with passwordless sudo. The official node
 # image already uses uid 1000 for its `node` user, so `ubuntu` takes the next id.
 RUN id -u ubuntu >/dev/null 2>&1 || useradd -m -s /bin/bash ubuntu \

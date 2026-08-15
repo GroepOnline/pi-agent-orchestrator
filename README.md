@@ -163,9 +163,10 @@ npm run verify:package
 The repository ships a deterministic [Cursor Cloud](https://cursor.com/docs/cloud-agent/setup)
 environment in `.cursor/environment.json` + `.cursor/Dockerfile`. The Dockerfile
 pins Node to the `.nvmrc` version (`node:22.22.3-bookworm`) so bare shells use a
-compliant Node by default, refreshes apt packages, and installs Google Chrome
-stable for computer-use; it installs with `scripts/cursor-cloud-install.sh` and
-exposes one canonical gate:
+compliant Node by default, refreshes apt packages, installs Google Chrome
+stable for computer-use, and installs the Pi.dev host CLI (`pi`) so extension
+smoke tests can run without a model API key; it installs with
+`scripts/cursor-cloud-install.sh` and exposes one canonical gate:
 
 ```bash
 npm run verify:cloud   # typecheck + lint + test + build + verify:package + release policy

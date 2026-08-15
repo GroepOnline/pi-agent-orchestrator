@@ -35,4 +35,11 @@ if grep -q "EBADENGINE" "$log"; then
   exit 1
 fi
 
+echo "== pi CLI =="
+cc_ensure_pi_cli
+
+echo "== pi host smoke =="
+# Prove the built extension loads in the real Pi host (no API key required).
+bash "$CC_ROOT/scripts/cursor-cloud-smoke.sh"
+
 echo "== install complete =="

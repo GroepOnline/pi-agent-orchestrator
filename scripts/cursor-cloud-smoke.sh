@@ -22,11 +22,19 @@ cc_assert_node
 echo "== building extension =="
 npm run build
 
-PI_BIN="node_modules/.bin/pi"
-if [ ! -x "$PI_BIN" ]; then
-  echo "ERROR: Pi host CLI not found at $PI_BIN (run the install script first)." >&2
+# Prefer a PATH-installed Pi CLI (Dockerfile / install global), fall back to the
+# locally linked host from node_modules so developer laptops still work.
+PI_BIN=""
+if command -v pi >/dev/null 2>&1; then
+  PI_BIN="$(command -v pi)"
+elif [ -x "node_modules/.bin/pi" ]; then
+  PI_BIN="node_modules/.bin/pi"
+fi
+if [ -z "$PI_BIN" ]; then
+  echo "ERROR: Pi host CLI not found on PATH or at node_modules/.bin/pi (run the install script first)." >&2
   exit 1
 fi
+echo "pi binary  : $PI_BIN ($("$PI_BIN" --version 2>/dev/null || echo unknown))"
 
 echo "== loading dist/index.js through the Pi host (RPC mode, no credentials) =="
 raw="$(printf '%s\n' '{"id":"smoke","type":"get_commands"}' \
