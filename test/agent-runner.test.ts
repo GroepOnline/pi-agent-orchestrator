@@ -81,7 +81,6 @@ vi.mock("../src/skill-loader.js", () => ({
 }));
 
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { getAgentConfig } from "../src/agent-types.js";
 import {
   AgentRunnerError,
   getGraceTurns,
@@ -94,6 +93,7 @@ import {
   setGraceTurns,
   setMaxEndHookRevisions,
 } from "../src/agent-runner.js";
+import { getAgentConfig } from "../src/agent-types.js";
 import { HookRegistry } from "../src/hooks.js";
 
 function createSession(finalText: string): {
