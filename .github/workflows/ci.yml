@@ -324,39 +324,48 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Create Linear issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_CI }}
+          CI_WORKFLOW: ${{ github.workflow }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_BRANCH: ${{ github.head_ref || github.ref_name }}
+          CI_SHA: ${{ github.sha }}
         with:
           script: |
-            const title = `CI Failure: ${{ github.workflow }} in pi-agent-orchestrator`;
-            const runUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const title = `CI Failure: ${process.env.CI_WORKFLOW} in pi-agent-orchestrator`;
+            const repositoryUrl = `https://github.com/${process.env.CI_REPOSITORY}`;
+            const runUrl = `${repositoryUrl}/actions/runs/${process.env.CI_RUN_ID}`;
             const desc = [
-              `Workflow **${{ github.workflow }}** failed in [pi-agent-orchestrator](`https://github.com/${{ github.repository }}`)`,
+              `Workflow **${process.env.CI_WORKFLOW}** failed in [pi-agent-orchestrator](${repositoryUrl})`,
               ``,
               `**Run:** ${runUrl}`,
-              `**Branch:** ${{ github.head_ref || github.ref_name }}`,
-              `**SHA:** ${{ github.sha.substring(0,7) }}`,
+              `**Branch:** ${process.env.CI_BRANCH}`,
+              `**SHA:** ${process.env.CI_SHA.slice(0, 7)}`,
               ``,
               `Created automatically by CI failure tracker.`,
             ].join('\n');
             const query = `
-              mutation {
-                issueCreate(input: {
-                  title: "${title.replace(/"/g, '\\"')}",
-                  description: "${desc.replace(/"/g, '\\"').replace(/\\n/g, '\\n')}",
-                  teamId: "bbd2b9e0-e644-4717-9074-8d0eaa3f150a",
-                  priority: 2,
-                  labelIds: ["713eee90-d169-40a6-98b8-7c71502b9855", "73cc7952-aca3-48f9-8bbd-1193c20fdfe2"]
-                }) {
+              mutation CreateIssue($input: IssueCreateInput!) {
+                issueCreate(input: $input) {
                   issue { id identifier }
                 }
               }
             `;
+            const variables = {
+              input: {
+                title,
+                description: desc,
+                teamId: "bbd2b9e0-e644-4717-9074-8d0eaa3f150a",
+                priority: 2,
+                labelIds: ["713eee90-d169-40a6-98b8-7c71502b9855", "73cc7952-aca3-48f9-8bbd-1193c20fdfe2"],
+              },
+            };
             const res = await fetch('https://api.linear.app/graphql', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': process.env.LINEAR_API_KEY },
-              body: JSON.stringify({ query })
+              body: JSON.stringify({ query, variables })
             });
             const data = await res.json();
             if (data.data?.issueCreate?.issue) {
