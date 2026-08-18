@@ -6,13 +6,13 @@
 # the /pi-agent-orchestrator/ subpath, including the explicit agent-discovery
 # files staged by site/web/scripts/stage-public.mjs.
 #
-# This is the sole workflow that deploys to GitHub Pages.
+# This is the sole workflow that deploys to GitHub Pages. Use GitHub-hosted
+# runners: deploy-pages OIDC is unreliable on the fleet, and a hung fleet
+# job in this concurrency group blocks later catalog-video publishes.
 #
-# One-time repo setup (cannot be done with GITHUB_TOKEN):
+# Pages is workflow-backed (enabled 2026-08-18). Re-enable if has_pages is false:
 #   gh api -X POST repos/OWNER/REPO/pages \
-#     -f build_type=workflow -f 'source[branch]=main' -f 'source[path]=/'
-# After that, configure-pages only reads site metadata; it does not need
-# enablement (which requires a PAT/App with administration:write).
+#     --input - <<< '{"build_type":"workflow","source":{"branch":"main","path":"/"}}'
 name: Deploy Pages
 
 on:
@@ -29,6 +29,9 @@ on:
       - 'llms-full.txt'
       - 'AGENTS.md'
       - 'agent-permissions.json'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'package.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -45,7 +48,7 @@ jobs:
     # Production publish is main-only (matches Cloudflare Pages deploy guard).
     # workflow_dispatch on other refs must not stage/enable production Pages.
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pages: write
@@ -54,10 +57,25 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19
+          package-manager-cache: false
       - name: Assemble publish directory
         env:
           SITE_BASE: /pi-agent-orchestrator/
         run: bash scripts/build-site.sh _site
+      - name: Confirm catalog video is staged
+        run: |
+          set -euo pipefail
+          for file in dashboard_preview.mp4 product_film.mp4 dashboard_preview.gif; do
+            path="_site/assets/${file}"
+            test -s "$path"
+            size="$(wc -c < "$path")"
+            test "$size" -gt 100000
+            echo "${file}: ${size} bytes"
+          done
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Upload artifact
@@ -68,7 +86,7 @@ jobs:
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     permissions:
       pages: write
       id-token: write

@@ -2,7 +2,7 @@
 # Shared agg → GIF/MP4 conversion (fidelity profiles from pi-agent-control-extension).
 set -euo pipefail
 
-# OnlineChef / Pi CLI palette
+# Pi CLI palette
 export PI_CLI_THEME="${PI_CLI_THEME:-181818,e0d0c0,15161e,f7768e,9ece6a,e0af68,7aa2f7,bb9af7,7dcfff,a9b1d6,414868,f7768e,9ece6a,e0af68,7aa2f7,bb9af7,7dcfff,c0caf5}"
 
 agg_render_cast() {

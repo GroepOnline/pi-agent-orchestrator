@@ -158,6 +158,8 @@ npm run build
 npm run verify:package
 ```
 
+See [RELEASE.md](RELEASE.md) after a publish to confirm GitHub Pages still serves the pi.dev catalog MP4.
+
 ### Cursor Cloud
 
 The repository ships a deterministic [Cursor Cloud](https://cursor.com/docs/cloud-agent/setup)
