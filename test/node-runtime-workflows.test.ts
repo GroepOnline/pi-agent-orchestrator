@@ -48,3 +48,15 @@ describe("Node runtime workflow contract", () => {
     expect(readWorkflow("ci.yml")).toContain("node-version: $" + "{{ matrix.node }}");
   });
 });
+
+describe("CI critical-path workflow contract", () => {
+  it("starts independent benchmarks without weakening the required gate", () => {
+    const ci = readWorkflow("ci.yml");
+    const benchmarks = ci.match(/\n {2}benchmarks:[\s\S]*?\n {2}required-gate:/)?.[0] ?? "";
+    const requiredGate = ci.match(/\n {2}required-gate:[\s\S]*?\n {2}notify-on-failure:/)?.[0] ?? "";
+
+    expect(benchmarks).not.toMatch(/^\s+needs:/m);
+    expect(requiredGate).toContain("- benchmarks");
+    expect(requiredGate).toContain('test "$BENCHMARKS_RESULT" = "success"');
+  });
+});

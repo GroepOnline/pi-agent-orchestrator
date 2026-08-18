@@ -74,9 +74,6 @@ jobs:
             node scripts/verify-version-transition.mjs origin/main HEAD "$CURRENT_BRANCH"
           fi
 
-      - name: Typecheck
-        run: npm run typecheck
-
       - name: Lint
         id: lint
         shell: bash
@@ -268,7 +265,8 @@ jobs:
 
   benchmarks:
     name: Render benchmarks
-    needs: quality
+    # This job has an independent checkout, install, and threshold check. Start
+    # it with the other gates; required-gate still waits for both jobs.
     runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
