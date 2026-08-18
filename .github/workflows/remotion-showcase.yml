@@ -70,9 +70,12 @@ jobs:
         env:
           SHOWCASE_CAST: showcase/fixtures/ci-showcase.cast
         run: |
-          set -o pipefail
-          bash scripts/render-showcase-remotion.sh 2>&1 |
-            tee remotion-render.log
+          set -euo pipefail
+          if ! bash scripts/render-showcase-remotion.sh >remotion-render.log 2>&1; then
+            cat remotion-render.log
+            exit 1
+          fi
+          tail -n 200 remotion-render.log
 
       - name: Verify product film contract
         run: >-
