@@ -49,11 +49,11 @@ The extension runs inside the Pi host process. It does not make outbound network
 
 The preview is rendered from the compiled dashboard, resource top view, and widget implementation. Remotion supplies the framing and encoding; the terminal content comes from the actual product renderers.
 
-[![Pi Agent Orchestrator terminal preview](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/dashboard_preview.svg)](https://groeponline.github.io/pi-agent-orchestrator/assets/product_film.mp4)
+[![Pi Agent Orchestrator terminal preview](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/dashboard_preview.svg)](https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4)
 
-- [Watch the product film](https://groeponline.github.io/pi-agent-orchestrator/assets/product_film.mp4) — the full Remotion-rendered showcase
-- [Watch the dashboard preview](https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4)
-- [Open the agent-readable project site](https://groeponline.github.io/pi-agent-orchestrator/)
+- [Watch the product film](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/product_film.mp4) — the full Remotion-rendered showcase
+- [Watch the dashboard preview](https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4)
+- [Open the agent-readable project site](https://orchestrator.chefgroep.online/)
 - [Read the Pi package documentation](https://pi.dev/docs/latest/packages)
 
 ## First useful run

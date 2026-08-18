@@ -143,7 +143,7 @@
     "prompts": [
       "./prompts"
     ],
-    "video": "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4"
+    "video": "https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
