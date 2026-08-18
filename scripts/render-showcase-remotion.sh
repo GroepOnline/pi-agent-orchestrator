@@ -38,7 +38,10 @@ if [[ -n "${REMOTION_BROWSER_EXECUTABLE:-}" ]]; then
 fi
 
 render() {
-  npm --prefix "$REMOTION_DIR" run "$1" -- "${EXTRA_ARGS[@]}"
+  # De geïsoleerde PR-runner sluit bij parallelle frame-encodering herhaalbaar
+  # de encoder-pipe vroegtijdig. Eén worker is ruimschoots binnen de CI-timeout
+  # en houdt de renderpijplijn stabiel.
+  npm --prefix "$REMOTION_DIR" run "$1" -- --concurrency=1 "${EXTRA_ARGS[@]}"
 }
 
 normalize_terminal_video() {
