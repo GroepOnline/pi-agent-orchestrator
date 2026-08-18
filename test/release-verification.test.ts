@@ -420,6 +420,21 @@ describe("transactional release workflow", () => {
     expect(readRoot(".github/workflows/ci.yml")).toContain("dependency-review");
   });
 
+  it("GitHub Pages republishes the pi.dev catalog MP4 from main and release path filters", () => {
+    const pages = readRoot(".github/workflows/pages.yml");
+    expect(pages).toContain("https://groeponline.github.io/pi-agent-orchestrator/");
+    expect(pages).toContain("package.json");
+    expect(pages).toContain("CHANGELOG.md");
+    expect(pages).toContain("README.md");
+    expect(pages).toContain("dashboard_preview.mp4");
+    expect(pages).toContain("actions/setup-node@");
+    expect(pages).toMatch(/^\s+runs-on:\s+ubuntu-latest$/m);
+    expect(pages).not.toContain("self-hosted");
+    expect(JSON.parse(readRoot("package.json")).pi?.video).toBe(
+      "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
+    );
+  });
+
   it("legacy publish workflows remain removed", () => {
     expect(fileExists(".github/workflows/publish.yml")).toBe(false);
     expect(fileExists(".github/workflows/publish-npm.yml")).toBe(false);

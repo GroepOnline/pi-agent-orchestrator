@@ -116,7 +116,10 @@ Verify:
 - the packed artifact contains the Orchestra skill and all three prompts;
 - tag `v0.18.0` points to the same commit as the source version bump;
 - the GitHub Release exists for `v0.18.0`;
-- pi.dev refreshes the package as extension + skill + prompt.
+- GitHub Pages served `https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4` as `video/mp4`;
+- pi.dev refreshes `@groeponline/pi-agent-orchestrator` (the `@onlinechefgroep` listing is retired).
+
+Release commits already retrigger [`.github/workflows/pages.yml`](workflows/pages.yml) because `package.json` and `CHANGELOG.md` are in its path filters. If only site media changed, run **Deploy Pages** on `main`. A hosted-MP4 fix does not require a version bump.
 
 ## Failure recovery
 
