@@ -25,7 +25,9 @@ npm run build
 # Prefer a PATH-installed Pi CLI (Dockerfile / install global), fall back to the
 # locally linked host from node_modules so developer laptops still work.
 PI_BIN=""
-if command -v pi >/dev/null 2>&1; then
+if [ -x "node_modules/.bin/pi" ]; then
+    PI_BIN="node_modules/.bin/pi"
+  elif command -v pi >/dev/null 2>&1; then
   PI_BIN="$(command -v pi)"
 elif [ -x "node_modules/.bin/pi" ]; then
   PI_BIN="node_modules/.bin/pi"
