@@ -4,8 +4,8 @@ Releases use one canonical workflow pair. Do not tag locally and do not add a se
 
 - Button: `.github/workflows/prepare-release.yml` creates the reviewed `chore(release): vX.Y.Z` PR.
 - Publisher: `.github/workflows/release.yml` publishes the exact squash-merged commit on `main`.
-- Operator detail: [`.github/NPM_SETUP.md`](../.github/NPM_SETUP.md)
-- Agent skill: [`.pi/skills/release/SKILL.md`](../.pi/skills/release/SKILL.md)
+- Operator detail: [`.github/NPM_SETUP.md`](.github/NPM_SETUP.md)
+- Agent skill: [`.pi/skills/release/SKILL.md`](.pi/skills/release/SKILL.md)
 
 ## After npm publish — pi.dev and GitHub Pages
 
