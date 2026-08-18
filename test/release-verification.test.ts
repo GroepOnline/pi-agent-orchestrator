@@ -172,13 +172,16 @@ describe("Node.js version consistency", () => {
     expect(rootPackage?.version).toBe(pkg.version);
   });
 
-  it("ci.yml pins release-critical Linux jobs to Node 22.22.3", () => {
+  it("ci.yml reads the release-critical runtime from .nvmrc", () => {
     const ci = readRoot(".github/workflows/ci.yml");
-    const pinned = [...ci.matchAll(/node-version:\s*22\.22\.3/g)];
-    expect(pinned.length).toBeGreaterThanOrEqual(3);
+    const managedRuntime = 'node-version-file: ".nvmrc"';
+    expect(ci.match(new RegExp(managedRuntime, "g"))?.length).toBeGreaterThanOrEqual(3);
     const qualityJob = ci.match(/quality:[\s\S]*?compatibility:/)?.[0] ?? "";
-    expect(qualityJob).toMatch(/node-version:\s*22\.22\.3/);
-    expect(qualityJob).not.toMatch(/node-version:\s*22\s*$/m);
+    expect(qualityJob).toContain(managedRuntime);
+    expect(qualityJob).not.toMatch(/node-version:\s*\d/m);
+    // Compatibility deliberately spans supported majors and therefore does not
+    // consume .nvmrc as the single default-runtime source.
+    expect(ci).toContain("node-version: $" + "{{ matrix.node }}");
   });
 
   it("version-transition avoids unauthenticated git fetch origin main", () => {
