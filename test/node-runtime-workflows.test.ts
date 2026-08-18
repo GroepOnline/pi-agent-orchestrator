@@ -57,6 +57,6 @@ describe("CI critical-path workflow contract", () => {
 
     expect(benchmarks).not.toMatch(/^\s+needs:/m);
     expect(requiredGate).toContain("- benchmarks");
-    expect(requiredGate).toContain('test "$BENCHMARKS_RESULT" = "success"');
+    expect(requiredGate).toContain(`test "$BENCHMARKS_RESULT" = "success"`);
   });
 });
