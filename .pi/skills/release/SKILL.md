@@ -13,14 +13,14 @@ Operator detail lives in [`.github/NPM_SETUP.md`](../../../.github/NPM_SETUP.md)
 
 ## Automated flow
 
-1. Run **Prepare Release 0.18.1** on `main` with confirmation `RELEASE 0.18.1`.
-2. The workflow writes `package.json`, both lockfile root versions, and `CHANGELOG.md`, then opens `release/v0.18.1`.
+1. Before running the button for the next valid patch release (currently `0.18.2`), advance the pinned release workflow and policy in a dedicated reviewed change: the current source is already `0.18.1`, while the checked-in workflow still prepares the initial `0.18.1` release and cannot run again.
+2. Run the newly pinned **Prepare Release** workflow on `main` with its exact confirmation value. The workflow writes `package.json`, both lockfile root versions, `CHANGELOG.md`, and `showcase/remotion/public/promo-data.json`, then opens the matching release branch.
 3. After that PR squash-merges, `release.yml` matches subject `chore(release): v$VERSION`.
 4. It re-runs the immutable gate, publishes the packed tarball with provenance, then creates tag `v$VERSION` and the GitHub Release.
 
 ```text
 prepare-release.yml (button on main)
-→ reviewed PR with only CHANGELOG.md + package.json + package-lock.json
+→ reviewed PR with CHANGELOG.md + package.json + package-lock.json + showcase/remotion/public/promo-data.json
 → squash merge to main
 → release.yml verify → npm publish --provenance → tag + GitHub Release
 → pages.yml (package.json/CHANGELOG.md path filters) republishes pi.video
