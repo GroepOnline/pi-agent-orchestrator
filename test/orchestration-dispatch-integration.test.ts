@@ -291,11 +291,19 @@ describe("orchestration-dispatch integration — Agent tool end-to-end", () => {
     // addAgentToSwarm is (swarmId, agentId) — priority was pruned in CHE-25.
     expect(swarmJoin.createSwarm).toHaveBeenCalledTimes(1);
     expect(swarmJoin.addAgentToSwarm).toHaveBeenCalledTimes(2);
-    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(1, "swarm-it-1", expect.any(String));
-    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(2, "swarm-it-1", expect.any(String));
+    const records = manager.listAgents();
+    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(
+      1,
+      "swarm-it-1",
+      records[0]!.id,
+    );
+    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(
+      2,
+      "swarm-it-1",
+      records[1]!.id,
+    );
 
     // Records carry the swarmId end-to-end.
-    const records = manager.listAgents();
     const swarmIds = records.map((r) => r.swarmId);
     expect(new Set(swarmIds).size).toBe(1);
 

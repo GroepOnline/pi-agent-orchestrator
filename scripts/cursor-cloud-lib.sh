@@ -171,24 +171,27 @@ cc_ensure_pi_cli() {
   fi
 
   echo "pi ensure  : installing $wanted_pkg (have: ${active:-none})"
-  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+  if [ -d "$user_prefix/bin" ]; then
+    # Refresh an existing user-local install rather than leaving it stale.
+    npm install -g --prefix "$user_prefix" --ignore-scripts "$wanted_pkg"
+    pi_bin="$user_prefix/bin/pi"
+    PATH="$user_prefix/bin:$PATH"
+    export PATH
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
     sudo npm install -g --ignore-scripts "$wanted_pkg"
-      # Validate the binary installed by npm, not a stale user-local binary.
-      pi_bin="$(sudo npm prefix -g)/bin/pi"
-      PATH="$(dirname "$pi_bin"):$PATH"
-      export PATH
+    pi_bin="$(sudo npm prefix -g)/bin/pi"
+    PATH="$(dirname "$pi_bin"):$PATH"
+    export PATH
   else
     mkdir -p "$user_prefix"
     npm install -g --prefix "$user_prefix" --ignore-scripts "$wanted_pkg"
+    pi_bin="$user_prefix/bin/pi"
     PATH="$user_prefix/bin:$PATH"
     export PATH
   fi
   hash -r 2>/dev/null || true
 
-  if [ -z "${pi_bin:-}" ]; then
-      pi_bin="$user_prefix/bin/pi"
-    fi
-    if [ ! -x "$pi_bin" ]; then
+  if [ ! -x "$pi_bin" ]; then
     echo "ERROR: pi CLI still not on PATH after install (npm bin: $npm_bin, user: $user_prefix/bin)." >&2
     exit 1
   fi
