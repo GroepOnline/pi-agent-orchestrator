@@ -15,11 +15,19 @@ After `pi install npm:@groeponline/pi-agent-orchestrator`, read raw markdown fro
 
 ## Human-readable web UI
 
+Canonical product site:
+
 - https://orchestrator.chefgroep.online/docs/api-reference
 - https://orchestrator.chefgroep.online/docs/architecture
 - https://orchestrator.chefgroep.online/docs/custom-agents
 - https://orchestrator.chefgroep.online/showcase
 
+GitHub Pages mirror (pi.dev `pi.video` host after Deploy Pages runs on `main`):
+
+- https://groeponline.github.io/pi-agent-orchestrator/
+- https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4
+
 ## Media
 
 - https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4
+- https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/product_film.mp4

@@ -5,78 +5,56 @@ description: Cut a release of @groeponline/pi-agent-orchestrator to npmjs.org an
 
 # Release — pi-agent-orchestrator
 
-Releases use one canonical workflow: `.github/workflows/release.yml`.
+Canonical path: **Prepare Release** button → reviewed PR → `.github/workflows/release.yml` on `main`.
 
-Do not add parallel npm or GitHub Packages publish workflows. Duplicate tag triggers can publish only part of a release and leave npm, GitHub Releases, and source metadata out of sync.
+Do not `git tag` locally. Do not add a second npm or GitHub Packages publisher. Duplicate tag triggers can publish only part of a release.
 
-## Automated release flow
+Operator detail lives in [`.github/NPM_SETUP.md`](../../../.github/NPM_SETUP.md) and [`RELEASE.md`](../../../RELEASE.md).
 
-A `v*` tag reachable from `main`, or a manual workflow dispatch on `main`, runs:
+## Automated flow
+
+1. Before running the button for the next valid patch release (currently `0.18.2`), advance the pinned release workflow and policy in a dedicated reviewed change: the current source is already `0.18.1`, while the checked-in workflow still prepares the initial `0.18.1` release and cannot run again.
+2. Run the newly pinned **Prepare Release** workflow on `main` with its exact confirmation value. The workflow writes `package.json`, both lockfile root versions, `CHANGELOG.md`, and `showcase/remotion/public/promo-data.json`, then opens the matching release branch.
+3. After that PR squash-merges, `release.yml` matches subject `chore(release): v$VERSION`.
+4. It re-runs the immutable gate, publishes the packed tarball with provenance, then creates tag `v$VERSION` and the GitHub Release.
 
 ```text
-npm ci
-→ build
-→ typecheck
-→ lint
-→ test
-→ package metadata and prepublish validation
-→ npm publish --access public
-→ GitHub Release
+prepare-release.yml (button on main)
+→ reviewed PR with CHANGELOG.md + package.json + package-lock.json + showcase/remotion/public/promo-data.json
+→ squash merge to main
+→ release.yml verify → npm publish --provenance → tag + GitHub Release
+→ pages.yml (package.json/CHANGELOG.md path filters) republishes pi.video
 ```
-
-The workflow resolves the target version from the tag or manual input and sets it inside CI with `npm version --no-git-tag-version`. Do not create a standalone package-version commit solely for the release.
 
 ## Before releasing
 
-1. Confirm the release commit is on `main` and required CI is green.
+1. Confirm the intended commit is on `main` and required CI is green.
 2. Check the currently published version:
 
    ```bash
    npm view @groeponline/pi-agent-orchestrator version
    ```
 
-3. Update `CHANGELOG.md` with user-visible changes.
-4. Choose a new semantic version that is strictly greater than npm `latest`.
-5. Ensure the package catalog contract passes:
+3. Keep `.release-policy.json` on the locked `0.18.x` train. Do not unlock `0.19.0` in a product PR.
+4. Ensure the package catalog contract passes:
 
    ```bash
    npm run verify:package
    npm pack --dry-run
    ```
 
-## Tag release
-
-```bash
-git switch main
-git pull --ff-only
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
-
-The release tag must be reachable from `main`.
-
-## Manual release
-
-Run the `Release` workflow on `main` and supply `X.Y.Z`. Use the same validation and changelog discipline as a tag release.
-
 ## Authentication
 
-Current workflow authentication uses the repository Actions secret `NPM_TOKEN` with package-scoped publish permission.
+Current publisher uses repository secret `NPM_TOKEN` plus `id-token: write` for provenance.
 
-Preferred target state is npm trusted publishing through GitHub OIDC:
-
-1. Configure `GroepOnline/pi-agent-orchestrator` and workflow `release.yml` as the trusted publisher in npm.
-2. Add `id-token: write` to release workflow permissions.
-3. Remove `NODE_AUTH_TOKEN` and the `NPM_TOKEN` dependency.
-4. Publish with `npm publish --access public --provenance`.
-
-Do not remove token authentication until npm trusted publishing is configured.
+Preferred target is npm trusted publishing for `release.yml`. Do not remove token authentication until that publisher is verified.
 
 ## Post-release verification
 
 ```bash
 npm view @groeponline/pi-agent-orchestrator version
 npm view @groeponline/pi-agent-orchestrator pi --json
+curl -sI "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4"
 pi -e npm:@groeponline/pi-agent-orchestrator
 ```
 
@@ -84,13 +62,16 @@ Confirm that:
 
 - npm reports the intended version;
 - `pi.extensions` includes `./dist/index.js`;
-- `pi.video` contains the public showcase MP4;
+- `pi.video` is the public GitHub Pages MP4 and that URL returns `video/mp4`;
 - the matching GitHub Release exists;
-- the package card refreshes in the Pi package catalog.
+- GitHub Pages finished deploying (Actions → Deploy Pages);
+- pi.dev shows `@groeponline/pi-agent-orchestrator`, not `@onlinechefgroep/...`.
+
+A Pages-only asset fix does not need a version bump. npm README / `pi.*` metadata changes do.
 
 ## Recovery rules
 
 - Never overwrite or reuse a published version.
-- If npm succeeded and GitHub Release creation failed, create the missing release; do not republish.
+- If npm succeeded and GitHub Release creation failed, re-run the failed Release job; do not republish.
 - If npm failed, repair authentication or validation and release a new valid version.
 - `dist/` is generated during publishing and must remain uncommitted.

@@ -221,5 +221,8 @@ jobs:
             echo "- npm: \`@groeponline/pi-agent-orchestrator@$RELEASE_VERSION\`"
             echo "- Registry metadata and downloaded tarball: verified"
             echo "- Tag: \`v$RELEASE_VERSION\`"
+            echo "- Catalog video: \`https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4\`"
+            echo "- GitHub Pages republishes from this commit (\`package.json\` / \`CHANGELOG.md\` path filters)."
+            echo "- Confirm pi.dev shows \`@groeponline/pi-agent-orchestrator\`, not \`@onlinechefgroep\`."
             echo "- Release train remains locked to \`0.18.x\`; \`0.19.0\` is blocked by policy."
           } >> "$GITHUB_STEP_SUMMARY"
