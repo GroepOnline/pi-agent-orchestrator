@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createPostHogBridge,
   type PostHogBridge,
+  type PostHogClient,
+  type PostHogClientFactory,
   postHogConfigToMigrate,
   resolvePostHogKey,
 } from "../src/posthog-bridge.js";
@@ -91,8 +93,11 @@ describe("postHogConfigToMigrate", () => {
 describe("createPostHogBridge", () => {
   let bridge: PostHogBridge | null = null;
 
+  function factoryFor(client: PostHogClient): PostHogClientFactory {
+    return async () => client;
+  }
+
   afterEach(async () => {
-    // Stop the SDK client so no background flush handles keep the test runner alive.
     try {
       await bridge?.shutdown();
     } catch {
@@ -107,26 +112,61 @@ describe("createPostHogBridge", () => {
     expect(await createPostHogBridge({ distinctId: "x" })).toBeNull();
   });
 
-  it("creates a capture/shutdown bridge when a key is set", async () => {
-    // Point at a closed local port so no real telemetry leaves the test runner.
-    bridge = await createPostHogBridge({ key: "phc_test", host: "http://127.0.0.1:1" });
+  it("creates a capture/shutdown bridge with the configured client", async () => {
+    const client: PostHogClient = { capture() {}, async shutdown() {} };
+    bridge = await createPostHogBridge({ key: "phc_test" }, factoryFor(client));
     expect(bridge).not.toBeNull();
     expect(typeof bridge?.capture).toBe("function");
     expect(typeof bridge?.shutdown).toBe("function");
   });
 
-  it("capture is fail-open (never throws) against a dead endpoint", async () => {
-    bridge = await createPostHogBridge({ key: "phc_test", host: "http://127.0.0.1:1" });
-    expect(() => bridge?.capture("agent_spawned", { type: "Explore" })).not.toThrow();
-    expect(() => bridge?.capture("agent_completed", { type: "general-purpose", duration: 12 })).not.toThrow();
+  it("capture preserves attribution and is fail-open when the client throws", async () => {
+    const captured: Array<Parameters<PostHogClient["capture"]>[0]> = [];
+    const client: PostHogClient = {
+      capture(event) {
+        captured.push(event);
+        throw new Error("offline");
+      },
+      async shutdown() {},
+    };
+    bridge = await createPostHogBridge(
+      { key: "phc_test", distinctId: "test-node" },
+      factoryFor(client),
+    );
+
+    expect(() => bridge?.capture("agent_spawned", { $lib: "untrusted", type: "Explore" })).not.toThrow();
+    expect(captured).toEqual([
+      {
+        distinctId: "test-node",
+        event: "agent_spawned",
+        properties: { $lib: "pi-agent-orchestrator", type: "Explore" },
+      },
+    ]);
   });
 
-  it("shutdown returns a Promise that resolves (flush is awaited, not dropped)", async () => {
-    bridge = await createPostHogBridge({ key: "phc_test", host: "http://127.0.0.1:1" });
+  it("shutdown awaits the client and remains fail-open on flush failures", async () => {
+    let shutdownCalls = 0;
+    const client: PostHogClient = {
+      capture() {},
+      async shutdown() {
+        shutdownCalls += 1;
+        throw new Error("offline");
+      },
+    };
+    bridge = await createPostHogBridge({ key: "phc_test" }, factoryFor(client));
+
     const result = bridge?.shutdown();
     expect(result).toBeInstanceOf(Promise);
     await expect(result).resolves.toBeUndefined();
-    // Calling again must remain best-effort safe.
     await expect(bridge?.shutdown()).resolves.toBeUndefined();
+    expect(shutdownCalls).toBe(2);
+  });
+
+  it("stays inert when the SDK client cannot be created", async () => {
+    bridge = await createPostHogBridge(
+      { key: "phc_test" },
+      async () => Promise.reject(new Error("SDK unavailable")),
+    );
+    expect(bridge).toBeNull();
   });
 });
