@@ -1186,6 +1186,21 @@ ${chefPreflight.systemPromptAddition}`;
         logger.debug(`Hook dispatch error: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}`);
       });
   }
+  if (!responseText && !modelError) {
+    // Agent completed without producing text. Surface a machine-readable
+    // end report so get_subagent_result never returns an uninformative
+    // empty result. This covers cases where the agent finished silently
+    // after a soft-limit steer or normal turn end.
+    const durationMs = Math.round(performance.now() - startTime);
+    responseText = `[pi-agent-orchestrator] Agent completed without producing output.\nType: ${type}\nTurns: ${turnCount}\nTool calls: ${toolCallCount}\nDuration: ${durationMs}ms\nStatus: ${aborted ? "aborted" : softLimitReached ? "steered" : "completed"}\n\nIf this was a route-discovery task, prefer direct shell/docs lookup.`;
+    logger.warn("Subagent completed with empty output", {
+      agentId: options.agentId ?? "unknown",
+      type,
+      turns: turnCount,
+      toolCalls: toolCallCount,
+      durationMs,
+    });
+  }
   const duration = performance.now() - startTime;
 
   // Structured handoff parsing
