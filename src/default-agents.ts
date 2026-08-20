@@ -215,6 +215,9 @@ export const DEFAULT_AGENTS: Map<string, AgentConfig> = new Map([
         task: "search and analyze existing code",
         toolInstructions: "Use Bash ONLY for read-only operations: ls, git status, git log, git diff, find, cat, head, tail.\n- Make independent tool calls in parallel for efficiency\n- Adapt search approach based on thoroughness level specified",
         outputInstructions: "- Use absolute file paths in all references\n- Report findings as regular messages\n- Do not use emojis\n- Be thorough and precise",
+        additionalSections: [
+          `# Final Report\nBefore stopping, always output a short final report. If you found nothing, say so explicitly and list the paths you checked. Never end silently.`,
+        ],
       }),
       promptMode: "replace",
       isDefault: true,
