@@ -444,7 +444,7 @@ describe("transactional release workflow", () => {
     expect(videoCheck).toContain("dashboard_preview.gif");
     expect(videoCheck).toContain('test "$size" -gt 100000');
     expect(JSON.parse(readRoot("package.json")).pi?.video).toBe(
-      "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
+      "https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4",
     );
   });
 
