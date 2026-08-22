@@ -137,6 +137,8 @@ export function createGetResultTool(ctx: ToolContext) {
             : "Agent is still running. Use wait: true (Esc cancels only the wait) or check back later.";
       } else if (record.status === "error") {
         output += `Error: ${record.error}`;
+      } else if (!record.result?.trim()) {
+        output += `No output.\n\nThis agent finished without producing text. If this was a route-discovery task, prefer direct shell/docs lookup.`;
       } else {
         output += record.result?.trim() || "No output.";
       }
