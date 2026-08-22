@@ -493,7 +493,11 @@ export class WorkflowRunner {
       } catch (error) {
         const spawnError = { code: "workflow_spawn_failed", message: error instanceof Error ? error.message : String(error), retryable: false } as const;
         if ((definition.failurePolicy ?? "fail-run") === "continue") {
-          this.runs.skipStep(runId, definition.id);
+          this.runs.skipStep(runId, definition.id, {
+            code: "workflow_step_failed",
+            message: `Worker ${handle.agentId} failed step ${definition.id}`,
+            retryable: false,
+          });
         } else {
           this.runs.failStep(runId, definition.id, spawnError);
         }
@@ -527,7 +531,11 @@ export class WorkflowRunner {
     } else if (result.status === "failed") {
       if ((definition.failurePolicy ?? "fail-run") === "continue") {
         // Mark skipped (not failed) so Run.complete() can succeed and dependents unlock.
-        this.runs.skipStep(runId, definition.id);
+        this.runs.skipStep(runId, definition.id, {
+            code: "workflow_step_failed",
+            message: `Worker ${handle.agentId} failed step ${definition.id}`,
+            retryable: false,
+          });
       } else {
         this.runs.failStep(runId, definition.id, result.error ?? {
           code: "workflow_step_failed",

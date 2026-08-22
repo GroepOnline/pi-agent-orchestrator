@@ -306,8 +306,8 @@ export class RunManager {
     return snapshotStep(step);
   }
 
-  skipStep(runId: string, stepId: string): RunStep {
-    return this.setStepStatus(runId, stepId, "skipped", false, true);
+  skipStep(runId: string, stepId: string, error?: OrchestraExecutionError): RunStep {
+    return this.setStepStatus(runId, stepId, "skipped", true, true, error);
   }
 
   addArtifact(runId: string, artifact: OrchestraArtifactReference, stepId?: string): OrchestraRun {
@@ -448,6 +448,7 @@ export class RunManager {
     status: RunStepStatus,
     requireDependencies: boolean,
     terminal = false,
+    error?: OrchestraExecutionError,
   ): RunStep {
     const run = this.mutable(runId);
     this.ensureMutable(run);
@@ -459,8 +460,9 @@ export class RunManager {
       throw new Error(`Step ${step.id} is already terminal: ${step.status}`);
     }
     step.status = status;
+    if (error) step.error = { ...error };
     if (terminal) step.completedAt = this.now();
-    this.emit("step:status_changed", run, { stepId, status });
+    this.emit("step:status_changed", run, { stepId, status, ...(step.error ? { error: step.error } : {}) });
     if (terminal) this.refreshDependencyReadiness(run);
     return snapshotStep(step);
   }
