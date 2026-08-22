@@ -159,6 +159,7 @@ async function waitForWorkerResult(
  */
 export class WorkflowRunner {
   private readonly activeAgentsByRun = new Map<string, Set<string>>();
+  private readonly dynamicDefinitions = new Map<string, Map<string, WorkflowStepDefinition>>();
 
   constructor(
     private readonly runs: RunManager,
@@ -307,7 +308,7 @@ export class WorkflowRunner {
           title: `Revision ${revision}`,
           role: "executor",
           agentType: executor,
-          dependsOn: [reviewStepId],
+          dependsOn: [implementationStepId, reviewStepId],
           buildPrompt: ({ task, dependencies }) => [
             "Revise the implementation to address the reviewer findings.",
             "Return updated implementation output and artifact references.",
@@ -369,6 +370,7 @@ export class WorkflowRunner {
       throw error;
     } finally {
       this.activeAgentsByRun.delete(input.runId);
+      this.dynamicDefinitions.delete(input.runId);
     }
   }
 
@@ -413,8 +415,6 @@ export class WorkflowRunner {
     });
     this.planReviewDefinitions(runId).set(definition.id, definition);
   }
-
-  private readonly dynamicDefinitions = new Map<string, Map<string, WorkflowStepDefinition>>();
 
   private planReviewDefinitions(runId: string): Map<string, WorkflowStepDefinition> {
     let definitions = this.dynamicDefinitions.get(runId);
