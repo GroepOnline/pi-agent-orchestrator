@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+No unreleased changes. The repository remains locked to the 0.18.x stabilization train.
+
+---
+
+## v0.18.1 (2026-08-22)
+
+### Subagent budget fix (data-driven)
+
+- **Default max turns: unlimited → 30.** Workers without an explicit `max_turns` ran into the 10-minute duration quota (`DEFAULT_MAX_DURATION_MS`) and were aborted with no final report — 40/43 subagent aborts across a 268-session evaluation were exactly this. A finite default turns the duration kill into a soft-limit steer (with `graceTurns` headroom for the report) so workers always return an end report instead of dying silently.
+- **Soft-limit steer message** now demands an explicit end report (findings, done/blocked, exact file paths/commit SHAs) instead of a generic "wrap up".
+
+Oversized tasks should still pass an explicit `max_turns`; the ceiling is a safety net, not a sizing tool.
+
+### Additional changes since v0.17.1
+
 - Raise the Node.js floor to `22.22.3` (`.nvmrc`, Cloud Dockerfile digest, `engines.node`, and release-critical CI) so `posthog-node@5.47.3` engine requirements no longer fail Cursor Cloud install.
 - Keep Cursor Cloud system packages current (`apt-get update/upgrade`) and ship Google Chrome stable in the Dockerfile + install refresh for computer-use.
 - Install the Pi.dev host CLI (`pi` / `@earendil-works/pi-coding-agent`) in the Cloud image and align it during install; run the Pi-host extension smoke as part of Cloud install so agents can actually load-test the extension.
