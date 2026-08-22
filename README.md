@@ -1,8 +1,10 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/social_preview.png" alt="pi-agent-orchestrator — observable multi-agent orchestration for Pi" width="100%">
+</p>
+
 # @groeponline/pi-agent-orchestrator
 
-> Multi-agent orchestration for the Pi coding agent: autonomous subagents,
-> isolated worktrees, swarms, schedules, structured handoffs, prompt compression,
-> and live terminal observability.
+> Run multiple Pi agents as one observable workflow: autonomous subagents, isolated worktrees, swarms, schedules, structured handoffs, prompt compression, and a live terminal control surface.
 
 [![npm version](https://img.shields.io/npm/v/@groeponline/pi-agent-orchestrator)](https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator)
 [![npm downloads](https://img.shields.io/npm/dm/@groeponline/pi-agent-orchestrator)](https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator)

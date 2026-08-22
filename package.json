@@ -1,7 +1,7 @@
 {
   "name": "@groeponline/pi-agent-orchestrator",
   "version": "0.18.1",
-  "description": "Multi-agent orchestration for Pi: autonomous subagents, worktrees, swarms, schedules, handoffs, prompt compression, and live TUI observability.",
+  "description": "Observable multi-agent orchestration for Pi: autonomous subagents, isolated worktrees, swarms, schedules, handoffs, and a live operator dashboard.",
   "author": "GroepOnline",
   "license": "MIT",
   "repository": {
@@ -35,7 +35,11 @@
     "tui",
     "dashboard",
     "developer-tools",
-    "groeponline"
+    "groeponline",
+    "agent-swarm",
+    "agent-dashboard",
+    "terminal-ui",
+    "workflow-orchestration"
   ],
   "files": [
     "dist/",
@@ -144,7 +148,8 @@
     "prompts": [
       "./prompts"
     ],
-    "video": "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4"
+    "video": "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
+    "image": "https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/social_preview.png"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
