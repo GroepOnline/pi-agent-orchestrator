@@ -466,8 +466,8 @@ export class WorkflowRunner {
     const run = this.runs.require(runId);
     const current = run.steps.find((step) => step.id === definition.id);
     if (!current) throw new Error(`Run ${runId} has no step ${definition.id}`);
-    if (current.status !== "ready") {
-      throw new Error(`Workflow step ${definition.id} is not ready: ${current.status}`);
+    if (current.status !== "ready" && current.status !== "waiting_dependency") {
+      throw new Error(`Workflow step ${definition.id} is not startable: ${current.status}`);
     }
 
     const dependencyOutputs = current.dependsOn.map((dependencyId) => {
