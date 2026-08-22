@@ -135,6 +135,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: |
+            .nvmrc
             scripts/release-recovery.mjs
             scripts/verify-published-package.mjs
           sparse-checkout-cone-mode: false
