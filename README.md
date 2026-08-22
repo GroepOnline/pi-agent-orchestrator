@@ -43,7 +43,7 @@ Use `pi install`; running `npm install` alone does not register the package reso
 | Ready-made workflows | Progressive-disclosure orchestration and Pi TypeScript engineering skills plus audit, plan, and implementation prompt templates |
 | Local execution | No hosted control plane, no package-owned telemetry backend, and no package-owned data service |
 
-The extension runs inside the Pi host process. It does not make outbound network calls of its own and does not store user data on a hosted service.
+The extension runs inside the Pi host process and does not require a package-owned hosted control plane or data service. Optional telemetry is inert by default; it only sends events when an operator explicitly configures a PostHog project key, and that behavior is documented and test-covered.
 
 ## Real terminal showcase
 
@@ -53,6 +53,7 @@ The preview is rendered from the compiled dashboard, resource top view, and widg
 
 - [Watch the product film](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/product_film.mp4) — the full Remotion-rendered showcase
 - [Watch the dashboard preview](https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4)
+- [Browse the binary showcase asset repository](https://github.com/GroepOnline/pi-agent-orchestrator-assets) — canonical storage for large MP4/GIF media used by this project.
 - [Open the agent-readable project site](https://orchestrator.chefgroep.online/)
 - [Read the Pi package documentation](https://pi.dev/docs/latest/packages)
 
