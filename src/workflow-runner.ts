@@ -457,8 +457,8 @@ export class WorkflowRunner {
     const run = this.runs.require(runId);
     const current = run.steps.find((step) => step.id === definition.id);
     if (!current) throw new Error(`Run ${runId} has no step ${definition.id}`);
-    if (current.status !== "ready") {
-      throw new Error(`Workflow step ${definition.id} is not ready: ${current.status}`);
+    if (["completed", "failed", "skipped", "cancelled", "running", "queued"].includes(current.status)) {
+      throw new Error(`Workflow step ${definition.id} cannot start from ${current.status}`);
     }
 
     const dependencyOutputs = current.dependsOn.map((dependencyId) => {
@@ -472,6 +472,10 @@ export class WorkflowRunner {
       dependencies: dependencyOutputs,
     });
 
+    // RunManager is the canonical dependency gate. This intentionally allows a
+    // dynamically-appended step that still reads waiting_dependency after all
+    // of its dependencies have already completed; startStep re-validates the
+    // dependency state before transitioning it to running.
     this.runs.startStep(runId, definition.id);
     const handle = this.workers.spawn({
       runId,
