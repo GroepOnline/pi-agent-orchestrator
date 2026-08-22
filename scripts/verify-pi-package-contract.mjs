@@ -21,13 +21,13 @@ const pi = pkg.pi;
 
 if (!pkg.name) fail("package.json needs a package name");
 if (pkg.private === true) fail("package must not be private");
-if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) fail('keywords must include "pi-package"');
-if (String(pkg.name || "").startsWith("@groeponline/") && !pkg.keywords?.includes("groeponline")) fail('GroepOnline packages must include the "groeponline" keyword');
+if (!Array.isArray(pkg.keywords) || !pkg.keywords.includes("pi-package")) fail("keywords must include \"pi-package\"");
+if (String(pkg.name || "").startsWith("@groeponline/") && !pkg.keywords?.includes("groeponline")) fail("GroepOnline packages must include the \"groeponline\" keyword");
 if (typeof pkg.description !== "string" || pkg.description.trim().length < 40 || pkg.description.length > 240) fail("description must be 40-240 characters of useful gallery copy");
 for (const field of ["author", "license", "repository", "homepage", "bugs"]) {
   if (!pkg[field]) fail(`missing package metadata: ${field}`);
 }
-if (String(pkg.name || "").startsWith("@") && pkg.publishConfig?.access !== "public") fail('scoped public Pi packages need publishConfig.access = "public"');
+if (String(pkg.name || "").startsWith("@") && pkg.publishConfig?.access !== "public") fail("scoped public Pi packages need publishConfig.access = \"public\"");
 if (!pi || typeof pi !== "object" || Array.isArray(pi)) fail("explicit pi manifest is required by the GroepOnline release standard");
 
 const resourceKeys = ["extensions", "skills", "prompts", "themes"];
@@ -64,8 +64,8 @@ for (const [key, raw] of resources) {
   if (typeof raw !== "string" || !raw.trim()) { fail(`pi.${key} contains an invalid resource path`); continue; }
   if (raw.startsWith("!")) continue;
   const clean = normalize(raw);
-  if (clean.startsWith("../")) { fail(`pi.${key} resource escapes package root: ${raw}`); continue; }
-  if (!/[?*{}[\]]/.test(clean) && !fs.existsSync(path.join(packageRoot, clean))) fail(`pi.${key} resource does not exist after build: ${raw}`);
+  if (path.isAbsolute(clean) || (resolved !== packageRoot && !resolved.startsWith(packageRoot + path.sep))) { fail(`pi.${key} resource escapes package root: ${raw}`); continue; }
+  if (!/[?*{}[\]]/.test(clean) && !fs.existsSync(resolved)) fail(`pi.${key} resource does not exist after build: ${raw}`);
 }
 
 const core = [
@@ -73,7 +73,7 @@ const core = [
   "@earendil-works/pi-agent-core",
   "@earendil-works/pi-coding-agent",
   "@earendil-works/pi-tui",
-  "typebox",
+  "@sinclair/typebox",
 ];
 const peer = pkg.peerDependencies || {};
 for (const dep of core) {
@@ -98,7 +98,7 @@ const sourceText = sourceFiles.map((file) => fs.readFileSync(file, "utf8")).join
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 for (const dep of core) {
   const d = escapeRegExp(dep);
-  const imported = new RegExp(`(?:from\\s+|import\\s*\\(|require\\s*\\()\\s*[\"']${d}[\"']`).test(sourceText);
+  const imported = new RegExp(`(?:from\\s+|import\\s*\\(|require\\s*\\(|import\\s+)\\s*[\"']${d}[\"']`).test(sourceText);
   if (imported && peer[dep] !== "*") fail(`runtime source imports ${dep}; peerDependencies.${dep} must be \"*\"`);
 }
 
@@ -115,6 +115,8 @@ if (packed) {
   for (const [key, raw] of resources) {
     if (raw.startsWith("!")) continue;
     const clean = normalize(raw);
+    const resolved = path.resolve(packageRoot, clean);
+    const resolved = path.resolve(packageRoot, clean);
     if (/[?*{}[\]]/.test(clean)) continue;
     const local = path.join(packageRoot, clean);
     if (!fs.existsSync(local)) continue;
