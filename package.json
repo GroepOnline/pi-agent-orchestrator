@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/GroepOnline/pi-agent-orchestrator.git"
   },
-  "homepage": "https://github.com/GroepOnline/pi-agent-orchestrator#readme",
+  "homepage": "https://orchestrator.chefgroep.online/",
   "bugs": {
     "url": "https://github.com/GroepOnline/pi-agent-orchestrator/issues"
   },
@@ -34,7 +34,8 @@
     "prompt-compression",
     "tui",
     "dashboard",
-    "developer-tools"
+    "developer-tools",
+    "groeponline"
   ],
   "files": [
     "dist/",
