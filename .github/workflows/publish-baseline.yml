@@ -91,7 +91,7 @@ jobs:
           npm run typecheck
           npm run lint
           npm test
-          npm run verify:package
+          npm run verify:package # includes Pi package contract gate
 
       - name: Pack immutable artifact
         id: pack
