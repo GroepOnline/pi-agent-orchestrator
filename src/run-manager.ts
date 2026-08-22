@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import {
-  validateOrchestraExecutionCorrelation,
   type OrchestraArtifactReference,
   type OrchestraExecutionError,
+  validateOrchestraExecutionCorrelation,
 } from "./orchestra-execution-contract.js";
 import {
-  EMPTY_RUN_USAGE,
   type CompleteRunInput,
   type CreateRunInput,
   type CreateStepInput,
   type DecisionReason,
+  EMPTY_RUN_USAGE,
   type OrchestraRun,
   type RunEvent,
   type RunEventType,
@@ -21,7 +21,7 @@ import {
 
 export interface RunWorkerController {
   /** Best-effort cancellation of an execution-local worker. */
-  cancel(agentId: string): boolean | void;
+  cancel(agentId: string): boolean | undefined;
 }
 
 export interface RunManagerOptions {
