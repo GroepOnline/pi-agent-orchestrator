@@ -494,8 +494,8 @@ export class WorkflowRunner {
         const spawnError = { code: "workflow_spawn_failed", message: error instanceof Error ? error.message : String(error), retryable: false } as const;
         if ((definition.failurePolicy ?? "fail-run") === "continue") {
           this.runs.skipStep(runId, definition.id, {
-            code: "workflow_step_failed",
-            message: `Worker ${handle.agentId} failed step ${definition.id}`,
+            code: "workflow_spawn_failed",
+            message: `Worker spawn failed for step ${definition.id}: ${spawnError.message}`,
             retryable: false,
           });
         } else {
