@@ -177,9 +177,9 @@ export class WorkflowRunner {
         const unfinished = run.steps.filter((step) => !["completed", "failed", "skipped", "cancelled"].includes(step.status));
         if (unfinished.length === 0) break;
 
+        const stepsById = new Map(run.steps.map((step) => [step.id, step]));
         const readyDefinitions = input.steps.filter((definition) => {
-          const step = run.steps.find((candidate) => candidate.id === definition.id);
-          return step?.status === "ready";
+          return stepsById.get(definition.id)?.status === "ready";
         });
         if (readyDefinitions.length === 0) {
           this.runs.fail(input.runId, {
@@ -197,6 +197,11 @@ export class WorkflowRunner {
           })),
         );
 
+        for (const { definition, result } of results) {
+          if (result.status === "failed" && (definition.failurePolicy ?? "fail-run") === "continue") {
+            this.runs.skipStep(input.runId, definition.id);
+          }
+        }
         const fatal = results.find(({ definition, result }) =>
           result.status !== "completed" && (definition.failurePolicy ?? "fail-run") === "fail-run");
         if (fatal) {
@@ -211,6 +216,8 @@ export class WorkflowRunner {
         }
       }
 
+      const currentRun = this.runs.require(input.runId);
+      if (currentRun.status === "cancelled" || currentRun.status === "failed") return currentRun;
       const finalStepId = input.finalResultStepId ?? input.steps.at(-1)?.id;
       const finalStep = finalStepId
         ? this.runs.require(input.runId).steps.find((step) => step.id === finalStepId)
@@ -239,7 +246,9 @@ export class WorkflowRunner {
    * Plan → Implement → Review with a bounded revision loop.
    */
   async runPlanImplementReview(input: PlanImplementReviewInput): Promise<OrchestraRun> {
-    const maxRevisions = Math.max(0, Math.min(3, input.maxRevisions ?? 1));
+    const run = this.runs.require(input.runId);
+      if (input.task.trim() !== run.task) throw new Error("PlanImplementReview task does not match the run task");
+      const maxRevisions = Math.max(0, Math.min(3, input.maxRevisions ?? 1));
     const planner = input.profiles?.planner ?? "Plan";
     const executor = input.profiles?.executor ?? "general-purpose";
     const reviewer = input.profiles?.reviewer ?? "Analysis";
@@ -457,8 +466,8 @@ export class WorkflowRunner {
     const run = this.runs.require(runId);
     const current = run.steps.find((step) => step.id === definition.id);
     if (!current) throw new Error(`Run ${runId} has no step ${definition.id}`);
-    if (["completed", "failed", "skipped", "cancelled", "running", "queued"].includes(current.status)) {
-      throw new Error(`Workflow step ${definition.id} cannot start from ${current.status}`);
+    if (current.status !== "ready") {
+      throw new Error(`Workflow step ${definition.id} is not ready: ${current.status}`);
     }
 
     const dependencyOutputs = current.dependsOn.map((dependencyId) => {
@@ -472,12 +481,10 @@ export class WorkflowRunner {
       dependencies: dependencyOutputs,
     });
 
-    // RunManager is the canonical dependency gate. This intentionally allows a
-    // dynamically-appended step that still reads waiting_dependency after all
-    // of its dependencies have already completed; startStep re-validates the
-    // dependency state before transitioning it to running.
     this.runs.startStep(runId, definition.id);
-    const handle = this.workers.spawn({
+    let handle: WorkflowWorkerHandle;
+      try {
+        handle = this.workers.spawn({
       runId,
       stepId: definition.id,
       role: definition.role,
@@ -485,7 +492,12 @@ export class WorkflowRunner {
       prompt,
       dependencyOutputs,
     });
-    this.runs.attachAgent(runId, handle.agentId, definition.id);
+            this.runs.attachAgent(runId, handle.agentId, definition.id);
+      } catch (error) {
+        const spawnError = { code: "workflow_spawn_failed", message: error instanceof Error ? error.message : String(error), retryable: false } as const;
+        this.runs.failStep(runId, definition.id, spawnError);
+        return { status: "failed", error: spawnError };
+      }
     let active = this.activeAgentsByRun.get(runId);
     if (!active) {
       active = new Set();
