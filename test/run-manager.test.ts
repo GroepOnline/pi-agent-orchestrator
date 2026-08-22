@@ -172,6 +172,35 @@ describe("RunManager", () => {
     expect(manager.history(run.id).filter((event) => event.type === "run:cancelled")).toHaveLength(1);
   });
 
+  it("promotes late-added steps to ready when dependencies already completed", () => {
+    const manager = new RunManager({ idFactory: () => "run-late-ready" });
+    const run = manager.create({ task: "Late step", requestedStrategy: "workflow" });
+    manager.start(run.id);
+    manager.addStep(run.id, { id: "plan", title: "Plan" });
+    manager.startStep(run.id, "plan");
+    manager.completeStep(run.id, "plan", { result: "done" });
+
+    const late = manager.addStep(run.id, {
+      id: "revision-1",
+      title: "Revision",
+      dependsOn: ["plan"],
+    });
+
+    expect(late.status).toBe("ready");
+  });
+
+  it("treats skipped dependencies as satisfied so dependents unlock", () => {
+    const manager = new RunManager({ idFactory: () => "run-skip-deps" });
+    const run = manager.create({ task: "Optional dep", requestedStrategy: "workflow" });
+    manager.start(run.id);
+    manager.addStep(run.id, { id: "optional", title: "Optional" });
+    manager.addStep(run.id, { id: "next", title: "Next", dependsOn: ["optional"] });
+    manager.startStep(run.id, "optional");
+    manager.skipStep(run.id, "optional");
+
+    expect(manager.get(run.id)!.steps.find((step) => step.id === "next")!.status).toBe("ready");
+  });
+
   it("returns snapshots so callers cannot mutate manager-owned state", () => {
     const manager = new RunManager({ idFactory: () => "run-snapshot" });
     const run = manager.create({ task: "Immutable view" });
@@ -181,4 +210,38 @@ describe("RunManager", () => {
     expect(manager.get(run.id)!.agentIds).toEqual([]);
     expect(manager.get(run.id)!.decisionReasons).toEqual([]);
   });
+
+  it("marks late-added dependent steps ready when dependencies already completed", () => {
+    const manager = new RunManager({ idFactory: () => "run-late-add" });
+    const run = manager.create({ task: "Late revision", requestedStrategy: "workflow" });
+    manager.start(run.id);
+    manager.addStep(run.id, { id: "implement", title: "Implement" });
+    manager.addStep(run.id, { id: "review-1", title: "Review" });
+    manager.startStep(run.id, "implement");
+    manager.completeStep(run.id, "implement", { result: "done" });
+    manager.startStep(run.id, "review-1");
+    manager.completeStep(run.id, "review-1", { result: "FAIL" });
+
+    const revision = manager.addStep(run.id, {
+      id: "revision-1",
+      title: "Revision 1",
+      dependsOn: ["implement", "review-1"],
+    });
+
+    expect(revision.status).toBe("ready");
+  });
+
+  it("unlocks dependents when a dependency is skipped", () => {
+    const manager = new RunManager({ idFactory: () => "run-skip-unlock" });
+    const run = manager.create({ task: "Skip unlock", requestedStrategy: "workflow" });
+    manager.start(run.id);
+    manager.addStep(run.id, { id: "optional", title: "Optional" });
+    manager.addStep(run.id, { id: "next", title: "Next", dependsOn: ["optional"] });
+
+    manager.startStep(run.id, "optional");
+    manager.skipStep(run.id, "optional");
+
+    expect(manager.get(run.id)!.steps.find((step) => step.id === "next")!.status).toBe("ready");
+  });
+
 });
