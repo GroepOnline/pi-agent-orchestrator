@@ -45,6 +45,22 @@ export interface PostHogBridge {
   shutdown(): Promise<void>;
 }
 
+/** Minimal PostHog SDK surface used by the bridge. */
+export interface PostHogClient {
+  capture(event: {
+    distinctId: string;
+    event: string;
+    properties: Record<string, unknown>;
+  }): void;
+  shutdown(): Promise<void>;
+}
+
+/** Lazy client factory; injectable only to test the bridge error boundary. */
+export type PostHogClientFactory = (
+  key: string,
+  options: { host: string },
+) => Promise<PostHogClient>;
+
 /** Ambient environment variables consumed only by the first-run migration. */
 export interface PostHogEnvSource {
   POSTHOG_KEY?: string;
@@ -107,14 +123,23 @@ export function postHogConfigToMigrate(
   return config;
 }
 
+async function createSdkClient(key: string, options: { host: string }): Promise<PostHogClient> {
+  const { PostHog } = await import("posthog-node");
+  return new PostHog(key, options);
+}
+
 /**
  * Create a PostHog bridge, or `null` when no key is configured (the default,
  * inert state). The SDK is loaded lazily so the extension never hard-depends
  * on `posthog-node` being importable at activation time. Only the persisted
  * `PostHogConfig` is consulted; ambient env vars are handled by the first-run
- * migration, not here.
+ * migration, not here. The optional factory exists solely to test this bridge's
+ * fail-open boundary without exercising an external SDK's retry policy.
  */
-export async function createPostHogBridge(config: PostHogConfig): Promise<PostHogBridge | null> {
+export async function createPostHogBridge(
+  config: PostHogConfig,
+  createClient: PostHogClientFactory = createSdkClient,
+): Promise<PostHogBridge | null> {
   const key = resolvePostHogKey(config.key);
   if (!key) return null;
 
@@ -122,8 +147,7 @@ export async function createPostHogBridge(config: PostHogConfig): Promise<PostHo
   const distinctId = config.distinctId ?? anonymousInstallId();
 
   try {
-    const { PostHog } = await import("posthog-node");
-    const client = new PostHog(key, { host });
+    const client = await createClient(key, { host });
     logger.debug("PostHog telemetry bridge enabled", { host, distinctId });
     return {
       capture(event, properties) {

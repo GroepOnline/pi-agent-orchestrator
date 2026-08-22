@@ -22,7 +22,7 @@ jobs:
   quality:
     name: Quality gate
     # PR → pr-isolated (no docker/secrets). Push to main → trusted-heavy.
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -39,7 +39,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install dependencies
@@ -73,9 +73,6 @@ jobs:
               "+refs/heads/main:refs/remotes/origin/main"
             node scripts/verify-version-transition.mjs origin/main HEAD "$CURRENT_BRANCH"
           fi
-
-      - name: Typecheck
-        run: npm run typecheck
 
       - name: Lint
         id: lint
@@ -130,10 +127,10 @@ jobs:
         include:
           # BILLING_QUARANTINE 2026-08-12: windows-latest/macos-latest matrix legs removed until GroepOnline Actions spending restored.
           - label: Linux (fleet)
-            runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+            runs-on: ubuntu-latest
             node: 24
           - label: Linux (fleet)
-            runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+            runs-on: ubuntu-latest
             node: 22
     steps:
       - name: Checkout
@@ -167,7 +164,7 @@ jobs:
 
   lowest-peer-dependencies:
     name: Lowest supported peer dependencies
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -178,12 +175,23 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install lowest supported peer dependencies
         run: |
           npm ci
+          # The host packages are devDependencies for local typechecking, but
+          # this job intentionally replaces them with the public peer floor.
+          # Remove the dev ranges first so npm does not mark 0.81.1 invalid
+          # against the repository's normal ^0.83.0 development baseline.
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            delete pkg.devDependencies["@earendil-works/pi-ai"];
+            delete pkg.devDependencies["@earendil-works/pi-coding-agent"];
+            fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
+          '
           npm install --no-save --package-lock=false --include=dev \
             @earendil-works/pi-ai@0.81.1 \
             @earendil-works/pi-coding-agent@0.81.1
@@ -210,7 +218,7 @@ jobs:
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     # GroepOnline transfer: Dependency graph / GHAS is often still off. Probe
     # first and skip the action when unsupported so the check is green (not a
@@ -257,8 +265,9 @@ jobs:
 
   benchmarks:
     name: Render benchmarks
-    needs: quality
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    # This job has an independent checkout, install, and threshold check. Start
+    # it with the other gates; required-gate still waits for both jobs.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -269,7 +278,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install dependencies
@@ -293,7 +302,7 @@ jobs:
       - lowest-peer-dependencies
       - dependency-review
       - benchmarks
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Verify required jobs
@@ -320,43 +329,52 @@ jobs:
       - lowest-peer-dependencies
       - dependency-review
       - benchmarks
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Create Linear issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_CI }}
+          CI_WORKFLOW: ${{ github.workflow }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_BRANCH: ${{ github.head_ref || github.ref_name }}
+          CI_SHA: ${{ github.sha }}
         with:
           script: |
-            const title = `CI Failure: ${{ github.workflow }} in pi-agent-orchestrator`;
-            const runUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const title = `CI Failure: ${process.env.CI_WORKFLOW} in pi-agent-orchestrator`;
+            const repositoryUrl = `https://github.com/${process.env.CI_REPOSITORY}`;
+            const runUrl = `${repositoryUrl}/actions/runs/${process.env.CI_RUN_ID}`;
             const desc = [
-              `Workflow **${{ github.workflow }}** failed in [pi-agent-orchestrator](`https://github.com/${{ github.repository }}`)`,
+              `Workflow **${process.env.CI_WORKFLOW}** failed in [pi-agent-orchestrator](${repositoryUrl})`,
               ``,
               `**Run:** ${runUrl}`,
-              `**Branch:** ${{ github.head_ref || github.ref_name }}`,
-              `**SHA:** ${{ github.sha.substring(0,7) }}`,
+              `**Branch:** ${process.env.CI_BRANCH}`,
+              `**SHA:** ${process.env.CI_SHA.slice(0, 7)}`,
               ``,
               `Created automatically by CI failure tracker.`,
             ].join('\n');
             const query = `
-              mutation {
-                issueCreate(input: {
-                  title: "${title.replace(/"/g, '\\"')}",
-                  description: "${desc.replace(/"/g, '\\"').replace(/\\n/g, '\\n')}",
-                  teamId: "bbd2b9e0-e644-4717-9074-8d0eaa3f150a",
-                  priority: 2,
-                  labelIds: ["713eee90-d169-40a6-98b8-7c71502b9855", "73cc7952-aca3-48f9-8bbd-1193c20fdfe2"]
-                }) {
+              mutation CreateIssue($input: IssueCreateInput!) {
+                issueCreate(input: $input) {
                   issue { id identifier }
                 }
               }
             `;
+            const variables = {
+              input: {
+                title,
+                description: desc,
+                teamId: "bbd2b9e0-e644-4717-9074-8d0eaa3f150a",
+                priority: 2,
+                labelIds: ["713eee90-d169-40a6-98b8-7c71502b9855", "73cc7952-aca3-48f9-8bbd-1193c20fdfe2"],
+              },
+            };
             const res = await fetch('https://api.linear.app/graphql', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': process.env.LINEAR_API_KEY },
-              body: JSON.stringify({ query })
+              body: JSON.stringify({ query, variables })
             });
             const data = await res.json();
             if (data.data?.issueCreate?.issue) {

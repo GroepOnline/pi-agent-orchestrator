@@ -14,7 +14,9 @@ concurrency:
 jobs:
   super-lint:
     name: Lint Code Base
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    # Super-Linter is a Docker action. GitHub pulls its image while preparing
+    # actions, before any workflow step could repair self-hosted socket access.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       # Super-Linter publishes check contexts while only reading repository data.
@@ -64,5 +66,7 @@ jobs:
         with:
           name: super-linter-diagnostics-${{ github.run_id }}
           path: super-linter-output
-          if-no-files-found: error
+          # Preserve the primary Super-Linter error when action setup fails
+          # before it can create the diagnostics directory.
+          if-no-files-found: warn
           retention-days: 14

@@ -22,7 +22,7 @@ jobs:
   verify:
     name: Verify and build baseline artifact
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
       contents: read
@@ -73,7 +73,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           package-manager-cache: false
 
       - name: Validate maintenance baseline policy
@@ -115,7 +115,7 @@ jobs:
   publish:
     name: Publish baseline to npm
     needs: verify
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -139,7 +139,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
@@ -172,7 +172,7 @@ jobs:
   finalize:
     name: Tag and create GitHub Release
     needs: [verify, publish]
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
