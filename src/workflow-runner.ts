@@ -197,11 +197,8 @@ export class WorkflowRunner {
           })),
         );
 
-        for (const { definition, result } of results) {
-          if (result.status === "failed" && (definition.failurePolicy ?? "fail-run") === "continue") {
-            this.runs.skipStep(input.runId, definition.id);
-          }
-        }
+        // failurePolicy "continue" is applied inside executeStep (skip instead of
+        // fail) so we never attempt skipStep on an already-terminal failed step.
         const fatal = results.find(({ definition, result }) =>
           result.status !== "completed" && (definition.failurePolicy ?? "fail-run") === "fail-run");
         if (fatal) {
@@ -466,8 +463,8 @@ export class WorkflowRunner {
     const run = this.runs.require(runId);
     const current = run.steps.find((step) => step.id === definition.id);
     if (!current) throw new Error(`Run ${runId} has no step ${definition.id}`);
-    if (current.status !== "ready" && current.status !== "waiting_dependency") {
-      throw new Error(`Workflow step ${definition.id} is not startable: ${current.status}`);
+    if (current.status !== "ready") {
+      throw new Error(`Workflow step ${definition.id} is not ready: ${current.status}`);
     }
 
     const dependencyOutputs = current.dependsOn.map((dependencyId) => {
@@ -495,7 +492,15 @@ export class WorkflowRunner {
             this.runs.attachAgent(runId, handle.agentId, definition.id);
       } catch (error) {
         const spawnError = { code: "workflow_spawn_failed", message: error instanceof Error ? error.message : String(error), retryable: false } as const;
-        this.runs.failStep(runId, definition.id, spawnError);
+        if ((definition.failurePolicy ?? "fail-run") === "continue") {
+          this.runs.skipStep(runId, definition.id, {
+            code: "workflow_spawn_failed",
+            message: `Worker spawn failed for step ${definition.id}: ${spawnError.message}`,
+            retryable: false,
+          });
+        } else {
+          this.runs.failStep(runId, definition.id, spawnError);
+        }
         return { status: "failed", error: spawnError };
       }
     let active = this.activeAgentsByRun.get(runId);
@@ -524,11 +529,20 @@ export class WorkflowRunner {
         artifacts: result.artifacts,
       });
     } else if (result.status === "failed") {
-      this.runs.failStep(runId, definition.id, result.error ?? {
-        code: "workflow_step_failed",
-        message: `Worker ${handle.agentId} failed step ${definition.id}`,
-        retryable: false,
-      });
+      if ((definition.failurePolicy ?? "fail-run") === "continue") {
+        // Mark skipped (not failed) so Run.complete() can succeed and dependents unlock.
+        this.runs.skipStep(runId, definition.id, {
+            code: "workflow_step_failed",
+            message: `Worker ${handle.agentId} failed step ${definition.id}`,
+            retryable: false,
+          });
+      } else {
+        this.runs.failStep(runId, definition.id, result.error ?? {
+          code: "workflow_step_failed",
+          message: `Worker ${handle.agentId} failed step ${definition.id}`,
+          retryable: false,
+        });
+      }
     } else {
       this.cancel(runId);
     }
