@@ -137,6 +137,21 @@ describe("createGetResultTool", () => {
     expect(result.content[0].text).toMatch(/Task finished successfully/);
   });
 
+  it("treats a whitespace-only completed result as no output", async () => {
+    const ctx = makeCtx();
+    ctx.manager.getRecord.mockReturnValue(
+      makeRecord({
+        status: "completed",
+        completedAt: Date.now(),
+        result: " \n\t ",
+      }),
+    );
+    const tool = createGetResultTool(ctx);
+    const result = await tool.execute("call-1", { agent_id: "agent-1" }, undefined, undefined, ctx);
+    expect(result.content[0].text).toContain("No output.");
+    expect(result.content[0].text).toContain("finished without producing text");
+  });
+
   it("execute returns error for errored agent", async () => {
     const ctx = makeCtx();
     ctx.manager.getRecord.mockReturnValue(
