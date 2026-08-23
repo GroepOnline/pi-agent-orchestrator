@@ -64,6 +64,7 @@ for (const [key, raw] of resources) {
   if (typeof raw !== "string" || !raw.trim()) { fail(`pi.${key} contains an invalid resource path`); continue; }
   if (raw.startsWith("!")) continue;
   const clean = normalize(raw);
+  const resolved = path.resolve(packageRoot, clean);
   if (path.isAbsolute(clean) || (resolved !== packageRoot && !resolved.startsWith(packageRoot + path.sep))) { fail(`pi.${key} resource escapes package root: ${raw}`); continue; }
   if (!/[?*{}[\]]/.test(clean) && !fs.existsSync(resolved)) fail(`pi.${key} resource does not exist after build: ${raw}`);
 }
