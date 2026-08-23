@@ -51,7 +51,12 @@ jobs:
       - name: Install project dependencies
         run: npm ci
 
+      - name: Prepare CI showcase cast
+        run: node scripts/prepare-ci-showcase-cast.mjs
+
       - name: Render real TUI showcase
+        env:
+          SHOWCASE_CAST: showcase/fixtures/ci-showcase.cast
         run: npm run showcase:remotion
 
       - name: Assemble static site (verify; deploy is pages.yml)
