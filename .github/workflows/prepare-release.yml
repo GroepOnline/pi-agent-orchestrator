@@ -95,7 +95,7 @@ jobs:
           npm run typecheck
           npm run lint
           npm test
-          npm run verify:package
+          npm run verify:package # includes Pi package contract gate
           npm --prefix showcase/remotion run promo:data:check
           npm pack --dry-run --json > npm-pack.json
           node scripts/verify-npm-pack.mjs npm-pack.json

@@ -1,7 +1,7 @@
 {
   "name": "@groeponline/pi-agent-orchestrator",
   "version": "0.18.1",
-  "description": "Multi-agent orchestration for Pi: autonomous subagents, worktrees, swarms, schedules, handoffs, prompt compression, and live TUI observability.",
+  "description": "Observable multi-agent orchestration for Pi: autonomous subagents, isolated worktrees, swarms, schedules, handoffs, and a live operator dashboard.",
   "author": "GroepOnline",
   "license": "MIT",
   "repository": {
@@ -35,7 +35,11 @@
     "tui",
     "dashboard",
     "developer-tools",
-    "groeponline"
+    "groeponline",
+    "agent-swarm",
+    "agent-dashboard",
+    "terminal-ui",
+    "workflow-orchestration"
   ],
   "files": [
     "dist/",
@@ -55,8 +59,9 @@
     "CODE_OF_CONDUCT.md"
   ],
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.81.1",
-    "@earendil-works/pi-coding-agent": ">=0.81.1"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-agent-core": "*"
   },
   "peerDependenciesMeta": {
     "@groeponline/context-mode": {
@@ -66,6 +71,9 @@
       "optional": true
     },
     "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-agent-core": {
       "optional": true
     }
   },
@@ -96,7 +104,7 @@
     "cloud:verify": "npm run verify:cloud",
     "cloud:smoke": "bash scripts/cursor-cloud-smoke.sh",
     "cloud:artifacts": "bash scripts/cursor-cloud-artifacts.sh",
-    "verify:package": "node scripts/verify-package-metadata.mjs",
+    "verify:package": "node scripts/verify-package-metadata.mjs && node scripts/verify-pi-package-contract.mjs",
     "bench:all": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run test/widget-render-perf.test.ts test/dashboard-render-perf.test.ts test/spawn-latency-bench.test.ts test/spawn-latency-e2e-bench.test.ts --reporter=verbose",
     "lint": "biome check src/ test/ scripts/",
     "lint:fix": "biome check --write --unsafe src/ test/ scripts/",
@@ -113,7 +121,8 @@
     "showcase:label-scenes": "node scripts/label-showcase-scenes.mjs",
     "showcase:verify-media": "node scripts/verify-showcase-media.mjs",
     "showcase:vhs": "bash scripts/render-showcase-vhs.sh",
-    "screenshots": "npm run build && node scripts/render-screenshots.mjs"
+    "screenshots": "npm run build && node scripts/render-screenshots.mjs",
+    "verify:pi-package": "node scripts/verify-pi-package-contract.mjs"
   },
   "type": "module",
   "engines": {
@@ -144,7 +153,8 @@
     "prompts": [
       "./prompts"
     ],
-    "video": "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4"
+    "video": "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
+    "image": "https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/social_preview.png"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",
