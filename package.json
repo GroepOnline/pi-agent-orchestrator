@@ -129,15 +129,15 @@
     "node": ">=22.22.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.7",
-    "@earendil-works/pi-agent-core": "^0.83.0",
-    "@earendil-works/pi-ai": "^0.83.0",
+    "@biomejs/biome": "^2.5.9",
+    "@earendil-works/pi-agent-core": "^0.84.2",
+    "@earendil-works/pi-ai": "^0.84.2",
     "@earendil-works/pi-coding-agent": "^0.84.2",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.2.0",
     "@types/proper-lockfile": "^4.1.4",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^7.0.2",
     "vitest": "^4.1.7"
   },
