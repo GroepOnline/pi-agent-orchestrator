@@ -219,7 +219,10 @@ export class RunManager {
     };
     run.steps.push(step);
     this.emit("step:created", run, { stepId: id, status: step.status });
-    return snapshotStep(step);
+    // Late-added steps (e.g. revision loops) may depend on already-terminal
+    // work. Refresh immediately so they become ready instead of staying stuck.
+    this.refreshDependencyReadiness(run);
+    return snapshotStep(this.step(run, id));
   }
 
   attachAgent(runId: string, agentId: string, stepId?: string): OrchestraRun {
@@ -303,8 +306,8 @@ export class RunManager {
     return snapshotStep(step);
   }
 
-  skipStep(runId: string, stepId: string): RunStep {
-    return this.setStepStatus(runId, stepId, "skipped", false, true);
+  skipStep(runId: string, stepId: string, error?: OrchestraExecutionError): RunStep {
+    return this.setStepStatus(runId, stepId, "skipped", true, true, error);
   }
 
   addArtifact(runId: string, artifact: OrchestraArtifactReference, stepId?: string): OrchestraRun {
@@ -422,7 +425,12 @@ export class RunManager {
   }
 
   private dependenciesSatisfied(run: OrchestraRun, step: RunStep): boolean {
-    return step.dependsOn.every((dependencyId) => this.step(run, dependencyId).status === "completed");
+    // completed unlocks dependents normally; skipped unlocks them under
+    // failurePolicy "continue" so the DAG does not deadlock on optional work.
+    return step.dependsOn.every((dependencyId) => {
+      const status = this.step(run, dependencyId).status;
+      return status === "completed" || status === "skipped";
+    });
   }
 
   private refreshDependencyReadiness(run: OrchestraRun): void {
@@ -440,6 +448,7 @@ export class RunManager {
     status: RunStepStatus,
     requireDependencies: boolean,
     terminal = false,
+    error?: OrchestraExecutionError,
   ): RunStep {
     const run = this.mutable(runId);
     this.ensureMutable(run);
@@ -451,8 +460,9 @@ export class RunManager {
       throw new Error(`Step ${step.id} is already terminal: ${step.status}`);
     }
     step.status = status;
+    if (error) step.error = { ...error };
     if (terminal) step.completedAt = this.now();
-    this.emit("step:status_changed", run, { stepId, status });
+    this.emit("step:status_changed", run, { stepId, status, ...(step.error ? { error: step.error } : {}) });
     if (terminal) this.refreshDependencyReadiness(run);
     return snapshotStep(step);
   }

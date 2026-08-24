@@ -218,3 +218,40 @@ describe("parseReviewVerdict", () => {
       .toMatchObject({ verdict: "FAIL", summary: "Unparseable review verdict" });
   });
 });
+
+describe("WorkflowRunner failurePolicy continue", () => {
+  it("skips a failed continue step and still completes the run", async () => {
+    const workers = createQueuedWorkers([
+      { status: "failed", error: { code: "worker_boom", message: "optional step failed", retryable: false } },
+      { status: "completed", result: "downstream ok" },
+    ]);
+    const runs = new RunManager({ idFactory: () => "run-continue" });
+    const run = runs.create({ task: "Optional then required", requestedStrategy: "workflow" });
+    const runner = new WorkflowRunner(runs, workers.adapter);
+
+    const result = await runner.run({
+      runId: run.id,
+      steps: [
+        {
+          id: "optional",
+          title: "Optional",
+          agentType: "general-purpose",
+          failurePolicy: "continue",
+          buildPrompt: ({ task }) => `optional:${task}`,
+        },
+        {
+          id: "required",
+          title: "Required",
+          agentType: "general-purpose",
+          dependsOn: ["optional"],
+          buildPrompt: ({ dependencies }) => `required:${dependencies[0]?.stepId}`,
+        },
+      ],
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.steps.find((step) => step.id === "optional")!.status).toBe("skipped");
+    expect(result.steps.find((step) => step.id === "required")!.status).toBe("completed");
+    expect(workers.requests.map((request) => request.stepId)).toEqual(["optional", "required"]);
+  });
+});
