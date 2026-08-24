@@ -909,6 +909,45 @@ describe("duration quota (regression: must not crash the host)", () => {
   });
 });
 
+describe("silent-run diagnostics", () => {
+  const expectDiagnostic = (text: string, status: "completed" | "aborted" | "steered") => {
+    expect(text).toContain("Type: Explore");
+    expect(text).toMatch(/Turns: \d+/);
+    expect(text).toMatch(/Tool calls: \d+/);
+    expect(text).toContain(`Status: ${status}`);
+  };
+
+  it("reports a normal empty completion", async () => {
+    const { session } = createSession("");
+    createAgentSession.mockResolvedValue({ session });
+    const result = await runAgent(ctx, "Explore", "do work", { pi });
+    expectDiagnostic(result.responseText, "completed");
+  });
+
+  it("reports an aborted empty completion", async () => {
+    const controller = new AbortController();
+    const { session } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      controller.abort();
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+    createAgentSession.mockResolvedValue({ session });
+    const result = await runAgent(ctx, "Explore", "do work", { pi, signal: controller.signal });
+    expectDiagnostic(result.responseText, "aborted");
+  });
+
+  it("reports an empty completion after a soft-limit steer", async () => {
+    const { session, listeners } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      for (const listener of listeners) listener({ type: "turn_end" } as AgentSessionEvent);
+    });
+    createAgentSession.mockResolvedValue({ session });
+    const result = await runAgent(ctx, "Explore", "do work", { pi, maxTurns: 1 });
+    expect(session.steer).toHaveBeenCalledOnce();
+    expectDiagnostic(result.responseText, "steered");
+  });
+});
+
 describe("external AbortSignal (CHE-19)", () => {
   it("resolves with aborted=true instead of throwing when the caller aborts", async () => {
     // External abort (manager.abort / parent signal) used to call session.abort()

@@ -425,14 +425,24 @@ describe("transactional release workflow", () => {
 
   it("GitHub Pages republishes the pi.dev catalog MP4 from main and release path filters", () => {
     const pages = readRoot(".github/workflows/pages.yml");
+    const buildJob = pages.slice(pages.indexOf("  build:"), pages.indexOf("  deploy:"));
+    const videoCheck = buildJob.slice(
+      buildJob.indexOf("      - name: Confirm catalog video is staged"),
+      buildJob.indexOf("      - name: Setup Pages"),
+    );
     expect(pages).toContain("https://groeponline.github.io/pi-agent-orchestrator/");
-    expect(pages).toContain("package.json");
-    expect(pages).toContain("CHANGELOG.md");
-    expect(pages).toContain("README.md");
-    expect(pages).toContain("dashboard_preview.mp4");
-    expect(pages).toContain("actions/setup-node@");
-    expect(pages).toMatch(/^\s+runs-on:\s+ubuntu-latest$/m);
-    expect(pages).not.toContain("self-hosted");
+    expect(pages).toMatch(/push:\n\s+branches: \[main\]/);
+    expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'README\.md'/);
+    expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'CHANGELOG\.md'/);
+    expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'package\.json'/);
+    expect(buildJob).toContain("if: github.ref == 'refs/heads/main'");
+    expect(buildJob).toContain("actions/setup-node@");
+    expect(buildJob).toMatch(/^\s+runs-on:\s+ubuntu-latest$/m);
+    expect(buildJob).not.toContain("self-hosted");
+    expect(videoCheck).toContain("dashboard_preview.mp4");
+    expect(videoCheck).toContain("product_film.mp4");
+    expect(videoCheck).toContain("dashboard_preview.gif");
+    expect(videoCheck).toContain('test "$size" -gt 100000');
     expect(JSON.parse(readRoot("package.json")).pi?.video).toBe(
       "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
     );

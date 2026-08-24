@@ -134,12 +134,16 @@ export const READONLY_PROMPT_PARAMS: Map<string, ReadOnlyPromptParams> = new Map
     task: "search and analyze existing code",
     toolInstructions: "Use Bash ONLY for read-only operations: ls, git status, git log, git diff, find, cat, head, tail.\n- Make independent tool calls in parallel for efficiency\n- Adapt search approach based on thoroughness level specified",
     outputInstructions: "- Use absolute file paths in all references\n- Report findings as regular messages\n- Do not use emojis\n- Be thorough and precise",
+    additionalSections: [
+      `# Final Report\nBefore stopping, always output a short final report. If you found nothing, say so explicitly and list the paths you checked. Never end silently.`,
+    ],
   }],
   ["Plan", {
     role: "a software architect and planning specialist",
     task: "explore the codebase and design implementation plans",
     outputInstructions: "- Use absolute file paths\n- Do not use emojis",
     additionalSections: [
+      `# Final Report\nBefore stopping, always output a short final report summarizing the plan status and blockers. Never end silently.`,
       `# Planning Process
 1. Understand requirements
 2. Explore thoroughly (read files, find patterns, understand architecture)
@@ -166,6 +170,7 @@ List 3-5 files most critical for implementing this plan:
     toolInstructions: "Prefer ctx_execute over manual computation — never do data processing in your own context window.\n- Use ctx_search to discover prior context before duplicating work.",
     outputInstructions: "- Present analysis results clearly with data, charts where helpful, and actionable insights.\n- Use absolute file paths in all references.\n- Do not use emojis.\n- Be thorough and precise.",
     additionalSections: [
+      `# Final Report\nBefore stopping, always output a short final report summarizing what was analyzed and the key takeaways. Never end silently.`,
       `# Core Workflow
 1. Use ctx_search to find prior context and indexed results before beginning work.
 2. Use ctx_execute for sandboxed code analysis — supports JavaScript, TypeScript, Python, Go, Rust, Shell, and 9+ other languages.
@@ -210,6 +215,9 @@ export const DEFAULT_AGENTS: Map<string, AgentConfig> = new Map([
         task: "search and analyze existing code",
         toolInstructions: "Use Bash ONLY for read-only operations: ls, git status, git log, git diff, find, cat, head, tail.\n- Make independent tool calls in parallel for efficiency\n- Adapt search approach based on thoroughness level specified",
         outputInstructions: "- Use absolute file paths in all references\n- Report findings as regular messages\n- Do not use emojis\n- Be thorough and precise",
+        additionalSections: [
+          `# Final Report\nBefore stopping, always output a short final report. If you found nothing, say so explicitly and list the paths you checked. Never end silently.`,
+        ],
       }),
       promptMode: "replace",
       isDefault: true,
@@ -230,6 +238,7 @@ export const DEFAULT_AGENTS: Map<string, AgentConfig> = new Map([
         task: "explore the codebase and design implementation plans",
         outputInstructions: "- Use absolute file paths\n- Do not use emojis",
         additionalSections: [
+          `# Final Report\nBefore stopping, always output a short final report summarizing the plan status and blockers. Never end silently.`,
           `# Planning Process
 1. Understand requirements
 2. Explore thoroughly (read files, find patterns, understand architecture)
@@ -271,6 +280,7 @@ List 3-5 files most critical for implementing this plan:
         toolInstructions: "Prefer ctx_execute over manual computation — never do data processing in your own context window.\n- Use ctx_search to discover prior context before duplicating work.",
         outputInstructions: "- Present analysis results clearly with data, charts where helpful, and actionable insights.\n- Use absolute file paths in all references.\n- Do not use emojis.\n- Be thorough and precise.",
         additionalSections: [
+          `# Final Report\nBefore stopping, always output a short final report summarizing what was analyzed and the key takeaways. Never end silently.`,
           `# Core Workflow
 1. Use ctx_search to find prior context and indexed results before beginning work.
 2. Use ctx_execute for sandboxed code analysis — supports JavaScript, TypeScript, Python, Go, Rust, Shell, and 9+ other languages.
