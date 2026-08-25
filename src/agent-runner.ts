@@ -23,7 +23,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { isAbortError } from "./abort-wait.js";
-import { getPromptCompressionLevel } from "./agent-registry.js";
+import { getPromptCompressionLevel, isFreeModelsOnly } from "./agent-registry.js";
 import {
   runAdversarialValidation,
 } from "./agent-runner-validator.js";
@@ -192,8 +192,61 @@ export function isModelAuthFailure(message: string): boolean {
   );
 }
 
+/** True when a pi-ai Model has zero cost on every dimension (free tier). */
+export function isFreeModel(model: Model<Api>): boolean {
+  const cost = (model as unknown as { cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } }).cost;
+  if (!cost) return false;
+  return (cost.input ?? 0) === 0 && (cost.output ?? 0) === 0 && (cost.cacheRead ?? 0) === 0 && (cost.cacheWrite ?? 0) === 0;
+}
+
+/** Build ordered fallback candidates excluding the failed model. */
+function getFallbackModels(
+  failed: Model<Api>,
+  registry: { getAvailable?(): Model<Api>[]; getAll(): Model<Api>[] },
+  parent: Model<Api> | undefined,
+  freeOnly: boolean,
+): Model<Api>[] {
+  const available = registry.getAvailable?.() ?? registry.getAll();
+  const filtered = freeOnly ? available.filter(isFreeModel) : available;
+  const failedKey = modelKey(failed);
+  const byKey = new Map(filtered.map((m) => [modelKey(m), m] as const));
+  byKey.delete(failedKey);
+  const out: Model<Api>[] = [];
+  if (parent) {
+    const pk = modelKey(parent);
+    const parentFreeOk = !freeOnly || isFreeModel(parent);
+    if (pk !== failedKey && parentFreeOk) {
+      // Parent is always a candidate even if not in the available list (e.g. host model)
+      if (byKey.has(pk)) byKey.delete(pk);
+      out.push(parent);
+    }
+  }
+  for (const m of filtered) {
+    const k = modelKey(m);
+    if (byKey.has(k)) out.push(byKey.get(k)!);
+  }
+  return out.slice(0, 5);
+}
+
 function modelKey(model: Model<Api>): string {
   return `${model.provider}/${model.id}`;
+}
+
+/**
+ * Backoff before retrying on a rate-limit failure. Honors a `retry-after:
+ * Ns` hint in the error message when present (capped at 10s); otherwise
+ * waits a short fixed delay so we do not instantly burn the next candidate.
+ */
+async function rateLimitBackoff(errorMessage: string): Promise<void> {
+  const isRateLimit = /\b429\b|rate[\s_-]?limit/i.test(errorMessage);
+  if (!isRateLimit) return;
+  let ms = 1500;
+  const hint = errorMessage.match(/retry[-\s]?after[:\s]*(\d+)/i);
+  if (hint) {
+    ms = Math.min(10_000, Number.parseInt(hint[1], 10) * 1000);
+  }
+  logger.debug("Rate-limit backoff before fallback retry", { ms });
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 class ModelCircuitBreaker {
@@ -279,8 +332,9 @@ const globalCircuitBreaker = new ModelCircuitBreaker();
 async function promptWithCircuitBreaker(
   session: AgentSession,
   text: string,
+  options?: { allowWhenOpen?: boolean },
 ): Promise<void> {
-  globalCircuitBreaker.assertAllow();
+  if (!options?.allowWhenOpen) globalCircuitBreaker.assertAllow();
   try {
     await session.prompt(text);
   } catch (err) {
@@ -725,7 +779,7 @@ ${chefPreflight.systemPromptAddition}`;
     loadSettings(effectiveCwd).subagentModel,
     agentConfig?.model,
   );
-  const model = options.model ?? resolveDefaultModel(
+  let model = options.model ?? resolveDefaultModel(
     ctx.model, ctx.modelRegistry, configuredModel,
   );
 
@@ -734,6 +788,38 @@ ${chefPreflight.systemPromptAddition}`;
       "No model available for agent execution",
       "model_unavailable",
     );
+  }
+
+  // Session-only gate: when free-only is on, swap a paid model for a free one
+  // before any prompt is sent. Prefers the parent model when it is free, then
+  // the first available free model. This keeps the session within the free tier
+  // without needing to rewrite persisted subagentModel settings.
+  if (isFreeModelsOnly() && !isFreeModel(model!)) {
+    const freeOnlyParent = ctx.model && isFreeModel(ctx.model) ? ctx.model : undefined;
+    if (freeOnlyParent && modelKey(freeOnlyParent) !== modelKey(model!)) {
+      logger.warn("Free-only mode: swapping paid model for free parent", {
+        agentId: options.agentId ?? "unknown",
+        from: modelKey(model!),
+        to: modelKey(freeOnlyParent),
+      });
+      model = freeOnlyParent;
+    } else {
+      const avail = ctx.modelRegistry.getAvailable?.() ?? ctx.modelRegistry.getAll();
+      const freeAlt = avail.find((m) => isFreeModel(m) && modelKey(m) !== modelKey(model!));
+      if (freeAlt) {
+        logger.warn("Free-only mode: swapping paid model for free alternative", {
+          agentId: options.agentId ?? "unknown",
+          from: modelKey(model!),
+          to: modelKey(freeAlt),
+        });
+        model = freeAlt;
+      } else {
+        logger.warn("Free-only mode: no free alternative found, using paid model", {
+          agentId: options.agentId ?? "unknown",
+          model: modelKey(model!),
+        });
+      }
+    }
   }
 
   const thinkingLevel = options.thinkingLevel ?? agentConfig?.thinking;
@@ -1035,39 +1121,73 @@ ${chefPreflight.systemPromptAddition}`;
     aborted = true;
   });
   let gatedResponseText = "";
+  let exhaustedModelError: string | undefined;
 
   try {
-    await promptWithCircuitBreaker(session, effectivePrompt);
-    gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
-
-    // CHE-15: a built-in pin (Explore → anthropic/claude-haiku-4-5) can 401 with
-    // PAID_MODEL_AUTH_REQUIRED while the session-default model still works.
-    // Retry once on the parent model instead of failing the spawn cold.
-    // Skip when the caller already chose options.model, when we were already
-    // on the parent (inherit / unavailable pin), or when output was produced.
-    const authError = !aborted && !options.signal?.aborted
-      ? getLastAssistantError(session)
-      : undefined;
-    const parentModel = ctx.model;
-    const canFallbackToParent =
-      !options.model
-      && !gatedResponseText
-      && !!authError
-      && isModelAuthFailure(authError)
-      && !!configuredModel
-      && !!parentModel
-      && modelKey(model) !== modelKey(parentModel);
-
-    if (canFallbackToParent && parentModel) {
-      logger.warn("Pinned model auth failed; falling back to session-default model", {
-        agentId: options.agentId ?? "unknown",
-        from: modelKey(model),
-        to: modelKey(parentModel),
-        error: authError,
-      });
-      await session.setModel(parentModel);
+    let currentModelForRetry: Model<Api> = model!;
+    let soft: string | undefined;
+    try {
       await promptWithCircuitBreaker(session, effectivePrompt);
       gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+      soft = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
+    } catch (err) {
+      if ((timedOut || aborted || options.signal?.aborted) && isAbortError(err)) {
+        aborted = true;
+        gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+        soft = undefined;
+      } else if (isModelTransportFailure(err) && (!options.model || isFreeModelsOnly()) && !aborted && !timedOut && !options.signal?.aborted) {
+        soft = err instanceof Error ? err.message : String(err);
+        gatedResponseText = "";
+      } else {
+        throw err;
+      }
+    }
+
+    // Generalized fallback (CHE-15 extended): 401/auth, 429/rate-limit,
+    // 403, unavailable, overloaded, quota — retry transparently on a
+    // different model instead of failing the spawn. Tries parent first,
+    // then up to 4 more available models; when free-only is on, only
+    // zero-cost models are considered. Skips when caller pinned options.model
+    // or output was already produced.
+    const shouldFallback = (!options.model || isFreeModelsOnly()) && !gatedResponseText && !!soft && isModelFailureMessage(soft);
+    if (shouldFallback) {
+      const candidates = getFallbackModels(currentModelForRetry, ctx.modelRegistry, ctx.model, isFreeModelsOnly());
+      let lastErr: string | undefined = soft;
+      for (const candidate of candidates) {
+        if (modelKey(candidate) === modelKey(currentModelForRetry)) continue;
+        logger.warn("Model failed; retrying with fallback model", {
+          agentId: options.agentId ?? "unknown",
+          from: modelKey(currentModelForRetry),
+          to: modelKey(candidate),
+          error: lastErr,
+          freeOnly: isFreeModelsOnly(),
+        });
+        try {
+          if (lastErr) await rateLimitBackoff(lastErr);
+          await session.setModel(candidate);
+          currentModelForRetry = candidate;
+          await promptWithCircuitBreaker(session, effectivePrompt, { allowWhenOpen: true });
+          gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+          const nextErr = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
+          if (gatedResponseText || !nextErr || !isModelFailureMessage(nextErr)) {
+            break;
+          }
+          lastErr = nextErr;
+        } catch (err) {
+          if ((timedOut || aborted || options.signal?.aborted) && isAbortError(err)) {
+            aborted = true;
+            break;
+          }
+          if (isModelTransportFailure(err)) {
+            lastErr = err instanceof Error ? err.message : String(err);
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (!gatedResponseText && !aborted && lastErr) exhaustedModelError = lastErr;
+    } else if (!gatedResponseText && soft) {
+      exhaustedModelError = soft;
     }
 
     if (options.hooks) {
@@ -1121,6 +1241,7 @@ ${chefPreflight.systemPromptAddition}`;
           "Your previous output was rejected by a quality gate. Revise and improve it.";
         await promptWithCircuitBreaker(session, revisionPrompt);
         gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+        if (!getLastAssistantError(session)) exhaustedModelError = undefined;
         attempt++;
       }
     }
@@ -1168,7 +1289,9 @@ ${chefPreflight.systemPromptAddition}`;
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);
   let runError: string | undefined;
-  const modelError = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
+  const modelError = !aborted && !options.signal?.aborted
+    ? (getLastAssistantError(session) ?? exhaustedModelError)
+    : undefined;
   if (!responseText && modelError) {
     // The run produced no text because the model/provider errored on its final
     // turn (e.g. 401 auth, unavailable model). Surface it instead of returning

@@ -5,7 +5,10 @@ import {
   getOrchestrationMode,
   getPromptCompressionLevel,
   getUiStyle,
+  isShowActivityStream,
   isShowAgentTopWidget,
+  isShowTokenUsage,
+  isShowTurnProgress,
 } from "../agent-registry.js";
 import type { SettingsGetters, SubagentsSettings } from "../settings.js";
 
@@ -29,6 +32,9 @@ export function buildSettingsSnapshot(manager: AgentManager, getters: SettingsGe
     orchestrationMode: getOrchestrationMode(),
     dashboardRefreshInterval: getDashboardRefreshInterval(),
     promptCompressionLevel: getPromptCompressionLevel(),
+    showActivityStream: isShowActivityStream(),
+    showTokenUsage: isShowTokenUsage(),
+    showTurnProgress: isShowTurnProgress(),
     showAgentTopWidget: isShowAgentTopWidget(),
   };
 }

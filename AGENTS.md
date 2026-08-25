@@ -64,7 +64,7 @@ ES modules only (`"type": "module"`). No CommonJS.
 ## Adding built-in agents or settings
 
 - New agent type → update `src/default-agents.ts` + `test/default-agents.test.ts` + `README.md`
-- New setting → update `src/settings.ts` (interface + defaults) + `src/output-handler.ts` (`buildSettingsSnapshot` + settings menu) + `docs/api-reference.md`
+- New menu-editable setting → add ONE descriptor in `src/ui/settings-schema.ts` (`buildSettingEntries`): label + edit flow; `persist: false` for session-only. Then update `src/settings.ts` (interface + sanitize) if it persists, `buildSettingsSnapshot` if snapshot-visible, and `docs/api-reference.md`
 
 ## Commit style
 
@@ -177,6 +177,9 @@ All runtime-configurable settings are defined in `src/settings.ts` (`SubagentsSe
 - `src/ui/dashboard/schedules-section.ts` — daemon schedule view in dashboard body
 - `src/swarm-join.ts` — live swarm join/leave coordination
 - `src/schedule.ts` + `src/schedule-store.ts` — cron-style scheduling, persisted to `.pi/subagent-schedules/`
+- `src/notification-hub.ts` — cancellable completion notifications (nudge debounce, individual emission, event payloads)
+- `src/ui/settings-schema.ts` — SSOT for the /agents → Settings menu: one descriptor per setting (id + label + edit); dispatch is id-based, never label-based; `persist: false` marks session-only settings
+- `src/run-manager.ts` + `src/workflow-runner.ts` + `src/execution-strategy.ts` + `src/run-types.ts` + `src/orchestra-execution-contract.ts` — orchestra run/workflow engine. **Test-covered but NOT yet wired into the extension entry** (`index.ts` has no consumer yet; CHE-133 WIP toward integration). Do not flag as dead code in audits until the integration decision lands.
 
 See `docs/architecture.md` for the full module map and data-flow diagram.
 

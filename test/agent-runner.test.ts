@@ -382,14 +382,31 @@ describe("pinned-model auth fallback to session-default (CHE-15)", () => {
     expect(result.error).toContain("401");
   });
 
-  it("does not fallback on non-auth model failures (e.g. 429)", async () => {
+  it("exhausts an in-flight fallback chain even after the breaker opens", async () => {
+    const errorMessage = '401: {"message":"User not found.","code":401}';
+    const fallbackModels = Array.from({ length: 5 }, (_, i) => ({ provider: "fallback", id: `m${i + 1}` }));
+    (ctx.modelRegistry.getAvailable as ReturnType<typeof vi.fn>).mockReturnValue([pinned, ctx.model, ...fallbackModels]);
+    const { session } = createSessionWithError(errorMessage);
+    (session as any).setModel = vi.fn(async () => {});
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx as any, "Explore", "scan", { pi });
+
+    expect(session.prompt).toHaveBeenCalledTimes(6);
+    expect(result.error).toContain("401");
+    expect(globalCircuitBreaker.getState().state).toBe("open");
+  });
+
+  it("fallbacks on rate-limit / 429 failures (not only auth)", async () => {
     const { session } = createSessionWithError("429 rate limit exceeded");
     (session as any).setModel = vi.fn(async () => {});
     createAgentSession.mockResolvedValue({ session });
 
     const result = await runAgent(ctx as any, "Explore", "scan", { pi });
 
-    expect(session.setModel).not.toHaveBeenCalled();
+    // 429 / rate-limit now transparently retries on a different model (parent)
+    expect(session.setModel).toHaveBeenCalledWith(ctx.model);
+    expect(session.prompt).toHaveBeenCalledTimes(2);
     expect(result.error).toContain("429");
   });
 });
