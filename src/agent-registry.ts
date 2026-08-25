@@ -91,6 +91,25 @@ export function setSchedulingEnabled(enabled: boolean): void {
   schedulingEnabled = enabled;
 }
 
+// ---- Free-models-only switch (session-only, not persisted) ----
+
+/**
+ * Session-only flag: when true, subagents only use free (zero-cost) models.
+ * Never persisted to disk — resets on process restart. Lets a session ride
+ * out rate-limit/paid-model hiccups on free models without touching settings files.
+ */
+let freeModelsOnly = false;
+
+/** Check if only free models should be used (session-only). */
+export function isFreeModelsOnly(): boolean {
+  return freeModelsOnly;
+}
+
+/** Enable or disable free-models-only mode (session-only). */
+export function setFreeModelsOnly(enabled: boolean): void {
+  freeModelsOnly = enabled;
+}
+
 // ---- Tracing switch ----
 
 /**

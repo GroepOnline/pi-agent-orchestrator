@@ -382,14 +382,16 @@ describe("pinned-model auth fallback to session-default (CHE-15)", () => {
     expect(result.error).toContain("401");
   });
 
-  it("does not fallback on non-auth model failures (e.g. 429)", async () => {
+  it("fallbacks on rate-limit / 429 failures (not only auth)", async () => {
     const { session } = createSessionWithError("429 rate limit exceeded");
     (session as any).setModel = vi.fn(async () => {});
     createAgentSession.mockResolvedValue({ session });
 
     const result = await runAgent(ctx as any, "Explore", "scan", { pi });
 
-    expect(session.setModel).not.toHaveBeenCalled();
+    // 429 / rate-limit now transparently retries on a different model (parent)
+    expect(session.setModel).toHaveBeenCalledWith(ctx.model);
+    expect(session.prompt).toHaveBeenCalledTimes(2);
     expect(result.error).toContain("429");
   });
 });
