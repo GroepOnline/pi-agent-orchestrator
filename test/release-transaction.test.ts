@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const sourceRoot = resolve(import.meta.dirname ?? ".", "..");
 const sandboxes: string[] = [];
-const BASELINE_VERSION = "0.17.5";
+const BASELINE_VERSION = "0.18.0"; // pre-train maintenance line for the 0.19 train
 const BASELINE_CHANGELOG = `# Changelog
 
 ## [Unreleased]
@@ -70,7 +70,7 @@ function createReleaseSandbox(): string {
     "CHANGELOG.md",
     "package.json",
     "package-lock.json",
-    "docs/releases/v0.18.1.md",
+    "docs/releases/v0.19.0.md",
     "scripts/prepare-release.mjs",
     "scripts/release-policy.mjs",
     "scripts/release-recovery.mjs",
@@ -94,34 +94,34 @@ afterEach(() => {
   }
 });
 
-describe("v0.18 release transaction", () => {
+describe("v0.19 release transaction", () => {
   it("prepares, validates, and rejects manipulated release paths", { timeout: 30000 }, () => {
     const root = createReleaseSandbox();
-    const prepare = node(root, "scripts/prepare-release.mjs", "0.18.1", "2026-07-14");
+    const prepare = node(root, "scripts/prepare-release.mjs", "0.19.0", "2026-08-25");
     expect(prepare.status, prepare.stderr).toBe(0);
 
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
     const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8");
-    expect(pkg.version).toBe("0.18.1");
-    expect(lock.version).toBe("0.18.1");
-    expect(lock.packages[""].version).toBe("0.18.1");
+    expect(pkg.version).toBe("0.19.0");
+    expect(lock.version).toBe("0.19.0");
+    expect(lock.packages[""].version).toBe("0.19.0");
     expect(lock.packages[""].peerDependencies).toEqual(pkg.peerDependencies);
     expect(lock.packages[""].engines).toEqual(pkg.engines);
-    expect(changelog).toContain("## v0.18.1 (2026-07-14)");
+    expect(changelog).toContain("## v0.19.0 (2026-08-25)");
     expect(changelog).toContain("No unreleased changes");
 
     const publishPolicy = node(root, "scripts/release-policy.mjs", "publish");
     expect(publishPolicy.status, publishPolicy.stderr).toBe(0);
 
     git(root, "add", "CHANGELOG.md", "package.json", "package-lock.json");
-    git(root, "commit", "-m", "chore(release): v0.18.1");
+    git(root, "commit", "-m", "chore(release): v0.19.0");
     const verify = node(
       root,
       "scripts/verify-release-transaction.mjs",
       "HEAD^",
       "HEAD",
-      "0.18.1",
+      "0.19.0",
     );
     expect(verify.status, verify.stderr).toBe(0);
 
@@ -130,7 +130,7 @@ describe("v0.18 release transaction", () => {
       "scripts/verify-version-transition.mjs",
       "HEAD^",
       "HEAD",
-      "release/v0.18.1",
+      "release/v0.19.0",
     );
     expect(transition.status, transition.stderr).toBe(0);
     const wrongBranch = node(
@@ -141,18 +141,18 @@ describe("v0.18 release transaction", () => {
       "feature/version-bump",
     );
     expect(wrongBranch.status).not.toBe(0);
-    expect(wrongBranch.stderr).toContain("version changes are allowed only on release/v0.18.1");
+    expect(wrongBranch.stderr).toContain("version changes are allowed only on release/v0.19.0");
 
     pkg.description = "tampered after release preparation";
     writeFileSync(join(root, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
     git(root, "add", "package.json");
-    git(root, "commit", "-m", "chore(release): v0.18.1");
+    git(root, "commit", "-m", "chore(release): v0.19.0");
     const rejected = node(
       root,
       "scripts/verify-release-transaction.mjs",
       "HEAD^",
       "HEAD",
-      "0.18.1",
+      "0.19.0",
     );
     expect(rejected.status).not.toBe(0);
     expect(rejected.stderr).toContain(
@@ -160,7 +160,7 @@ describe("v0.18 release transaction", () => {
     );
   });
 
-  it("allows 0.17.x maintenance bumps between sourceBaselines on any branch", () => {
+  it("allows pre-train maintenance bumps between sourceBaselines on any branch", () => {
     const root = createReleaseSandbox();
     const policy = JSON.parse(readFileSync(join(root, ".release-policy.json"), "utf8"));
     const baselines = policy.sourceBaselines as string[];
@@ -168,49 +168,47 @@ describe("v0.18 release transaction", () => {
 
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
-    pkg.version = baselines[0];
-    lock.version = baselines[0];
-    lock.packages[""].version = baselines[0];
-    writeFileSync(join(root, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
-    writeFileSync(join(root, "package-lock.json"), `${JSON.stringify(lock, null, 2)}\n`);
-    git(root, "add", "package.json", "package-lock.json");
-    git(root, "commit", "-m", `chore: baseline ${baselines[0]}`);
+    // Pre-train maintenance line for the 0.19 train is 0.18.x.
+    // The sandbox baseline already carries 0.18.0 (BASELINE_VERSION).
+    const toV = "0.18.1";
+    expect(baselines).toContain("0.18.0");
+    expect(baselines).toContain(toV);
 
-    pkg.version = baselines[1];
-    lock.version = baselines[1];
-    lock.packages[""].version = baselines[1];
+    pkg.version = toV;
+    lock.version = toV;
+    lock.packages[""].version = toV;
     writeFileSync(join(root, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
     writeFileSync(join(root, "package-lock.json"), `${JSON.stringify(lock, null, 2)}\n`);
     git(root, "add", "package.json", "package-lock.json");
-    git(root, "commit", "-m", `chore: maintenance bump to ${baselines[1]}`);
+    git(root, "commit", "-m", `chore: maintenance bump to ${toV}`);
 
     const maintenance = node(
       root,
       "scripts/verify-version-transition.mjs",
       "HEAD^",
       "HEAD",
-      "release/0.17.5-sweep",
+      "release/0.18.0-sweep",
     );
     expect(maintenance.status, maintenance.stderr).toBe(0);
     expect(maintenance.stdout).toContain("Maintenance baseline transition verified");
   });
 
-  it("accepts the 0.17.5 -> 0.17.6 maintenance patch train on any branch", () => {
+  it("accepts the 0.18.0 -> 0.18.1 maintenance patch train on any branch", () => {
     const root = createReleaseSandbox();
     const policy = JSON.parse(readFileSync(join(root, ".release-policy.json"), "utf8"));
-    expect(policy.sourceBaselines).toContain("0.17.6");
+    expect(policy.sourceBaselines).toContain("0.18.1");
 
-    // Maintenance-bump package.json + lock from the current baseline (0.17.5)
-    // to the next approved patch baseline (0.17.6), dating the changelog the
+    // Maintenance-bump package.json + lock from the current baseline (0.18.0)
+    // to the approved patch baseline (0.18.1), dating the changelog the
     // way a real maintenance PR would.
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
-    expect(pkg.version).toBe("0.17.5");
-    expect(lock.version).toBe("0.17.5");
-    expect(lock.packages[""].version).toBe("0.17.5");
-    pkg.version = "0.17.6";
-    lock.version = "0.17.6";
-    lock.packages[""].version = "0.17.6";
+    expect(pkg.version).toBe("0.18.0");
+    expect(lock.version).toBe("0.18.0");
+    expect(lock.packages[""].version).toBe("0.18.0");
+    pkg.version = "0.18.1";
+    lock.version = "0.18.1";
+    lock.packages[""].version = "0.18.1";
     writeFileSync(join(root, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
     writeFileSync(join(root, "package-lock.json"), `${JSON.stringify(lock, null, 2)}\n`);
 
@@ -221,12 +219,12 @@ describe("v0.18 release transaction", () => {
     const separatorIndex = separatorMatch!.index!;
     const datedChangelog =
       originalChangelog.slice(0, separatorIndex + separator.length) +
-      "\n## v0.17.6 (2026-07-22)\n\nDuration quota crash fix and patch baseline.\n\n" +
+      "\n## v0.18.1 (2026-08-22)\n\nSubagent budget fix and patch baseline.\n\n" +
       originalChangelog.slice(separatorIndex + separator.length);
     writeFileSync(join(root, "CHANGELOG.md"), datedChangelog);
 
     git(root, "add", "package.json", "package-lock.json", "CHANGELOG.md");
-    git(root, "commit", "-m", "chore: maintenance bump to 0.17.6");
+    git(root, "commit", "-m", "chore: maintenance bump to 0.18.1");
 
     // CI's version-transition gate must accept the patch bump on any branch.
     const transition = node(
@@ -234,14 +232,14 @@ describe("v0.18 release transaction", () => {
       "scripts/verify-version-transition.mjs",
       "HEAD^",
       "HEAD",
-      "release/0.17.6-patch",
+      "release/0.18.1-patch",
     );
     expect(transition.status, transition.stderr).toBe(0);
-    expect(transition.stdout).toContain("Maintenance baseline transition verified: 0.17.5 -> 0.17.6");
+    expect(transition.stdout).toContain("Maintenance baseline transition verified");
 
     // publish-baseline.yml's policy gate must accept 0.17.6 as a publishable baseline.
-    const baselinePolicy = node(root, "scripts/release-policy.mjs", "baseline", "0.17.6");
+    const baselinePolicy = node(root, "scripts/release-policy.mjs", "baseline", "0.18.1");
     expect(baselinePolicy.status, baselinePolicy.stderr).toBe(0);
-    expect(baselinePolicy.stdout).toContain("Maintenance baseline accepted for publish: 0.17.6");
+    expect(baselinePolicy.stdout).toContain("Maintenance baseline accepted for publish: 0.18.1");
   });
 });
