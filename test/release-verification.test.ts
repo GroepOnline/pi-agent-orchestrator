@@ -50,6 +50,7 @@ function createBaselinePolicySandbox(version = "0.17.5"): string {
     "package-lock.json",
     "docs/releases/v0.18.0.md",
     "docs/releases/v0.18.1.md",
+    "docs/releases/v0.19.0.md",
     "scripts/release-policy.mjs",
   ]) {
     const destination = join(sandbox, path);
