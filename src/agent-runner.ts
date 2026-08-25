@@ -332,8 +332,9 @@ const globalCircuitBreaker = new ModelCircuitBreaker();
 async function promptWithCircuitBreaker(
   session: AgentSession,
   text: string,
+  options?: { allowWhenOpen?: boolean },
 ): Promise<void> {
-  globalCircuitBreaker.assertAllow();
+  if (!options?.allowWhenOpen) globalCircuitBreaker.assertAllow();
   try {
     await session.prompt(text);
   } catch (err) {
@@ -1165,7 +1166,7 @@ ${chefPreflight.systemPromptAddition}`;
           if (lastErr) await rateLimitBackoff(lastErr);
           await session.setModel(candidate);
           currentModelForRetry = candidate;
-          await promptWithCircuitBreaker(session, effectivePrompt);
+          await promptWithCircuitBreaker(session, effectivePrompt, { allowWhenOpen: true });
           gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
           const nextErr = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
           if (gatedResponseText || !nextErr || !isModelFailureMessage(nextErr)) {
@@ -1240,6 +1241,7 @@ ${chefPreflight.systemPromptAddition}`;
           "Your previous output was rejected by a quality gate. Revise and improve it.";
         await promptWithCircuitBreaker(session, revisionPrompt);
         gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+        if (!getLastAssistantError(session)) exhaustedModelError = undefined;
         attempt++;
       }
     }
