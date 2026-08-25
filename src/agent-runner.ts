@@ -1116,7 +1116,7 @@ ${chefPreflight.systemPromptAddition}`;
         aborted = true;
         gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
         soft = undefined;
-      } else if (isModelTransportFailure(err) && !options.model && !aborted && !timedOut && !options.signal?.aborted) {
+      } else if (isModelTransportFailure(err) && (!options.model || isFreeModelsOnly()) && !aborted && !timedOut && !options.signal?.aborted) {
         soft = err instanceof Error ? err.message : String(err);
         gatedResponseText = "";
       } else {
@@ -1130,7 +1130,7 @@ ${chefPreflight.systemPromptAddition}`;
     // then up to 4 more available models; when free-only is on, only
     // zero-cost models are considered. Skips when caller pinned options.model
     // or output was already produced.
-    const shouldFallback = !options.model && !gatedResponseText && !!soft && isModelFailureMessage(soft);
+    const shouldFallback = (!options.model || isFreeModelsOnly()) && !gatedResponseText && !!soft && isModelFailureMessage(soft);
     if (shouldFallback) {
       const candidates = getFallbackModels(currentModelForRetry, ctx.modelRegistry, ctx.model, isFreeModelsOnly());
       let lastErr: string | undefined = soft;
