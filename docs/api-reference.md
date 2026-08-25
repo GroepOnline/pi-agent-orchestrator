@@ -176,7 +176,7 @@ Extracts raw text primitive from message block structures.
 ```ts
 interface SubagentsSettings {
   maxConcurrent?: number;              // Max concurrently running agents (default 3)
-  perAgentTokenLimit?: number;          // Per-subagent token cap for spend warnings (0/omitted = off; persisted range 1..10,000,000)
+  perAgentTokenLimit?: number;          // Per-subagent token cap for spend warnings (0/omitted = off; persisted range 0..10,000,000)
   maxAgentsPerSession?: number;         // Hard cap on total agents spawned per session
   maxTotalTurnsPerSession?: number;     // Hard cap on cumulative turns across the session
   defaultMaxTurns?: number;             // Max turns per agent (0 = unlimited)
