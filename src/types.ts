@@ -172,6 +172,8 @@ export interface AgentRecord {
      * Total = input + output + cacheWrite. Initialized to zeros at spawn.
      */
     lifetimeUsage: LifetimeUsage;
+    /** Spend-warning thresholds already fired for this agent ("50"|"80"|"100"). */
+    spendFlags?: Set<string>;
     /** Number of successful upstream compactions observed. Initialized to 0 at spawn. */
     compactionCount: number;
     /**
