@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+No unreleased changes. The repository remains locked to the 0.19.x stabilization train.
+
+---
+
 ## v0.19.0 (2026-08-25)
 
 ### Model resilience: automatic multi-model fallback
