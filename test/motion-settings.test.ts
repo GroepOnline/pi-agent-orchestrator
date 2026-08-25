@@ -15,6 +15,7 @@ const noop = () => {};
 function appliers(setAnimationStyle: (style: Parameters<SettingsAppliers["setAnimationStyle"]>[0]) => void): SettingsAppliers {
   return {
     setMaxConcurrent: noop,
+    setPerAgentTokenLimit: noop,
     setSessionLimits: noop,
     setDefaultMaxTurns: noop,
     setGraceTurns: noop,

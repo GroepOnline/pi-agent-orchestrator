@@ -436,6 +436,7 @@ describe("settings persistence", () => {
     beforeEach(() => {
       appliers = {
         setMaxConcurrent: vi.fn(),
+        setPerAgentTokenLimit: vi.fn(),
         setSessionLimits: vi.fn(),
         setDefaultMaxTurns: vi.fn(),
         setGraceTurns: vi.fn(),
@@ -461,6 +462,7 @@ describe("settings persistence", () => {
     it("is a no-op on an empty settings object", () => {
       applySettings({}, appliers);
       expect(appliers.setMaxConcurrent).not.toHaveBeenCalled();
+      expect(appliers.setPerAgentTokenLimit).not.toHaveBeenCalled();
       expect(appliers.setDefaultMaxTurns).not.toHaveBeenCalled();
       expect(appliers.setGraceTurns).not.toHaveBeenCalled();
       expect(appliers.setDefaultJoinMode).not.toHaveBeenCalled();
@@ -485,6 +487,7 @@ describe("settings persistence", () => {
       applySettings(
         {
           maxConcurrent: 8,
+          perAgentTokenLimit: 120000,
           maxAgentsPerSession: 12,
           maxTotalTurnsPerSession: 80,
           defaultMaxTurns: 50,
@@ -499,6 +502,7 @@ describe("settings persistence", () => {
         appliers,
       );
       expect(appliers.setMaxConcurrent).toHaveBeenCalledWith(8);
+      expect(appliers.setPerAgentTokenLimit).toHaveBeenCalledWith(120000);
       expect(appliers.setSessionLimits).toHaveBeenCalledWith({
         maxAgentsPerSession: 12,
         maxTotalTurnsPerSession: 80,
@@ -511,6 +515,14 @@ describe("settings persistence", () => {
       expect(appliers.setShowActivityStream).toHaveBeenCalledWith(false);
       expect(appliers.setShowTokenUsage).toHaveBeenCalledWith(true);
       expect(appliers.setShowTurnProgress).toHaveBeenCalledWith(false);
+    });
+
+    it("loads and applies a persisted per-agent token cap", () => {
+      writeProject({ perAgentTokenLimit: 125000 });
+      const loaded = loadSettings(projectDir);
+      expect(loaded.perAgentTokenLimit).toBe(125000);
+      applySettings(loaded, appliers);
+      expect(appliers.setPerAgentTokenLimit).toHaveBeenCalledWith(125000);
     });
 
     it("applies defaultMaxTurns: 0 as the explicit unlimited marker", () => {
@@ -632,6 +644,7 @@ describe("settings persistence", () => {
     beforeEach(() => {
       appliers = {
         setMaxConcurrent: vi.fn(),
+        setPerAgentTokenLimit: vi.fn(),
         setSessionLimits: vi.fn(),
         setDefaultMaxTurns: vi.fn(),
         setGraceTurns: vi.fn(),
