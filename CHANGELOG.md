@@ -1,8 +1,29 @@
 # Changelog
 
-## [Unreleased]
+## v0.19.0 (2026-08-25)
 
-No unreleased changes. The repository remains locked to the 0.18.x stabilization train.
+### Model resilience: automatic multi-model fallback
+
+- **Subagents no longer die on provider failures.** 401/403/429/rate-limit/unavailable/overloaded/quota now trigger a transparent retry chain: session-default model first, then up to 4 more available models. Covers both soft `stopReason:error` endings and thrown transport errors. Extends CHE-15 beyond auth-only.
+- **Rate-limit backoff**: retries honor a `retry-after` hint from the error message (capped at 10s) or wait a fixed 1.5s instead of instantly burning the next candidate.
+- **Session-only "free models only" gate** (`/agents → Settings → Free models only`): swaps paid models for zero-cost ones for this session only — never persisted. Applies to initial resolution and fallback candidate filtering.
+
+### Settings menu: descriptor-driven SSOT
+
+- New `src/ui/settings-schema.ts`: one descriptor per menu-editable setting; dispatch by stable id, never label text. `persist: false` marks session-only settings.
+- Completeness fix: Activity stream / Token usage / Turn progress toggles were persisted but unreachable — now in the menu.
+
+### Per-subagent spend budget
+
+- **Budget warnings rebuilt on real usage**: per-agent token-cap warnings at 50/80/100% (`/agents → Settings → Per-agent token cap`, default off), backed by new pure cost math (`src/spend.ts`) over the pi-ai model rates.
+- **Spam fix**: session budget warnings now fire exactly once per threshold instead of on every turn end.
+- **`max_spend_tokens` Agent tool param**: per-run hard cap wired to the runner's existing quota abort.
+
+### Menu & core structure
+
+- `/agents` main menu dispatches via typed entry ids instead of label-text matching.
+- NotificationHub extracted from the extension entry point (cancellable nudge debounce + event payloads).
+- Tree-builder tests now exercise the real exports (replacing a drifted inline copy).
 
 ---
 
