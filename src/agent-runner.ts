@@ -200,7 +200,7 @@ export function isFreeModel(model: Model<Api>): boolean {
 }
 
 /** Build ordered fallback candidates excluding the failed model. */
-export function getFallbackModels(
+function getFallbackModels(
   failed: Model<Api>,
   registry: { getAvailable?(): Model<Api>[]; getAll(): Model<Api>[] },
   parent: Model<Api> | undefined,
@@ -230,6 +230,23 @@ export function getFallbackModels(
 
 function modelKey(model: Model<Api>): string {
   return `${model.provider}/${model.id}`;
+}
+
+/**
+ * Backoff before retrying on a rate-limit failure. Honors a `retry-after:
+ * Ns` hint in the error message when present (capped at 10s); otherwise
+ * waits a short fixed delay so we do not instantly burn the next candidate.
+ */
+async function rateLimitBackoff(errorMessage: string): Promise<void> {
+  const isRateLimit = /\b429\b|rate[\s_-]?limit/i.test(errorMessage);
+  if (!isRateLimit) return;
+  let ms = 1500;
+  const hint = errorMessage.match(/retry[-\s]?after[:\s]*(\d+)/i);
+  if (hint) {
+    ms = Math.min(10_000, Number.parseInt(hint[1], 10) * 1000);
+  }
+  logger.debug("Rate-limit backoff before fallback retry", { ms });
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 class ModelCircuitBreaker {
@@ -1144,6 +1161,7 @@ ${chefPreflight.systemPromptAddition}`;
           freeOnly: isFreeModelsOnly(),
         });
         try {
+          if (lastErr) await rateLimitBackoff(lastErr);
           await session.setModel(candidate);
           currentModelForRetry = candidate;
           await promptWithCircuitBreaker(session, effectivePrompt);

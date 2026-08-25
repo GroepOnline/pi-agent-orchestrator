@@ -67,10 +67,129 @@ export interface AgentsMenuDeps {
   onAgentTopWidgetToggle?: () => void;
 }
 
-/** Re-open the agents menu after a sub-flow completes. */
-async function reopenMenu(ctx: ExtensionCommandContext, deps: AgentsMenuDeps): Promise<void> {
-  await showAgentsMenu(ctx, deps);
+/**
+ * Menu entry with a stable dispatch id. Labels may change freely; routing
+ * always goes through `id`, so a label tweak can no longer break the menu.
+ */
+interface AgentsMenuEntry {
+  id: string;
+  label: (deps: AgentsMenuDeps, agents: AgentRecord[], allNames: string[]) => string | null;
+  run: (ctx: ExtensionCommandContext, deps: AgentsMenuDeps) => Promise<void>;
 }
+
+const MENU_ENTRIES: ReadonlyArray<AgentsMenuEntry> = [
+  {
+    id: "running",
+    label: (_deps, agents) => {
+      if (agents.length === 0) return null;
+      let running = 0;
+      let done = 0;
+      for (const a of agents) {
+        if (a.status === "running" || a.status === "queued") running++;
+        else if (a.status === "completed" || a.status === "steered") done++;
+      }
+      return `Running agents (${agents.length}) — ${running} running, ${done} done`;
+    },
+    run: async (ctx, deps) => {
+      await showRunningAgents(ctx, deps.manager, deps.agentActivity);
+    },
+  },
+  {
+    id: "dashboard",
+    label: (_deps, agents) => agents.length > 0 ? "Interactive dashboard (hotkeys • live tree • steering)" : null,
+    run: async (ctx, deps) => {
+      await launchAgentDashboard(ctx, deps);
+    },
+  },
+  {
+    id: "tree",
+    label: (_deps, agents) => agents.length > 0 ? "View execution tree" : null,
+    run: async (ctx, deps) => {
+      const treeFormat = await ctx.ui.select("Execution Tree Format", [
+        "Formatted Text Tree",
+        "Mermaid Diagram Graph",
+        "Raw JSON Tree",
+      ]);
+      if (!treeFormat) return;
+      let format: "text" | "mermaid" | "json" = "text";
+      if (treeFormat.includes("Mermaid")) format = "mermaid";
+      if (treeFormat.includes("JSON")) format = "json";
+      const treeData = buildExecutionTree(deps.manager.listAgents(), format);
+      await ctx.ui.editor(`Execution Tree (${format})`, treeData);
+    },
+  },
+  {
+    id: "types",
+    label: (_deps, _agents, allNames) => allNames.length > 0 ? `Agent types (${allNames.length})` : null,
+    run: async (ctx) => {
+      await showAllAgentsList(ctx, ctx.modelRegistry);
+    },
+  },
+  {
+    id: "schedules",
+    label: (deps) => deps.scheduler.isActive() ? `Scheduled jobs (${deps.scheduler.list().length})` : null,
+    run: async (ctx, deps) => {
+      await showSchedulesMenu(ctx, deps.scheduler);
+    },
+  },
+  {
+    id: "create",
+    label: () => "Create new agent",
+    run: async (ctx, deps) => {
+      // Create wizard manages its own re-entry; caller skips reopen for it.
+      await showCreateWizard(ctx, deps.pi, deps.manager, deps.scheduler);
+    },
+  },
+  {
+    id: "templates",
+    label: () => "Agent templates (browse & install)",
+    run: async (ctx) => {
+      await showTemplatesMenu(ctx);
+    },
+  },
+  {
+    id: "health",
+    label: () => "Health check (tracing, scheduler, swarm, agents, settings)",
+    run: async (ctx, deps) => {
+      await showHealth(ctx, {
+        manager: deps.manager,
+        scheduler: deps.scheduler,
+        swarmJoin: deps.swarmJoin ?? null,
+        getters: deps.settingsGetters,
+      });
+    },
+  },
+  {
+    id: "settings",
+    label: () => isFreeModelsOnly() ? "Settings — free-only ON (session)" : "Settings",
+    run: async (ctx, deps) => {
+      await showSettings(
+        ctx, deps.manager, deps.pi, deps.scheduler,
+        deps.settingsGetters, deps.settingsSetters,
+      );
+    },
+  },
+  {
+    id: "top-widget",
+    label: () => isShowAgentTopWidget()
+      ? "Agent top widget: ON — live stats above session when agents run"
+      : "Agent top widget: OFF — enable persistent live stats strip",
+    run: async (ctx, deps) => {
+      const next = !isShowAgentTopWidget();
+      setShowAgentTopWidget(next);
+      deps.onAgentTopWidgetToggle?.();
+      notifyApplied(
+        ctx,
+        deps.pi,
+        deps.manager,
+        deps.settingsGetters,
+        next
+          ? "Agent top widget enabled — appears above the session when agents run"
+          : "Agent top widget disabled",
+      );
+    },
+  },
+];
 
 /** Build the dashboard callbacks and launch the rich TUI. */
 async function launchAgentDashboard(
@@ -160,43 +279,9 @@ export async function showAgentsMenu(
   const allNames = getAllTypes();
   const agents = deps.manager.listAgents();
 
-  const options: string[] = [];
-
-  if (agents.length > 0) {
-    let running = 0;
-    let done = 0;
-    for (let i = 0; i < agents.length; i++) {
-      const s = agents[i].status;
-      if (s === "running" || s === "queued") running++;
-      else if (s === "completed" || s === "steered") done++;
-    }
-    options.push(`Running agents (${agents.length}) — ${running} running, ${done} done`);
-  }
-
-  if (agents.length > 0) {
-    options.push("Interactive dashboard (hotkeys • live tree • steering)");
-    options.push("View execution tree");
-  }
-
-  if (allNames.length > 0) {
-    options.push(`Agent types (${allNames.length})`);
-  }
-
-  if (deps.scheduler.isActive()) {
-    const jobCount = deps.scheduler.list().length;
-    options.push(`Scheduled jobs (${jobCount})`);
-  }
-
-  options.push("Create new agent");
-  options.push("Agent templates (browse & install)");
-  options.push("Health check (tracing, scheduler, swarm, agents, settings)");
-  options.push(isFreeModelsOnly() ? "Settings — free-only ON (session)" : "Settings");
-  const topOn = isShowAgentTopWidget();
-  options.push(
-    topOn
-      ? "Agent top widget: ON — live stats above session when agents run"
-      : "Agent top widget: OFF — enable persistent live stats strip",
-  );
+  const entries = MENU_ENTRIES
+    .map((entry) => ({ entry, label: entry.label(deps, agents, allNames) }))
+    .filter((e): e is { entry: AgentsMenuEntry; label: string } => e.label !== null);
 
   const noAgentsMsg = allNames.length === 0 && agents.length === 0
     ? "No agents found. Create specialized subagents that can be delegated to.\n\n" +
@@ -208,68 +293,14 @@ export async function showAgentsMenu(
     ctx.ui.notify(noAgentsMsg, "info");
   }
 
-  const choice = await ctx.ui.select("Agents", options);
+  const choice = await ctx.ui.select("Agents", entries.map((e) => e.label));
   if (!choice) return;
 
-  if (choice.startsWith("Running agents (")) {
-    await showRunningAgents(ctx, deps.manager, deps.agentActivity);
-    await reopenMenu(ctx, deps);
-  } else if (choice === "Interactive dashboard (hotkeys • live tree • steering)") {
-    await launchAgentDashboard(ctx, deps);
-    await reopenMenu(ctx, deps);
-  } else if (choice === "View execution tree") {
-    const treeFormat = await ctx.ui.select("Execution Tree Format", [
-      "Formatted Text Tree",
-      "Mermaid Diagram Graph",
-      "Raw JSON Tree"
-    ]);
-    if (treeFormat) {
-      let format: "text" | "mermaid" | "json" = "text";
-      if (treeFormat.includes("Mermaid")) format = "mermaid";
-      if (treeFormat.includes("JSON")) format = "json";
-      
-      const treeData = buildExecutionTree(agents, format);
-      await ctx.ui.editor(`Execution Tree (${format})`, treeData);
-    }
-    await reopenMenu(ctx, deps);
-  } else if (choice.startsWith("Agent types (")) {
-    await showAllAgentsList(ctx, ctx.modelRegistry);
-    await reopenMenu(ctx, deps);
-  } else if (choice.startsWith("Scheduled jobs (")) {
-    await showSchedulesMenu(ctx, deps.scheduler);
-    await reopenMenu(ctx, deps);
-  } else if (choice === "Create new agent") {
-    await showCreateWizard(ctx, deps.pi, deps.manager, deps.scheduler);
-  } else if (choice === "Agent templates (browse & install)") {
-    await showTemplatesMenu(ctx);
-    await reopenMenu(ctx, deps);
-  } else if (choice.startsWith("Health check")) {
-    await showHealth(ctx, {
-      manager: deps.manager,
-      scheduler: deps.scheduler,
-      swarmJoin: deps.swarmJoin ?? null,
-      getters: deps.settingsGetters,
-    });
-    await reopenMenu(ctx, deps);
-  } else if (choice.startsWith("Settings")) {
-    await showSettings(
-      ctx, deps.manager, deps.pi, deps.scheduler,
-      deps.settingsGetters, deps.settingsSetters,
-    );
-    await reopenMenu(ctx, deps);
-  } else if (choice.startsWith("Agent top widget:")) {
-    const next = !isShowAgentTopWidget();
-    setShowAgentTopWidget(next);
-    deps.onAgentTopWidgetToggle?.();
-    notifyApplied(
-      ctx,
-      deps.pi,
-      deps.manager,
-      deps.settingsGetters,
-      next
-        ? "Agent top widget enabled — appears above the session when agents run"
-        : "Agent top widget disabled",
-    );
-    await reopenMenu(ctx, deps);
+  const selected = entries.find((e) => e.label === choice);
+  if (!selected) return;
+
+  await selected.entry.run(ctx, deps);
+  if (selected.entry.id !== "create") {
+    await showAgentsMenu(ctx, deps);
   }
 }
