@@ -328,7 +328,6 @@ describe("transactional release workflow", () => {
     expect(content).toContain("__RELEASE_VERSION__");
     expect(content).toContain("s/__RELEASE_VERSION__/$RELEASE_VERSION/g");
     expect(content).not.toContain("0.18.1");
-    expect(content).toContain("node scripts/verify-release-transaction.mjs HEAD^ HEAD");
     expect(content).toContain("git restore --source=HEAD -- package-lock.json");
     expect(content).toContain("node scripts/verify-version-transition.mjs HEAD^ HEAD \"$RELEASE_BRANCH\"");
     expect(content).toContain("gh pr create");

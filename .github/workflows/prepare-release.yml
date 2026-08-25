@@ -138,7 +138,7 @@ jobs:
           git switch -c "$RELEASE_BRANCH"
           git add CHANGELOG.md package.json package-lock.json showcase/remotion/public/promo-data.json
           git commit -m "$RELEASE_TITLE"
-          node scripts/verify-release-transaction.mjs HEAD^ HEAD "$RELEASE_VERSION"
+          # The transition verifier delegates to the release-transaction verifier for release branches.
           node scripts/verify-version-transition.mjs HEAD^ HEAD "$RELEASE_BRANCH"
           git push origin "HEAD:$RELEASE_BRANCH"
 
