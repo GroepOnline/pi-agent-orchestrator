@@ -48,7 +48,7 @@ import { buildSettingsSnapshot } from "../src/ui/settings-snapshot.js";
  */
 type SnapshotManager = Pick<
   AgentManager,
-  "getMaxConcurrent" | "getSessionLimits" | "getSessionMaxSpawns" | "getSessionMaxTurns"
+  "getMaxConcurrent" | "getPerAgentTokenLimit" | "getSessionLimits" | "getSessionMaxSpawns" | "getSessionMaxTurns"
 >;
 
 /** Build a SettingsGetters object with all 5 fields controllable per test. */
@@ -68,6 +68,7 @@ function makeGetters(overrides: Partial<SettingsGetters> = {}): SettingsGetters 
 function makeManager(overrides: Partial<SnapshotManager> = {}): SnapshotManager {
   return {
     getMaxConcurrent: () => 4,
+    getPerAgentTokenLimit: () => 0,
     getSessionLimits: () => ({}),
     getSessionMaxSpawns: () => 0,
     getSessionMaxTurns: () => 0,
@@ -97,6 +98,14 @@ beforeEach(() => {
 // ── Manager-owned fields ────────────────────────────────────────────────
 
 describe("buildSettingsSnapshot — manager-owned fields", () => {
+  it("persists the manager per-agent token cap", () => {
+    const snapshot = buildSettingsSnapshot(
+      asManager(makeManager({ getPerAgentTokenLimit: () => 125000 })),
+      makeGetters(),
+    );
+    expect(snapshot.perAgentTokenLimit).toBe(125000);
+  });
+
   it("pulls maxConcurrent from the manager", () => {
     const snapshot = buildSettingsSnapshot(
       asManager(makeManager({ getMaxConcurrent: () => 8 })),
@@ -218,12 +227,14 @@ describe("buildSettingsSnapshot — call-count invariants", () => {
   it("calls each manager method exactly once per snapshot (no double-reads)", () => {
     const spy: SnapshotManager = {
       getMaxConcurrent: vi.fn(() => 4),
+      getPerAgentTokenLimit: vi.fn(() => 0),
       getSessionLimits: vi.fn(() => ({})),
       getSessionMaxSpawns: vi.fn(() => 0),
       getSessionMaxTurns: vi.fn(() => 0),
     };
     buildSettingsSnapshot(asManager(spy), makeGetters());
     expect(spy.getMaxConcurrent).toHaveBeenCalledTimes(1);
+    expect(spy.getPerAgentTokenLimit).toHaveBeenCalledTimes(1);
     expect(spy.getSessionLimits).toHaveBeenCalledTimes(1);
     expect(spy.getSessionMaxSpawns).not.toHaveBeenCalled();
     expect(spy.getSessionMaxTurns).not.toHaveBeenCalled();
@@ -257,6 +268,7 @@ describe("buildSettingsSnapshot — snapshot shape", () => {
     // be silently dropped on save.
     const expectedKeys = [
       "maxConcurrent",
+      "perAgentTokenLimit",
       "defaultMaxTurns",
       "graceTurns",
       "maxEndHookRevisions",

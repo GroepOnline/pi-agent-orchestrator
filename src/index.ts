@@ -577,6 +577,7 @@ export default async function (pi: ExtensionAPI) {
   applyAndEmitLoaded(
     {
       setMaxConcurrent: (n) => manager.setMaxConcurrent(n),
+      setPerAgentTokenLimit: (n) => manager.setPerAgentTokenLimit(n),
       setSessionLimits: (limits) => manager.setSessionLimits(limits),
       setDefaultMaxTurns,
       setGraceTurns,

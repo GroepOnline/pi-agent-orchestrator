@@ -20,6 +20,8 @@ export type { PromptCompressionLevel } from "./types.js";
 
 export interface SubagentsSettings {
   maxConcurrent?: number;
+  /** Persisted per-agent token cap for spend warnings; 0/omitted = off. */
+  perAgentTokenLimit?: number;
   maxAgentsPerSession?: number;
   maxTotalTurnsPerSession?: number;
   /** 0 is the explicit unlimited marker. */
@@ -70,6 +72,7 @@ export interface SubagentsSettings {
 
 export interface SettingsAppliers {
   setMaxConcurrent: (value: number) => void;
+  setPerAgentTokenLimit: (value: number) => void;
   setSessionLimits: (limits: { maxAgentsPerSession?: number; maxTotalTurnsPerSession?: number }) => void;
   setDefaultMaxTurns: (value: number) => void;
   setGraceTurns: (value: number) => void;
@@ -183,6 +186,7 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const integerFields = [
     ["maxConcurrent", 1, MAX_CONCURRENT_CEILING],
+    ["perAgentTokenLimit", 0, 10_000_000],
     ["maxAgentsPerSession", 1, MAX_AGENTS_PER_SESSION_CEILING],
     ["maxTotalTurnsPerSession", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING],
     ["graceTurns", 1, GRACE_TURNS_CEILING],
@@ -190,8 +194,8 @@ function sanitize(raw: unknown): SubagentsSettings {
   ] as const;
 
   for (const [key, min, max] of integerFields) {
-    const value = validateInt(source, key, min, max, 0);
-    if (value > 0) (settings as Record<string, unknown>)[key] = value;
+    const value = validateInt(source, key, min, max, -1);
+    if (value >= min) (settings as Record<string, unknown>)[key] = value;
   }
 
   // Migrate deprecated aliases into canonical keys without retaining duplicate state.
@@ -348,6 +352,7 @@ export function stripDeprecatedSessionLimitAliases(settings: SubagentsSettings):
 /** Apply persisted settings to in-memory state. */
 export function applySettings(settings: SubagentsSettings, appliers: SettingsAppliers): void {
   if (typeof settings.maxConcurrent === "number") appliers.setMaxConcurrent(settings.maxConcurrent);
+  if (typeof settings.perAgentTokenLimit === "number") appliers.setPerAgentTokenLimit(settings.perAgentTokenLimit);
   const sessionLimits = resolveSessionLimits(settings);
   if (sessionLimits) appliers.setSessionLimits(sessionLimits);
   if (typeof settings.defaultMaxTurns === "number") appliers.setDefaultMaxTurns(settings.defaultMaxTurns);

@@ -18,6 +18,7 @@ import type { SettingsGetters, SubagentsSettings } from "../settings.js";
 export function buildSettingsSnapshot(manager: AgentManager, getters: SettingsGetters): SubagentsSettings {
   return {
     maxConcurrent: manager.getMaxConcurrent(),
+    perAgentTokenLimit: manager.getPerAgentTokenLimit(),
     ...manager.getSessionLimits(),
     // 0 = unlimited — per SubagentsSettings.defaultMaxTurns docstring and
     // normalizeMaxTurns() in agent-runner.ts (which maps 0 → undefined).
