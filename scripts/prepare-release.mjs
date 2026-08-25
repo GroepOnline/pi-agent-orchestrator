@@ -98,10 +98,13 @@ async function prepareRelease(version, releaseDate) {
   const releaseNotes = normalizeLineEndings(await readFile(notesPath, "utf8")).trim();
   if (!releaseNotes) fail(`release notes template ${notesPath} is empty`);
 
+  const sourceVersion = pkg.version;
+  const [releaseMajor, releaseMinor] = version.split(".");
+  const releaseTrain = `${releaseMajor}.${releaseMinor}.x`;
   const additionalChanges = unreleasedBody
-    ? `\n\n### Additional changes since v0.17.1\n\n${unreleasedBody}`
+    ? `\n\n### Additional changes since v${sourceVersion}\n\n${unreleasedBody}`
     : "";
-  const nextChangelog = `${prefix}${unreleasedHeading}\n\nNo unreleased changes. The repository remains locked to the 0.18.x stabilization train.\n\n---\n\n## v${version} (${releaseDate})\n\n${releaseNotes}${additionalChanges}\n\n---\n\n${history}`;
+  const nextChangelog = `${prefix}${unreleasedHeading}\n\nNo unreleased changes. The repository is now on the ${releaseTrain} release train.\n\n---\n\n## v${version} (${releaseDate})\n\n${releaseNotes}${additionalChanges}\n\n---\n\n${history}`;
 
   pkg.version = version;
   lock.version = version;

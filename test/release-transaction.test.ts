@@ -110,6 +110,10 @@ describe("v0.19 release transaction", () => {
     expect(lock.packages[""].engines).toEqual(pkg.engines);
     expect(changelog).toContain("## v0.19.0 (2026-08-25)");
     expect(changelog).toContain("No unreleased changes");
+    expect(changelog).toContain("The repository is now on the 0.19.x release train.");
+    expect(changelog).toContain("### Additional changes since v0.18.0");
+    expect(changelog).not.toContain("0.18.x stabilization train");
+    expect(changelog).not.toContain("Additional changes since v0.17.1");
 
     const publishPolicy = node(root, "scripts/release-policy.mjs", "publish");
     expect(publishPolicy.status, publishPolicy.stderr).toBe(0);
