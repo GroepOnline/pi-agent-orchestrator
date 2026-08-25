@@ -87,7 +87,11 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          # npm may normalize dependency metadata in package-lock.json across npm versions.
+          # Release preparation must start from the reviewed main lockfile exactly.
+          git restore --source=HEAD -- package-lock.json
 
       - name: Verify frozen release policy
         run: |
@@ -135,6 +139,7 @@ jobs:
           git add CHANGELOG.md package.json package-lock.json showcase/remotion/public/promo-data.json
           git commit -m "$RELEASE_TITLE"
           node scripts/verify-release-transaction.mjs HEAD^ HEAD "$RELEASE_VERSION"
+          node scripts/verify-version-transition.mjs HEAD^ HEAD "$RELEASE_BRANCH"
           git push origin "HEAD:$RELEASE_BRANCH"
 
       - name: Open reviewed release PR
