@@ -324,6 +324,10 @@ describe("transactional release workflow", () => {
     expect(content).toContain("inputs.version");
     expect(content).toContain("format('RELEASE {0}', inputs.version)");
     expect(content).toContain("node scripts/prepare-release.mjs");
+    expect(content).toContain("docs/releases/v$" + "{RELEASE_VERSION}.md");
+    expect(content).toContain("__RELEASE_VERSION__");
+    expect(content).toContain("s/__RELEASE_VERSION__/$RELEASE_VERSION/g");
+    expect(content).not.toContain("0.18.1");
     expect(content).toContain("node scripts/verify-release-transaction.mjs HEAD^ HEAD");
     expect(content).toContain("gh pr create");
     expect(content).toContain("gh workflow run ci.yml");
