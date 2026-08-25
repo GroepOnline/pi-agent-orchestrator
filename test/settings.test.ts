@@ -71,6 +71,12 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({ maxConcurrent: 8, defaultJoinMode: "group" });
   });
 
+  it("lets project perAgentTokenLimit: 0 disable a positive global cap", () => {
+    writeGlobal({ perAgentTokenLimit: 125000 });
+    writeProject({ perAgentTokenLimit: 0 });
+    expect(loadSettings(projectDir).perAgentTokenLimit).toBe(0);
+  });
+
   it("merges global + project with project winning on conflicts", () => {
     writeGlobal({ maxConcurrent: 16, graceTurns: 10, defaultJoinMode: "async" });
     writeProject({ maxConcurrent: 4, defaultMaxTurns: 50 });

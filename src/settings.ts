@@ -186,7 +186,7 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const integerFields = [
     ["maxConcurrent", 1, MAX_CONCURRENT_CEILING],
-    ["perAgentTokenLimit", 1, 10_000_000],
+    ["perAgentTokenLimit", 0, 10_000_000],
     ["maxAgentsPerSession", 1, MAX_AGENTS_PER_SESSION_CEILING],
     ["maxTotalTurnsPerSession", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING],
     ["graceTurns", 1, GRACE_TURNS_CEILING],
@@ -194,8 +194,8 @@ function sanitize(raw: unknown): SubagentsSettings {
   ] as const;
 
   for (const [key, min, max] of integerFields) {
-    const value = validateInt(source, key, min, max, 0);
-    if (value > 0) (settings as Record<string, unknown>)[key] = value;
+    const value = validateInt(source, key, min, max, -1);
+    if (value >= min) (settings as Record<string, unknown>)[key] = value;
   }
 
   // Migrate deprecated aliases into canonical keys without retaining duplicate state.
