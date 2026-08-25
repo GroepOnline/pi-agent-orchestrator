@@ -8,9 +8,11 @@ import {
   getOrchestrationMode,
   getPromptCompressionLevel,
   getUiStyle,
+  isFreeModelsOnly,
   type OrchestrationMode,
   setAnimationStyle,
   setDashboardRefreshInterval,
+  setFreeModelsOnly,
   setOrchestrationMode,
   setPromptCompressionLevel,
   setUiStyle,
@@ -57,6 +59,7 @@ export async function showSettings(
     `Coordination (join: ${getters.getDefaultJoinMode()}, orch: ${getOrchestrationMode()})`,
     `Scheduling (current: ${getters.isSchedulingEnabled() ? "enabled" : "disabled"})`,
     `Tracing (current: ${getters.isTracingEnabled() ? "enabled" : "disabled"})`,
+    `Free models only (current: ${isFreeModelsOnly() ? "free only — session-only" : "all (paid + free)"})`,
     `Motion profile (current: ${getAnimationStyle()})`,
     `UI/UX Style (current: ${getUiStyle()})`,
     `Dashboard refresh interval (current: ${getDashboardRefreshInterval()}ms)`,
@@ -176,6 +179,22 @@ export async function showSettings(
     }
     setters.setTracingEnabled(enabled);
     notifyApplied(ctx, pi, manager, getters, `Tracing ${enabled ? "enabled" : "disabled"}.`);
+    return;
+  }
+
+  if (choice.startsWith("Free models")) {
+    const value = await ctx.ui.select("Free models only (session-only, not persisted)", [
+      "free only — subagents only use zero-cost models (this session)",
+      "all — subagents may use any available model (default)",
+    ]);
+    if (!value) return;
+    const enabled = value.startsWith("free only");
+    if (enabled === isFreeModelsOnly()) {
+      ctx.ui.notify(`Free-only already ${enabled ? "enabled" : "disabled"} (session-only).`, "info");
+      return;
+    }
+    setFreeModelsOnly(enabled);
+    ctx.ui.notify(`Free models only ${enabled ? "enabled" : "disabled"} — session-only, not persisted.`, "info");
     return;
   }
 
