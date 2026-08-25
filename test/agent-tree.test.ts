@@ -24,13 +24,14 @@ function makeRecord(overrides: Partial<AgentRecord> = {}): AgentRecord {
     description: "Searched files",
     spawnedAt: Date.now(),
     swarmId: undefined,
-    handoff: undefined,
     invocation: undefined,
     compactionCount: 0,
     toolUses: 0,
     lifetimeUsage: { input: 100, output: 50, cacheWrite: 0 },
+    currentLevel: 0,
+    totalSpawned: 0,
     ...overrides,
-  } as AgentRecord;
+  };
 }
 
 describe("buildAgentTreeJson", () => {

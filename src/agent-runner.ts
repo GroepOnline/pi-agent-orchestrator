@@ -1120,6 +1120,7 @@ ${chefPreflight.systemPromptAddition}`;
     aborted = true;
   });
   let gatedResponseText = "";
+  let exhaustedModelError: string | undefined;
 
   try {
     let currentModelForRetry: Model<Api> = model!;
@@ -1183,6 +1184,9 @@ ${chefPreflight.systemPromptAddition}`;
           throw err;
         }
       }
+      if (!gatedResponseText && !aborted && lastErr) exhaustedModelError = lastErr;
+    } else if (!gatedResponseText && soft) {
+      exhaustedModelError = soft;
     }
 
     if (options.hooks) {
@@ -1283,7 +1287,9 @@ ${chefPreflight.systemPromptAddition}`;
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);
   let runError: string | undefined;
-  const modelError = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
+  const modelError = !aborted && !options.signal?.aborted
+    ? (getLastAssistantError(session) ?? exhaustedModelError)
+    : undefined;
   if (!responseText && modelError) {
     // The run produced no text because the model/provider errored on its final
     // turn (e.g. 401 auth, unavailable model). Surface it instead of returning
