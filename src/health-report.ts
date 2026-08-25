@@ -19,6 +19,7 @@ import {
   getOrchestrationMode,
   getPromptCompressionLevel,
   getUiStyle,
+  isFreeModelsOnly,
 } from "./agent-registry.js";
 import { globalCircuitBreaker } from "./agent-runner.js";
 import {
@@ -100,6 +101,7 @@ export interface HealthReport {
     dashboardRefreshInterval: number;
     maxConcurrent: number;
     promptCompressionLevel: string;
+    freeModelsOnly: boolean;
   };
   recentErrors: Array<{
     id: string;
@@ -162,6 +164,7 @@ export function buildHealthReport(deps: HealthReportDeps): HealthReport {
   const orchestrationMode = getOrchestrationMode();
   const dashboardRefreshInterval = getDashboardRefreshInterval();
   const promptCompressionLevel = getPromptCompressionLevel();
+  const freeModelsOnly = isFreeModelsOnly();
   const mem = process.memoryUsage();
 
   const records = manager.listAgents();
@@ -265,6 +268,7 @@ export function buildHealthReport(deps: HealthReportDeps): HealthReport {
       dashboardRefreshInterval,
       maxConcurrent: manager.getMaxConcurrent(),
       promptCompressionLevel,
+      freeModelsOnly,
     },
     recentErrors,
     // Snapshot the dispatch histogram now (single read) rather than letting
@@ -357,6 +361,7 @@ export function formatHealthReport(r: HealthReport): string {
   push(`  orchestrationMode          : ${r.settings.orchestrationMode}`);
   push(`  dashboardRefreshInterval   : ${r.settings.dashboardRefreshInterval}ms`);
   push(`  promptCompressionLevel     : ${r.settings.promptCompressionLevel}`);
+  push(`  freeModelsOnly             : ${r.settings.freeModelsOnly ? "yes (session-only)" : "no"}`);
   push("");
 
   push("## Recent Errors");

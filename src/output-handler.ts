@@ -16,6 +16,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentManager } from "./agent-manager.js";
 import {
+  isFreeModelsOnly,
   isShowAgentTopWidget,
   reloadCustomAgents,
   setShowAgentTopWidget,
@@ -189,7 +190,7 @@ export async function showAgentsMenu(
   options.push("Create new agent");
   options.push("Agent templates (browse & install)");
   options.push("Health check (tracing, scheduler, swarm, agents, settings)");
-  options.push("Settings");
+  options.push(isFreeModelsOnly() ? "Settings — free-only ON (session)" : "Settings");
   const topOn = isShowAgentTopWidget();
   options.push(
     topOn
@@ -250,7 +251,7 @@ export async function showAgentsMenu(
       getters: deps.settingsGetters,
     });
     await reopenMenu(ctx, deps);
-  } else if (choice === "Settings") {
+  } else if (choice.startsWith("Settings")) {
     await showSettings(
       ctx, deps.manager, deps.pi, deps.scheduler,
       deps.settingsGetters, deps.settingsSetters,
