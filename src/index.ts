@@ -59,6 +59,7 @@ import {
 } from "./debug-capture.js";
 import { GroupJoinManager } from "./group-join.js";
 import { HookRegistry } from "./hooks.js";
+import { NotificationHub } from "./notification-hub.js";
 import { createPostHogBridge, postHogConfigToMigrate } from "./posthog-bridge.js";
 import { clearSubagentsApi, registerSubagentsApi } from "./public-api.js";
 import type { ScheduleChangeEvent } from "./schedule.js";
@@ -67,9 +68,7 @@ import { resolveStorePath, ScheduleStore } from "./schedule-store.js";
 import { applyAndEmitLoaded, loadSettings, saveSettings } from "./settings.js";
 import { SwarmCoordinator, setActiveSwarmCoordinator } from "./swarm-join.js";
 import { onTelemetry } from "./telemetry.js";
-import {
-  buildNotificationDetails, formatTaskNotification,
-} from "./tool-result-helpers.js";
+import { buildNotificationDetails, formatTaskNotification } from "./tool-result-helpers.js";
 import { createAgentTool } from "./tools/agent.js";
 import { createGetResultTool } from "./tools/get-result.js";
 import { createSteerTool } from "./tools/steer.js";
@@ -81,7 +80,6 @@ import { setSpinnerStyle } from "./ui/animation.js";
 import { clearWidgetMetrics, setWidgetMetrics } from "./ui/global-registry.js";
 import { LiveWidgets } from "./ui/live-widgets.js";
 import { createNotificationRenderer } from "./ui/notification-renderer.js";
-import { getLifetimeTotal } from "./usage.js";
 
 export default async function (pi: ExtensionAPI) {
   // ---- Register custom notification renderer ----
@@ -99,49 +97,10 @@ export default async function (pi: ExtensionAPI) {
   // Closures below capture the binding; they only run after init completes.
   let liveWidgets!: LiveWidgets;
 
-  // ---- Cancellable pending notifications ----
-  // Holds notifications briefly so get_subagent_result can cancel them
-  // before they reach pi.sendMessage (fire-and-forget).
-  const pendingNudges = new Map<string, ReturnType<typeof setTimeout>>();
-  const NUDGE_HOLD_MS = 200;
-
-  function scheduleNudge(key: string, send: () => void, delay = NUDGE_HOLD_MS) {
-    cancelNudge(key);
-    pendingNudges.set(key, setTimeout(() => {
-      pendingNudges.delete(key);
-      try { send(); } catch (err) { logger.debug(`Swallowed error: ${err instanceof Error ? err.message : String(err)}`); }
-    }, delay));
-  }
-
-  function cancelNudge(key: string) {
-    const timer = pendingNudges.get(key);
-    if (timer != null) {
-      clearTimeout(timer);
-      pendingNudges.delete(key);
-    }
-  }
-
-  // ---- Individual nudge helper (async join mode) ----
-  function emitIndividualNudge(record: AgentRecord) {
-    if (record.resultConsumed) return;  // re-check at send time
-
-    const notification = formatTaskNotification(record, 500);
-    const footer = record.outputFile ? `\nFull transcript available at: ${record.outputFile}` : '';
-
-    pi.sendMessage<NotificationDetails>({
-      customType: "subagent-notification",
-      content: notification + footer,
-      display: true,
-      details: buildNotificationDetails(record, 500, agentActivity.get(record.id)),
-    }, { deliverAs: "followUp", triggerTurn: true });
-  }
-
-  function sendIndividualNudge(record: AgentRecord) {
-    agentActivity.delete(record.id);
-    liveWidgets.markFinished(record.id);
-    scheduleNudge(record.id, () => emitIndividualNudge(record));
-    liveWidgets.update();
-  }
+  // ---- Completion notifications (debounced, cancellable) ----
+  // Extracted to notification-hub.ts: pending-nudge hold, individual nudge
+  // emission, and lifetime usage → event payload mapping.
+  const notifications = new NotificationHub({ pi, agentActivity, getWidgets: () => liveWidgets });
 
   // ---- Group join manager ----
   const groupJoin = new GroupJoinManager(
@@ -152,7 +111,7 @@ export default async function (pi: ExtensionAPI) {
       }
 
       const groupKey = `group:${records.map(r => r.id).join(",")}`;
-      scheduleNudge(groupKey, () => {
+      notifications.schedule(groupKey, () => {
         // Re-check at send time
         const unconsumed = records.filter(r => !r.resultConsumed);
         if (unconsumed.length === 0) { liveWidgets.update(); return; }
@@ -191,7 +150,7 @@ export default async function (pi: ExtensionAPI) {
       }
 
       const swarmKey = `swarm:${swarmId}`;
-      scheduleNudge(swarmKey, () => {
+      notifications.schedule(swarmKey, () => {
         const unconsumed = records.filter(r => !r.resultConsumed);
         if (unconsumed.length === 0) { liveWidgets.update(); return; }
 
@@ -222,37 +181,12 @@ export default async function (pi: ExtensionAPI) {
   // so 'w' hotkey actions can actually create and join swarms at runtime.
   setActiveSwarmCoordinator(swarmJoin);
 
-  /** Helper: build event data for lifecycle events from an AgentRecord. */
-  function buildEventData(record: AgentRecord) {
-    const durationMs = record.completedAt ? record.completedAt - (record.startedAt ?? 0) : Date.now() - (record.startedAt ?? 0);
-    // All three fields are lifetime-accumulated (Σ over every assistant message_end),
-    // so they survive compaction together — input + output ≤ total always.
-    // tokens is omitted when nothing was ever produced (e.g. agent errored before
-    // any message_end fired), preserving prior payload shape.
-    const u = record.lifetimeUsage;
-    const total = getLifetimeTotal(u);
-    const tokens = total > 0
-      ? { input: u.input, output: u.output, total }
-      : undefined;
-    return {
-      id: record.id,
-      type: record.type,
-      description: record.description,
-      result: record.result,
-      error: record.error,
-      status: record.status,
-      toolUses: record.toolUses,
-      durationMs,
-      tokens,
-    };
-  }
-
   // Background completion: route through group join or send individual nudge
   const hookRegistry = new HookRegistry();
   const manager = new AgentManager((record) => {
     // Emit lifecycle event based on terminal status
     const isError = record.status === "error" || record.status === "stopped" || record.status === "aborted";
-    const eventData = buildEventData(record);
+    const eventData = notifications.buildEventData(record);
     if (isError) {
       pi.events.emit("subagents:failed", eventData);
     } else {
@@ -285,7 +219,7 @@ export default async function (pi: ExtensionAPI) {
     const swarmResult = swarmJoin.onAgentComplete(record);
 
     if (groupResult === 'pass' && swarmResult === 'pass') {
-      sendIndividualNudge(record);
+      notifications.sendIndividual(record);
     }
     // 'held' or 'delivered' for either → notification handled by the respective coordinator
     liveWidgets.update();
@@ -566,9 +500,7 @@ export default async function (pi: ExtensionAPI) {
     liveWidgets.dispose();
     scheduler.stop();
     manager.abortAll();
-    for (const timer of pendingNudges.values()) clearTimeout(timer);
-    pendingNudges.clear();
-    await batchOrchestrator.dispose();
+    notifications.dispose();    await batchOrchestrator.dispose();
     manager.dispose();
     // Tear down debug-capture last so any final events from the dispose
     // chain above still land in the sink. Best-effort: enable() failures
@@ -607,7 +539,7 @@ export default async function (pi: ExtensionAPI) {
     manager,
     groupJoin,
     swarmJoin,
-    onAgentHandled: sendIndividualNudge,
+    onAgentHandled: (r) => notifications.sendIndividual(r),
     onWidgetUpdate: () => liveWidgets.update(),
   });
 
@@ -669,7 +601,9 @@ export default async function (pi: ExtensionAPI) {
   // ---- Tool context — shared dependency bag for extracted tool modules ----
   const toolCtx = {
     pi, manager, liveWidgets, agentActivity, batchOrchestrator, scheduler, swarmJoin, hookRegistry,
-    sendIndividualNudge, cancelNudge, scheduleNudge,
+    sendIndividualNudge: (r: AgentRecord) => notifications.sendIndividual(r),
+    cancelNudge: (k: string) => notifications.cancel(k),
+    scheduleNudge: (k: string, s: () => void, d?: number) => notifications.schedule(k, s, d),
   };
 
   // ---- Tools ----
