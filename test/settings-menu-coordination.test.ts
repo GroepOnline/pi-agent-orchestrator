@@ -52,13 +52,14 @@ import { showCoordinationMenu } from "../src/ui/settings-menu.js";
 
 /**
  * Minimal AgentManager stub. `buildSettingsSnapshot` touches
- * getMaxConcurrent / getSessionLimits / getSessionMaxSpawns / getSessionMaxTurns
- * so we stub the full quartet with neutral constants. Everything else the menu
+ * getMaxConcurrent / getPerAgentTokenLimit / getSessionLimits / getSessionMaxSpawns / getSessionMaxTurns
+ * so we stub the full snapshot-facing surface with neutral constants. Everything else the menu
  * reads from the manager is irrelevant to the coordination submenu.
  */
 function fakeManager(): AgentManager {
   return {
     getMaxConcurrent: () => 8,
+    getPerAgentTokenLimit: () => 0,
     getSessionLimits: () => ({ maxAgentsPerSession: undefined, maxTotalTurnsPerSession: undefined }),
     getSessionMaxSpawns: () => 100,
     getSessionMaxTurns: () => 1000,
