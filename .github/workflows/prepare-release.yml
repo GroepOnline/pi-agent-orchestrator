@@ -7,14 +7,6 @@ on:
         description: "Exact release version (e.g. 0.19.0). Must match the unlocked train in .release-policy.json."
         required: true
         type: string
-      branch:
-        description: "Release branch (default release/v<version>)"
-        required: false
-        type: string
-      title:
-        description: "Release commit/PR title (default chore(release): v<version>)"
-        required: false
-        type: string
       confirmation:
         description: "Confirmation string. Must be exactly: RELEASE <version>"
         required: true
@@ -37,8 +29,8 @@ jobs:
     timeout-minutes: 35
     env:
       RELEASE_VERSION: ${{ inputs.version }}
-      RELEASE_BRANCH: "${{ inputs.branch || format('release/v{0}', inputs.version) }}"
-      RELEASE_TITLE: "${{ inputs.title || format('chore(release): v{0}', inputs.version) }}"
+      RELEASE_BRANCH: "${{ format('release/v{0}', inputs.version) }}"
+      RELEASE_TITLE: "${{ format('chore(release): v{0}', inputs.version) }}"
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

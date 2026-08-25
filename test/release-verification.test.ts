@@ -322,6 +322,10 @@ describe("transactional release workflow", () => {
     expect(content).toMatch(/name:\s*Prepare Release/);
     expect(content).toMatch(/workflow_dispatch:/);
     expect(content).toContain("inputs.version");
+    expect(content).not.toContain("inputs.branch");
+    expect(content).not.toContain("inputs.title");
+    expect(content).toContain("RELEASE_BRANCH: \"$" + "{{ format('release/v{0}', inputs.version) }}\"");
+    expect(content).toContain("RELEASE_TITLE: \"$" + "{{ format('chore(release): v{0}', inputs.version) }}\"");
     expect(content).toContain("format('RELEASE {0}', inputs.version)");
     expect(content).toContain("node scripts/prepare-release.mjs");
     expect(content).toContain("docs/releases/v$" + "{RELEASE_VERSION}.md");
