@@ -35,6 +35,7 @@ type CommonSpawnOptions = {
   description: string;
   model: Model<any> | undefined;
   maxTurns: number | undefined;
+  maxSpendTokens?: number;
   isolated: boolean;
   inheritContext: boolean;
   thinking: ThinkingLevel | undefined;
@@ -165,6 +166,7 @@ export function buildSpawnOptions(input: CommonSpawnOptions): {
   description: string;
   model?: Model<any>;
   maxTurns?: number;
+  maxSpendTokens?: number;
   isolated: boolean;
   inheritContext: boolean;
   thinkingLevel?: ThinkingLevel;
@@ -175,6 +177,7 @@ export function buildSpawnOptions(input: CommonSpawnOptions): {
     description: input.description,
     model: input.model,
     maxTurns: input.maxTurns,
+    ...(input.maxSpendTokens ? { maxSpendTokens: input.maxSpendTokens } : {}),
     isolated: input.isolated,
     inheritContext: input.inheritContext,
     thinkingLevel: input.thinking,
@@ -216,6 +219,7 @@ interface OrchestratedDispatchArgs {
   fellBack: boolean;
   runInBackground: boolean;
   effectiveMaxTurns: number | undefined;
+  maxSpendTokens?: number;
   model: Model<any> | undefined;
   isolated: boolean;
   inheritContext: boolean;
@@ -270,6 +274,7 @@ async function runOrchestratedDispatch(
         description: member.description,
         model: args.model,
         maxTurns: args.effectiveMaxTurns,
+        maxSpendTokens: args.maxSpendTokens,
         isolated: args.isolated,
         inheritContext: args.inheritContext,
         thinking: args.thinking,
@@ -435,6 +440,8 @@ export type AgentToolParams = {
   model?: string;
   thinking?: string;
   max_turns?: number;
+  /** Per-run token cap (input + output); the runner aborts the agent when exceeded. */
+  max_spend_tokens?: number;
   run_in_background?: boolean;
   resume?: string;
   isolated?: boolean;
@@ -541,6 +548,12 @@ Guidelines:
         Type.Number({
           description: "Maximum number of agentic turns before stopping. Omit for unlimited (default).",
           minimum: 1,
+        }),
+      ),
+      max_spend_tokens: Type.Optional(
+        Type.Number({
+          description: "Per-run token cap (input + output). The agent is aborted gracefully when it exceeds this. Omit for no cap.",
+          minimum: 1000,
         }),
       ),
       run_in_background: Type.Optional(
@@ -766,6 +779,7 @@ Guidelines:
           fellBack,
           runInBackground,
           effectiveMaxTurns,
+          maxSpendTokens: params.max_spend_tokens as number | undefined,
           model,
           isolated,
           inheritContext,
@@ -794,6 +808,7 @@ Guidelines:
             description: params.description as string,
             model,
             maxTurns: effectiveMaxTurns,
+            maxSpendTokens: params.max_spend_tokens as number | undefined,
             isolated,
             inheritContext,
             thinking,
@@ -919,6 +934,7 @@ Guidelines:
             description: params.description as string,
             model,
             maxTurns: effectiveMaxTurns,
+            maxSpendTokens: params.max_spend_tokens as number | undefined,
             isolated,
             inheritContext,
             thinking,

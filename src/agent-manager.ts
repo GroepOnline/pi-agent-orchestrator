@@ -54,6 +54,11 @@ interface SpawnOptions {
   description: string;
   model?: Model<any>;
   maxTurns?: number;
+  /**
+   * Per-run token cap (input + output). When exceeded the runner aborts the
+   * agent gracefully — surfaced as aborted=true with a quota error.
+   */
+  maxSpendTokens?: number;
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
@@ -470,6 +475,7 @@ export class AgentManager {
         agentId: id,
         model: options.model,
         maxTurns: options.maxTurns,
+        quotas: options.maxSpendTokens ? { maxTokens: options.maxSpendTokens } : undefined,
         isolated: options.isolated,
         inheritContext: options.inheritContext,
         thinkingLevel: options.thinkingLevel,
