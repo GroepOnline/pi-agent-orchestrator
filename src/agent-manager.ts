@@ -18,6 +18,7 @@ import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
 import { getConfig } from "./agent-types.js";
 import type { CompactionSnapshot } from "./compaction-snapshot.js";
 import { type HookRegistry } from "./hooks.js";
+import { totalTokens } from "./spend.js";
 import { generateCorrelationId } from "./telemetry-otel.js";
 import type { AgentInvocation, AgentRecord, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
 import { addUsage } from "./usage.js";
@@ -29,7 +30,7 @@ export type OnAgentStart = (record: AgentRecord) => void;
 export type CompactionInfo = CompactionSnapshot;
 export type OnAgentCompact = (record: AgentRecord, info: CompactionInfo) => void;
 
-export type BudgetWarningType = "agents_at_80" | "turns_at_80" | "agents_at_90" | "turns_at_90";
+export type BudgetWarningType = "agents_at_80" | "turns_at_80" | "agents_at_90" | "turns_at_90" | "spend_50" | "spend_80" | "spend_100";
 export type OnBudgetWarning = (type: BudgetWarningType, usage: { spawnedAgents: number; totalTurns: number }, limits: { maxAgents: number; maxTurns: number }) => void;
 
 /** Default max concurrent background agents. */
@@ -109,6 +110,10 @@ export class AgentManager {
   private sessionLimits: SessionLimits = {};
   private sessionUsage = { spawnedAgents: 0, totalTurns: 0 };
   private lastTurnCounts = new Map<string, number>();
+  /** Once-per-threshold guards so budget warnings fire a single time each. */
+  private firedBudgetThresholds = new Set<string>();
+  /** Per-agent token cap for spend warnings (0 = off). */
+  private perAgentTokenLimit = 0;
   private sessionMaxSpawns = 0;
   private sessionMaxTurns = 0;
   hooks?: HookRegistry;
@@ -214,10 +219,20 @@ export class AgentManager {
   resetSessionUsage(): void {
     this.sessionUsage = { spawnedAgents: 0, totalTurns: 0 };
     this.lastTurnCounts.clear();
+    this.firedBudgetThresholds.clear();
   }
 
   setBudgetWarningHandler(handler: OnBudgetWarning): void {
     this.onBudgetWarning = handler;
+  }
+
+  /** Set the per-agent token cap that arms spend warnings (0 = off). */
+  setPerAgentTokenLimit(tokens: number): void {
+    this.perAgentTokenLimit = Math.max(0, Math.floor(tokens));
+  }
+
+  getPerAgentTokenLimit(): number {
+    return this.perAgentTokenLimit;
   }
 
   /** Get the ID of the agent executing in this async context. */
@@ -493,6 +508,7 @@ export class AgentManager {
         onTextDelta: options.onTextDelta,
         onAssistantUsage: (usage) => {
           addUsage(record.lifetimeUsage, usage);
+          this.checkAgentSpend(record);
           options.onAssistantUsage?.(usage);
         },
         onCompaction: (info) => {
@@ -778,23 +794,42 @@ export class AgentManager {
     if (!handler) return;
     const { maxAgentsPerSession, maxTotalTurnsPerSession } = this.sessionLimits;
 
+    // Once-per-threshold guards: each warning fires a single time per session,
+    // instead of re-spamming on every turn_end while above the line.
+    const fire = (key: string, type: BudgetWarningType): void => {
+      if (this.firedBudgetThresholds.has(key)) return;
+      this.firedBudgetThresholds.add(key);
+      handler(type, this.sessionUsage, { maxAgents: maxAgentsPerSession ?? 0, maxTurns: maxTotalTurnsPerSession ?? 0 });
+    };
+
     if (maxAgentsPerSession !== undefined && maxAgentsPerSession > 0) {
-      const used = this.sessionUsage.spawnedAgents;
-      const pct = used / maxAgentsPerSession;
-      // 90% critical first, then 80% warning — don't double-fire if already at 90%
-      if (pct >= 0.9) {
-        handler("agents_at_90", this.sessionUsage, { maxAgents: maxAgentsPerSession, maxTurns: maxTotalTurnsPerSession ?? 0 });
-      } else if (pct >= 0.8) {
-        handler("agents_at_80", this.sessionUsage, { maxAgents: maxAgentsPerSession, maxTurns: maxTotalTurnsPerSession ?? 0 });
-      }
+      const pct = this.sessionUsage.spawnedAgents / maxAgentsPerSession;
+      if (pct >= 0.9) fire("agents_90", "agents_at_90");
+      else if (pct >= 0.8) fire("agents_80", "agents_at_80");
     }
     if (maxTotalTurnsPerSession !== undefined && maxTotalTurnsPerSession > 0) {
-      const used = this.sessionUsage.totalTurns;
-      const pct = used / maxTotalTurnsPerSession;
-      if (pct >= 0.9) {
-        handler("turns_at_90", this.sessionUsage, { maxAgents: maxAgentsPerSession ?? 0, maxTurns: maxTotalTurnsPerSession });
-      } else if (pct >= 0.8) {
-        handler("turns_at_80", this.sessionUsage, { maxAgents: maxAgentsPerSession ?? 0, maxTurns: maxTotalTurnsPerSession });
+      const pct = this.sessionUsage.totalTurns / maxTotalTurnsPerSession;
+      if (pct >= 0.9) fire("turns_90", "turns_at_90");
+      else if (pct >= 0.8) fire("turns_80", "turns_at_80");
+    }
+  }
+
+  /**
+   * Per-subagent spend warnings: fire once at 50/80/100% of the per-agent
+   * token cap based on lifetime usage accumulated so far.
+   */
+  private checkAgentSpend(record: AgentRecord): void {
+    const handler = this.onBudgetWarning;
+    const limit = this.perAgentTokenLimit;
+    if (!handler || limit <= 0) return;
+    if (!record.spendFlags) record.spendFlags = new Set();
+    const used = totalTokens(record.lifetimeUsage);
+    const pct = used / limit;
+    for (const [threshold, type] of [[0.5, "spend_50"], [0.8, "spend_80"], [1, "spend_100"]] as const) {
+      const key = `${threshold * 100}`;
+      if (pct >= threshold && !record.spendFlags.has(key)) {
+        record.spendFlags.add(key);
+        handler(type, this.sessionUsage, { maxAgents: 0, maxTurns: 0 });
       }
     }
   }

@@ -379,9 +379,18 @@ export default async function (pi: ExtensionAPI) {
     appendScheduleEvent(jobId, jobName, evt.type, evt);
   });
 
-  // Session budget warning at 80% — emit a pi.events notification so the
-  // user sees it as a non-blocking alert even if the dashboard isn't open.
+  // Budget warnings: session-limit thresholds (once per threshold) + per-subagent
+  // spend (50/80/100% of the token cap). Emitted as pi.events so the dashboard
+  // can show them, and as a single non-blocking notification message.
   manager.setBudgetWarningHandler((type, usage, limits) => {
+    if (type.startsWith("spend_")) {
+      const pct = type === "spend_50" ? "50" : type === "spend_80" ? "80" : "100";
+      const prefix = pct === "100" ? "🚨" : "⚠️";
+      const message = `${prefix} Subagent token budget ${pct}% used (${usage.spawnedAgents} agent(s) capped at ${manager.getPerAgentTokenLimit()} tokens).`;
+      pi.events.emit("subagents:budget_warning", { type, usage, limits, threshold: `spend_${pct}`, message });
+      pi.sendMessage({ customType: "subagent-notification", content: message, display: true });
+      return;
+    }
     const isCritical = type === "agents_at_90" || type === "turns_at_90";
     const threshold = type === "agents_at_80" || type === "agents_at_90"
       ? `agent budget ${isCritical ? "90" : "80"}% used (${usage.spawnedAgents}/${limits.maxAgents})`
