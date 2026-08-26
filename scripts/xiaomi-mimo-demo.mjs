@@ -22,7 +22,16 @@ const yellow = (s) => `${CSI}33m${s}${CSI}0m`;
 const cyan = (s) => `${CSI}36m${s}${CSI}0m`;
 
 function sleep (ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const step = 1000;
+  let remaining = ms;
+  while (remaining > 0) {
+    const chunk = Math.min(step, remaining);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, chunk);
+    remaining -= chunk;
+    if (remaining > 0) {
+      process.stdout.write(dim(`  … ${Math.ceil(remaining / 1000)}s\n`));
+    }
+  }
 }
 
 function hr (label) {
@@ -66,7 +75,7 @@ function hasMimoCredentials () {
 console.log(bold("pi-agent-orchestrator — bounded Explore handoff demo"));
 console.log(dim("Public repo: github.com/GroepOnline/pi-agent-orchestrator"));
 console.log(dim("Recording: sanitised terminal workflow (no secrets, no private repos)"));
-sleep(6000);
+sleep(10000);
 
 hr("1 · Credential check");
 const mimoReady = hasMimoCredentials();
@@ -76,14 +85,14 @@ if (mimoReady) {
   console.log(yellow("BLOCKED_MIMO_CREDENTIALS — no MiMo API key or Pi auth on this host."));
   console.log("This demo records the same bounded orchestrator workflow without faking MiMo.");
 }
-sleep(5000);
+sleep(8000);
 
 hr("2 · Task");
 console.log("Task: run a read-only Explore subagent audit of the handoff parser,");
 console.log("then verify structured JSON handoff output end-to-end.");
 console.log("");
 console.log("Scope: public clone only · handoff.ts parse/render · vitest verification");
-sleep(6000);
+sleep(10000);
 
 hr("3 · Limits (built-in Explore agent)");
 console.log("Explore agent constraints from src/default-agents.ts:");
@@ -96,15 +105,23 @@ const settings = JSON.parse(fs.readFileSync(path.join(root, ".pi/subagents.json"
 console.log(`  • maxConcurrent: ${settings.maxConcurrent}`);
 console.log(`  • defaultMaxTurns: ${settings.defaultMaxTurns}`);
 console.log(`  • promptCompressionLevel: ${settings.promptCompressionLevel}`);
-sleep(8000);
+sleep(12000);
+
+hr("3b · Budget enforcement (e2e-chain)");
+console.log("The orchestrator enforces taskBudget per parent agent.");
+console.log("Running the budget gate test from test/e2e-chain.test.ts …");
+run("npm", ["test", "--", "test/e2e-chain.test.ts", "-t", "taskBudget=1"], {
+  label: 'npm test -- test/e2e-chain.test.ts -t "taskBudget=1"',
+});
+sleep(10000);
 
 hr("4 · Build extension");
 run("npm", ["run", "build"], { label: "npm run build" });
-sleep(4000);
+sleep(6000);
 
 hr("5 · Load extension in Pi host (RPC, no model key)");
 run("bash", ["scripts/cursor-cloud-smoke.sh"], { label: "bash scripts/cursor-cloud-smoke.sh" });
-sleep(6000);
+sleep(10000);
 
 hr("6 · Handoff pipeline (live dist import)");
 const { parseHandoff, renderHandoffForParent } = await import(path.join(root, "dist/handoff.js"));
@@ -128,26 +145,26 @@ const sampleOutput = `Explore audit complete.
 console.log(dim("Simulated Explore agent response (sanitised):"));
 console.log(sampleOutput.split("\n").slice(0, 6).join("\n"));
 console.log(dim("…"));
-sleep(5000);
+sleep(8000);
 
 const handoff = parseHandoff(sampleOutput);
 console.log("");
 console.log(green("parseHandoff() →"), JSON.stringify(handoff, null, 2));
-sleep(6000);
+sleep(10000);
 console.log("");
 console.log(bold("renderHandoffForParent() →"));
 console.log(renderHandoffForParent(handoff));
-sleep(8000);
+sleep(12000);
 
 hr("7 · Automated verification (vitest)");
 run("npm", ["test", "--", "test/handoff.test.ts", "test/e2e-chain.test.ts"], {
   label: "npm test -- test/handoff.test.ts test/e2e-chain.test.ts",
 });
-sleep(5000);
+sleep(8000);
 
 hr("8 · Typecheck");
 run("npm", ["run", "typecheck"], { label: "npm run typecheck" });
-sleep(5000);
+sleep(8000);
 
 hr("Done");
 console.log(green("✓ Extension loads in Pi host (/agents command registered)"));
@@ -163,4 +180,4 @@ if (!mimoReady) {
 }
 console.log("");
 console.log(dim("End of demo."));
-sleep(5000);
+sleep(12000);
