@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Record bounded handoff demo (real Pi TUI + MiMo model footer) to ARTIFACT_DIR.
-# Prerequisites: asciinema, agg, ffmpeg, tmux, pi, XIAOMI_API_KEY in environment.
+# Prerequisites: asciinema, agg, ffmpeg, tmux, pi, and a Pi-authenticated MiMo route.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,10 +16,34 @@ for tool in asciinema ffmpeg tmux pi; do
   command -v "$tool" >/dev/null || { echo "$tool required" >&2; exit 1; }
 done
 
-if [[ -z "${XIAOMI_API_KEY:-}" && -z "${MIMO_API_KEY:-}" ]]; then
-  echo "ERROR: set XIAOMI_API_KEY (or MIMO_API_KEY) in the environment before recording." >&2
+MIMO_PROVIDER="${MIMO_PROVIDER:-openrouter}"
+MIMO_MODEL="${MIMO_MODEL:-xiaomi/mimo-v2.5-pro}"
+MIMO_PREFLIGHT_TIMEOUT_SEC="${MIMO_PREFLIGHT_TIMEOUT_SEC:-30}"
+
+echo "== preflight MiMo route: ${MIMO_PROVIDER}/${MIMO_MODEL} =="
+if ! pi auth check --provider "$MIMO_PROVIDER" --model "$MIMO_MODEL" --json --no-refresh \
+  | python3 -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin).get("status") == "ready" else 1)'; then
+  echo "ERROR: Pi has no ready credential for ${MIMO_PROVIDER}/${MIMO_MODEL}." >&2
   exit 1
 fi
+
+PREFLIGHT_OUT="$(mktemp)"
+PREFLIGHT_ERR="$(mktemp)"
+if ! timeout "${MIMO_PREFLIGHT_TIMEOUT_SEC}s" pi \
+  --provider "$MIMO_PROVIDER" --model "$MIMO_MODEL" --thinking off \
+  --no-tools --no-session --no-extensions --no-context-files -p \
+  'Reply with exactly READY and nothing else.' >"$PREFLIGHT_OUT" 2>"$PREFLIGHT_ERR"; then
+  rm -f "$PREFLIGHT_OUT" "$PREFLIGHT_ERR"
+  echo "ERROR: live MiMo preflight failed or timed out; recording was not started." >&2
+  exit 1
+fi
+if ! grep -qx 'READY' "$PREFLIGHT_OUT"; then
+  rm -f "$PREFLIGHT_OUT" "$PREFLIGHT_ERR"
+  echo "ERROR: live MiMo preflight returned an unexpected response; recording was not started." >&2
+  exit 1
+fi
+rm -f "$PREFLIGHT_OUT" "$PREFLIGHT_ERR"
+export MIMO_PROVIDER MIMO_MODEL
 
 AGG_BIN="${AGG_BIN:-/tmp/agg}"
 if [[ ! -x "$AGG_BIN" ]]; then

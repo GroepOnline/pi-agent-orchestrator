@@ -4,6 +4,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SESSION="${HANDOFF_DEMO_SESSION:-handoff-demo-record}"
+MIMO_PROVIDER="${MIMO_PROVIDER:-openrouter}"
+MIMO_MODEL="${MIMO_MODEL:-xiaomi/mimo-v2.5-pro}"
 
 send() { tmux -f /exec-daemon/tmux.portal.conf send-keys -t "$SESSION" "$@" ; }
 pause() { sleep "${1:-2}"; }
@@ -11,11 +13,11 @@ pause() { sleep "${1:-2}"; }
 send "clear" C-m
 pause 1
 
-send "printf '%s\\n' '' '================================================================' '  pi-agent-orchestrator — bounded Explore handoff demo' '  repo: github.com/GroepOnline/pi-agent-orchestrator' '================================================================' '' 'TASK: read-only Explore audits src/handoff.ts → handoff JSON' '' 'LIMITS: read/bash/grep only · max_turns 3 · xiaomi / mimo-v2.5-pro'" C-m
+send "printf '%s\\n' '' '================================================================' '  pi-agent-orchestrator — bounded Explore handoff demo' '  repo: github.com/GroepOnline/pi-agent-orchestrator' '================================================================' '' 'TASK: read-only Explore audits src/handoff.ts → handoff JSON' '' 'LIMITS: read/bash/grep only · max_turns 3 · ${MIMO_PROVIDER} / ${MIMO_MODEL}'" C-m
 pause 15
 
 send "export TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=3" C-m
-send "pi --provider xiaomi --model mimo-v2.5-pro --approve -n handoff-demo --thinking off" C-m
+send "pi --provider ${MIMO_PROVIDER} --model ${MIMO_MODEL} --approve -n handoff-demo --thinking off" C-m
 pause 18
 
 send "" C-m
