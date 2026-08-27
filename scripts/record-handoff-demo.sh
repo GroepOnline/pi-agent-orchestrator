@@ -16,33 +16,53 @@ for tool in asciinema ffmpeg tmux pi; do
   command -v "$tool" >/dev/null || { echo "$tool required" >&2; exit 1; }
 done
 
-MIMO_PROVIDER="${MIMO_PROVIDER:-openrouter}"
-MIMO_MODEL="${MIMO_MODEL:-xiaomi/mimo-v2.5-pro}"
+MIMO_PROVIDER="${MIMO_PROVIDER:-}"
+MIMO_MODEL="${MIMO_MODEL:-}"
 MIMO_PREFLIGHT_TIMEOUT_SEC="${MIMO_PREFLIGHT_TIMEOUT_SEC:-30}"
 
-echo "== preflight MiMo route: ${MIMO_PROVIDER}/${MIMO_MODEL} =="
-if ! pi auth check --provider "$MIMO_PROVIDER" --model "$MIMO_MODEL" --json --no-refresh \
-  | python3 -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin).get("status") == "ready" else 1)'; then
-  echo "ERROR: Pi has no ready credential for ${MIMO_PROVIDER}/${MIMO_MODEL}." >&2
-  exit 1
+if [[ -n "$MIMO_PROVIDER" || -n "$MIMO_MODEL" ]]; then
+  if [[ -z "$MIMO_PROVIDER" || -z "$MIMO_MODEL" ]]; then
+    echo "ERROR: set both MIMO_PROVIDER and MIMO_MODEL, or neither." >&2
+    exit 1
+  fi
+  MIMO_CANDIDATES=("${MIMO_PROVIDER}|${MIMO_MODEL}")
+else
+  # Zero-credit defaults. Operators can override both variables for another route.
+  MIMO_CANDIDATES=("bai|mimo-v2.5" "opencode-zen|mimo-v2.5-free")
 fi
 
-PREFLIGHT_OUT="$(mktemp)"
-PREFLIGHT_ERR="$(mktemp)"
-if ! timeout "${MIMO_PREFLIGHT_TIMEOUT_SEC}s" pi \
-  --provider "$MIMO_PROVIDER" --model "$MIMO_MODEL" --thinking off \
-  --no-tools --no-session --no-extensions --no-context-files -p \
-  'Reply with exactly READY and nothing else.' >"$PREFLIGHT_OUT" 2>"$PREFLIGHT_ERR"; then
+SELECTED_ROUTE=""
+for candidate in "${MIMO_CANDIDATES[@]}"; do
+  provider="${candidate%%|*}"
+  model="${candidate#*|}"
+  echo "== preflight MiMo route: ${provider}/${model} =="
+  if ! pi auth check --provider "$provider" --model "$model" --json --no-refresh 2>/dev/null \
+    | python3 -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin).get("status") == "ready" else 1)'; then
+    echo "SKIP: Pi has no ready credential for ${provider}/${model}." >&2
+    continue
+  fi
+
+  PREFLIGHT_OUT="$(mktemp)"
+  PREFLIGHT_ERR="$(mktemp)"
+  if timeout "${MIMO_PREFLIGHT_TIMEOUT_SEC}s" pi \
+    --provider "$provider" --model "$model" --thinking off \
+    --no-tools --no-session --no-extensions --no-context-files -p \
+    'Reply with exactly READY and nothing else.' >"$PREFLIGHT_OUT" 2>"$PREFLIGHT_ERR" \
+    && grep -qx 'READY' "$PREFLIGHT_OUT"; then
+    SELECTED_ROUTE="$candidate"
+    rm -f "$PREFLIGHT_OUT" "$PREFLIGHT_ERR"
+    break
+  fi
+  echo "SKIP: live MiMo preflight failed, timed out, or returned unexpected output for ${provider}/${model}." >&2
   rm -f "$PREFLIGHT_OUT" "$PREFLIGHT_ERR"
-  echo "ERROR: live MiMo preflight failed or timed out; recording was not started." >&2
+done
+
+if [[ -z "$SELECTED_ROUTE" ]]; then
+  echo "ERROR: no live MiMo route passed the READY preflight; recording was not started." >&2
   exit 1
 fi
-if ! grep -qx 'READY' "$PREFLIGHT_OUT"; then
-  rm -f "$PREFLIGHT_OUT" "$PREFLIGHT_ERR"
-  echo "ERROR: live MiMo preflight returned an unexpected response; recording was not started." >&2
-  exit 1
-fi
-rm -f "$PREFLIGHT_OUT" "$PREFLIGHT_ERR"
+MIMO_PROVIDER="${SELECTED_ROUTE%%|*}"
+MIMO_MODEL="${SELECTED_ROUTE#*|}"
 export MIMO_PROVIDER MIMO_MODEL
 
 AGG_BIN="${AGG_BIN:-/tmp/agg}"

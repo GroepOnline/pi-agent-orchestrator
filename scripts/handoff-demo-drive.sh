@@ -4,8 +4,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SESSION="${HANDOFF_DEMO_SESSION:-handoff-demo-record}"
-MIMO_PROVIDER="${MIMO_PROVIDER:-openrouter}"
-MIMO_MODEL="${MIMO_MODEL:-xiaomi/mimo-v2.5-pro}"
+MIMO_PROVIDER="${MIMO_PROVIDER:-bai}"
+MIMO_MODEL="${MIMO_MODEL:-mimo-v2.5}"
 
 send() { tmux -f /exec-daemon/tmux.portal.conf send-keys -t "$SESSION" "$@" ; }
 pause() { sleep "${1:-2}"; }
