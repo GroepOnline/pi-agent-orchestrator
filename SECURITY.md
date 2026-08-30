@@ -1,11 +1,12 @@
 # Security
 
 Thanks for helping keep this project safe. This is a local Pi extension: it
-runs inside your own Pi coding-agent host and makes no outbound network calls
-of its own, so the attack surface is small. Small is not zero, though. The
-extension reads environment variables and files in your workspace, injects that
-content into agent prompts, and can run commands on your machine through the
-sub-agents it spawns. This page covers how to report anything that looks wrong.
+runs inside your own Pi coding-agent host and has no package-owned hosted
+control plane. Optional PostHog telemetry is disabled unless an operator
+explicitly configures it. Small is not zero, though. The extension reads
+environment variables and files in your workspace, injects that content into
+agent prompts, and can run commands on your machine through the sub-agents it
+spawns. This page covers how to report anything that looks wrong.
 
 ## Reporting a vulnerability
 
@@ -54,10 +55,30 @@ this extension):
 - The optional "@groeponline/context-mode" peer extension.
 - Your local Pi host, your model provider, and your machine.
 
+## Runtime dependency rationale
+
+The published package intentionally keeps runtime dependencies small and auditable:
+
+| Dependency | Why it is present |
+| --- | --- |
+| `@opentelemetry/api` | Standard tracing/telemetry interop without owning a backend. |
+| `@sinclair/typebox` | Runtime schemas for tool and RPC contracts. |
+| `croner` | Cron/interval scheduling for persistent agent jobs. |
+| `nanoid` | Collision-resistant local identifiers. |
+| `posthog-node` | Optional telemetry bridge; inert until explicitly configured. |
+| `proper-lockfile` | Cross-process locking for persisted scheduler/orchestration state. |
+
+Release CI runs the package test/typecheck/lint/build/metadata gates. Dependency changes should be treated as security-relevant review items, especially packages that can affect scheduling, persistence, RPC, or telemetry.
+
+## Cross-extension RPC trust model
+
+The normal runtime creates a random per-process RPC capability token and wires it into the public API. Mutating RPC calls such as `spawn` and `stop` must present the matching token; caller-controlled `extensionId` alone is not authorization. Mutations are rate-limited per sanitized extension identity, and spawn options are reduced to an allowlist so a peer cannot smuggle privilege-escalating options such as arbitrary `cwd` or queue bypasses. The complete protocol is documented in [`docs/api-reference.md`](docs/api-reference.md#-cross-extension-rpc).
+
 ## A note on this project
 
-This extension is local-only: it makes no outbound network calls of its own and
-stores no user data on any server. But "local" is not the same as "safe".
+The orchestration runtime is local and stores no user data on a ChefGroep
+server. Optional PostHog events are an explicit operator-configured network
+boundary and are inert by default. But "local" is not the same as "safe".
 Because it reads your environment and workspace, injects that into prompts, and
 executes commands through sub-agents, the realistic risks are worth taking
 seriously: unintended or destructive commands, privilege escalation, exposure
