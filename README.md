@@ -34,6 +34,18 @@ pi install npm:@groeponline/pi-agent-orchestrator -l
 Requires Node.js 22.22.3 or newer and `@earendil-works/pi-coding-agent` 0.81.1 or newer.
 Use `pi install`; running `npm install` alone does not register the package resources with Pi.
 
+## Where it fits
+
+This package owns **execution**, not idea capture or durable project state. The portfolio layers are intentionally composable:
+
+| Stage | Package | Ownership |
+| --- | --- | --- |
+| Capture | [`pi-wishcraft`](https://github.com/GroepOnline/pi-wishcraft) | Operator cockpit and lightweight ideas |
+| Persist | [`pi-missions`](https://github.com/GroepOnline/pi-missions) | Durable plan, queue, evidence, recovery, handoff state |
+| Execute | **pi-agent-orchestrator** | Agents, worktrees, swarms, schedules, structured handoffs |
+
+A common flow is `idea -> mission -> orchestration run`. You can also use the Orchestrator alone when the work does not need durable mission state.
+
 ## Why this package
 
 | Capability | What it gives you |
@@ -128,7 +140,7 @@ Create project agents in `.pi/agents/*.md`. See [Custom Agents](docs/custom-agen
 - **Persistent scheduling** — cron, interval, and one-shot jobs with a daemon schedule view.
 - **Structured handoffs** — machine-readable transfer between agents and chained workflows.
 - **Swarm coordination** — dynamic membership and coordinated completion.
-- **Cross-extension RPC** — capability-based integration for trusted peer extensions.
+- **Cross-extension RPC** — per-process capability-token authentication for peer extensions, mutation rate limits, and a strict spawn-option allowlist. See [Cross-extension RPC](docs/api-reference.md#-cross-extension-rpc).
 
 Default orchestration mode is `single`; multi-agent modes are opt-in.
 

@@ -4,7 +4,7 @@
   "displayName": "PI AGENT ORCHESTRATOR",
   "tagline": "Observable multi-agent orchestration for Pi: autonomous subagents, isolated worktrees, swarms, schedules, handoffs, and a live operator dashboard.",
   "repository": "https://github.com/GroepOnline/pi-agent-orchestrator",
-  "generatedAt": "2026-08-23T02:55:51.335Z",
+  "generatedAt": "2026-08-30T23:34:31.999Z",
   "coreCapabilities": [
     {
       "title": "Interactive TUI dashboard",
@@ -40,7 +40,7 @@
     },
     {
       "title": "Cross-extension RPC",
-      "description": "capability-based integration for trusted peer extensions."
+      "description": "per-process capability-token authentication for peer extensions, mutation rate limits, and a strict spawn-option allowlist. See [Cross-extension RPC](docs/api-reference.md#-cross-extension-rpc)."
     }
   ],
   "agentTypes": [
