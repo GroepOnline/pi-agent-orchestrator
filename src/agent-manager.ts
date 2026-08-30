@@ -415,11 +415,11 @@ export class AgentManager {
       detachParentSignal = undefined;
     };
 
-    const abandonStartup = (result = ""): void => {
+    const abandonStartup = async (result = ""): Promise<void> => {
       detach();
       if (record.worktree) {
         try {
-          cleanupWorktree(ctx.cwd, record.worktree, options.description);
+          await cleanupWorktree(ctx.cwd, record.worktree, options.description);
         } catch {
           /* ignore cleanup errors */
         }
@@ -451,7 +451,7 @@ export class AgentManager {
         record.status = "stopped";
         record.completedAt ??= Date.now();
       }
-      abandonStartup();
+      await abandonStartup();
       return;
     }
 
@@ -539,7 +539,7 @@ export class AgentManager {
         },
       });
     })
-      .then(({ responseText, session, aborted, timedOut, steered, validationResults, validated, error }) => {
+      .then(async ({ responseText, session, aborted, timedOut, steered, validationResults, validated, error }) => {
         record.result = responseText;
         record.session = session;
         // A surfaced model/provider error (no thrown exception) is still a
@@ -577,12 +577,12 @@ export class AgentManager {
           }
         }
 
-        this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, status, error);
+        await this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, status, error);
         return responseText;
       })
-      .catch((err) => {
+      .catch(async (err) => {
         const errorMsg = err instanceof Error ? err.message : String(err);
-        this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, "error", errorMsg);
+        await this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, "error", errorMsg);
         return "";
       });
 
@@ -598,7 +598,7 @@ export class AgentManager {
    * and background queue drain. Called from both .then() and .catch() after
    * result-specific logic.
    */
-  private finalizeAgent(
+  private async finalizeAgent(
     record: AgentRecord,
     ctx: ExtensionContext,
     description: string,
@@ -606,7 +606,7 @@ export class AgentManager {
     detach: () => void,
     status?: "completed" | "aborted" | "steered" | "error",
     error?: string,
-  ): void {
+  ): Promise<void> {
     // Don't overwrite status if externally stopped via abort()
     if (record.status !== "stopped" && status) {
       record.status = status;
@@ -625,7 +625,7 @@ export class AgentManager {
     // Clean up worktree if used
     if (record.worktree) {
       try {
-        const wtResult = cleanupWorktree(ctx.cwd, record.worktree, description);
+        const wtResult = await cleanupWorktree(ctx.cwd, record.worktree, description);
         record.worktreeResult = wtResult;
         if (!error && wtResult.hasChanges && wtResult.branch) {
           record.result = (record.result ?? "") +

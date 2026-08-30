@@ -23,9 +23,9 @@ describe("worktree agent ID safety", () => {
     repoDir = initGitRepo();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     try {
-      pruneWorktrees(repoDir);
+      await pruneWorktrees(repoDir);
     } catch {
       // Best-effort test cleanup.
     }
@@ -39,7 +39,7 @@ describe("worktree agent ID safety", () => {
     expect(worktree!.branch).toBe("pi-agent-etc-passwd");
 
     writeFileSync(join(worktree!.path, "agent-output.txt"), "safe");
-    const result = cleanupWorktree(repoDir, worktree!, "validate sanitized agent ID");
+    const result = await cleanupWorktree(repoDir, worktree!, "validate sanitized agent ID");
 
     expect(result).toMatchObject({
       hasChanges: true,
