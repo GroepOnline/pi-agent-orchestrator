@@ -305,3 +305,98 @@ describe("Task Budget", () => {
     expect(seen).toEqual(["agent-1", "agent-2"]);
   });
 });
+
+/**
+ * Live-limit characterization (R2/KTD2): the session-limit setters feed the
+ * spawn and turn gates live — a mid-session raise applies at the NEXT
+ * enforcement point with no rebuild or restart. These tests lock that
+ * invariant; they pass on current code and must keep passing.
+ */
+describe("Live session-limit enforcement (characterization)", () => {
+  let manager: AgentManager;
+
+  afterEach(() => {
+    manager?.dispose();
+    vi.mocked(runAgent).mockReset();
+    vi.clearAllMocks();
+  });
+
+  it("raising maxAgents mid-session admits the next dispatch at the spawn gate", async () => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(16); // keep every spawn off the concurrency queue
+    resolvedRun();
+    manager.setSessionMaxSpawns(5);
+
+    const firstWave: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      firstWave.push(manager.spawn(mockPi, mockCtx, "Explore", `crew ${i}`, {
+        description: `crew-${i}`,
+        isBackground: true,
+      }));
+    }
+    for (const id of firstWave) await manager.getRecord(id)!.promise;
+    // Completed agents still count against the session limit (issue #5 shape).
+    expect(manager.getSessionUsage().spawnedAgents).toBe(5);
+
+    // At 5/5 the spawn gate rejects the next dispatch...
+    expect(() =>
+      manager.spawn(mockPi, mockCtx, "Explore", "sixth", { description: "sixth", isBackground: true }),
+    ).toThrow("Session agent limit reached (5/5)");
+
+    // ...and the gate reads the limit live: raising it mid-session admits
+    // three more dispatches without a restart.
+    manager.setSessionMaxSpawns(8);
+    const raisedWave: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      raisedWave.push(manager.spawn(mockPi, mockCtx, "Explore", `raised ${i}`, {
+        description: `raised-${i}`,
+        isBackground: true,
+      }));
+    }
+    for (const id of raisedWave) await manager.getRecord(id)!.promise;
+    expect(manager.getSessionUsage().spawnedAgents).toBe(8);
+
+    // The NEW limit is the enforced ceiling.
+    expect(() =>
+      manager.spawn(mockPi, mockCtx, "Explore", "ninth", { description: "ninth", isBackground: true }),
+    ).toThrow("Session agent limit reached (8/8)");
+  });
+
+  it("raising maxTurns mid-session applies the new cap at the next turn-budget evaluation", () => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(4);
+
+    // Capture the manager's onTurnEnd gate from the spawned run. spawn()
+    // invokes the run synchronously (no worktree isolation, queue capacity
+    // free), so the gate is available immediately after spawn returns.
+    let turnGate: ((turnCount: number) => void) | undefined;
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      turnGate = options.onTurnEnd;
+      return { responseText: "done", session: mockSession(), aborted: false, steered: false };
+    });
+
+    manager.setSessionMaxTurns(5);
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "long task", {
+      description: "long task",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    expect(turnGate).toBeDefined();
+
+    // Four turns under the old cap of 5 — no session-turn abort yet.
+    turnGate!(1);
+    turnGate!(4);
+    expect(manager.getSessionUsage().totalTurns).toBe(4);
+    expect(record.error).toBeUndefined();
+
+    // Raise 5 → 8 mid-session: the next evaluation reads the NEW cap, so
+    // turn 5 (which the old cap would abort) passes cleanly.
+    manager.setSessionMaxTurns(8);
+    turnGate!(5);
+    expect(record.error).toBeUndefined();
+
+    // Turn 8 crosses the new cap — the gate fires with the new numbers.
+    turnGate!(8);
+    expect(record.error).toBe("Session turn limit reached (8/8)");
+  });
+});

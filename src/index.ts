@@ -65,7 +65,14 @@ import { clearSubagentsApi, registerSubagentsApi } from "./public-api.js";
 import type { ScheduleChangeEvent } from "./schedule.js";
 import { SubagentScheduler } from "./schedule.js";
 import { resolveStorePath, ScheduleStore } from "./schedule-store.js";
-import { applyAndEmitLoaded, loadSettings, saveSettings } from "./settings.js";
+import {
+  applyAndEmitLoaded,
+  capturedDispatchNotices,
+  extractCapturedDispatchLimits,
+  loadSettings,
+  type SubagentsSettings,
+  saveSettings,
+} from "./settings.js";
 import { utilization, utilizationLabel } from "./spend.js";
 import { SwarmCoordinator, setActiveSwarmCoordinator } from "./swarm-join.js";
 import { onTelemetry } from "./telemetry.js";
@@ -529,6 +536,7 @@ export default async function (pi: ExtensionAPI) {
     // before the host finishes unloading; shutdown failures stay best-effort.
     if (posthogBridge) await posthogBridge.shutdown();
     if (scheduleUnsub) scheduleUnsub();
+    unsubLimitNotices?.();
   });
 
   // Live widgets above the editor: agent tree + persistent AGENT TOP strip
@@ -582,7 +590,7 @@ export default async function (pi: ExtensionAPI) {
   // Apply persisted settings on startup and emit `subagents:settings_loaded`.
   // Global + project merged; missing → defaults; corrupt file emits a warning
   // to stderr and falls back to defaults.
-  applyAndEmitLoaded(
+  const loadedSettings = applyAndEmitLoaded(
     {
       setMaxConcurrent: (n) => manager.setMaxConcurrent(n),
       setPerAgentTokenLimit: (n) => manager.setPerAgentTokenLimit(n),
@@ -615,6 +623,23 @@ export default async function (pi: ExtensionAPI) {
     },
     (event, payload) => pi.events.emit(event, payload),
   );
+
+  // R2 captured-value notices: dispatch-captured limits (the effective
+  // per-agent max turns baked into every spawn by tools/agent.ts) reach only
+  // the NEXT dispatch when changed mid-session. `subagents:settings_changed`
+  // fires exactly once per accepted settings change (saveAndEmitChanged), so
+  // diffing the captured limits here emits at most one notice per change —
+  // never per turn. Live-enforced limits (session agent/turn gates, the
+  // per-agent spend cap) are not part of the diff and never notify.
+  let capturedLimits = extractCapturedDispatchLimits(loadedSettings);
+  const unsubLimitNotices = pi.events.on("subagents:settings_changed", (payload) => {
+    const next = extractCapturedDispatchLimits((payload as { settings?: SubagentsSettings }).settings);
+    for (const notice of capturedDispatchNotices(capturedLimits, next)) {
+      pi.events.emit("subagents:limit_change_notice", notice);
+      pi.sendMessage({ customType: "subagent-notification", content: notice.message, display: true });
+    }
+    capturedLimits = next;
+  });
 
   // ---- Tool context — shared dependency bag for extracted tool modules ----
   const toolCtx = {
