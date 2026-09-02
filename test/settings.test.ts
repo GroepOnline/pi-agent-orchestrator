@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyAndEmitLoaded,
   applySettings,
+  capturedDispatchNotices,
+  extractCapturedDispatchLimits,
   loadSettings,
   persistToastFor,
   type SettingsAppliers,
@@ -804,5 +806,82 @@ describe("settings persistence", () => {
         rmSync(filePosingAsCwd, { force: true });
       }
     });
+  });
+});
+
+/**
+ * R2 captured-value notices (KTD2): the effective per-agent max turns is
+ * provably captured at dispatch (tools/agent.ts bakes `effectiveMaxTurns`
+ * into every spawn; agent-runner resolves it once per run), so a settings
+ * change reaches only the NEXT dispatch. Each change therefore emits exactly
+ * ONE notice stating when it takes effect — never per turn. Values the live
+ * chain already applies (maxAgentsPerSession, maxTotalTurnsPerSession,
+ * perAgentTokenLimit) never emit a notice.
+ */
+describe("captured-dispatch limit notices", () => {
+  it("extracts dispatch-captured limits, mapping 0/unset to unlimited", () => {
+    expect(extractCapturedDispatchLimits({ defaultMaxTurns: 25 })).toEqual({ defaultMaxTurns: 25 });
+    // 0 is the explicit unlimited marker (snapshot + sanitize convention).
+    expect(extractCapturedDispatchLimits({ defaultMaxTurns: 0 })).toEqual({ defaultMaxTurns: undefined });
+    expect(extractCapturedDispatchLimits({})).toEqual({ defaultMaxTurns: undefined });
+    expect(extractCapturedDispatchLimits(undefined)).toEqual({ defaultMaxTurns: undefined });
+  });
+
+  it("emits exactly one notice when the effective max turns changes, stating when it takes effect", () => {
+    const previous = extractCapturedDispatchLimits({ defaultMaxTurns: 25 });
+    const next = extractCapturedDispatchLimits({ defaultMaxTurns: 40 });
+
+    const notices = capturedDispatchNotices(previous, next);
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0].setting).toBe("defaultMaxTurns");
+    expect(notices[0].previous).toBe(25);
+    expect(notices[0].next).toBe(40);
+    // The notice must state WHEN the value takes effect (R2).
+    expect(notices[0].message).toContain("next dispatch");
+    expect(notices[0].message).toContain("25");
+    expect(notices[0].message).toContain("40");
+  });
+
+  it("notices a change to unlimited (0) and back", () => {
+    const raise = capturedDispatchNotices(
+      extractCapturedDispatchLimits({ defaultMaxTurns: 25 }),
+      extractCapturedDispatchLimits({ defaultMaxTurns: 0 }),
+    );
+    expect(raise).toHaveLength(1);
+    expect(raise[0].next).toBeUndefined();
+
+    const limit = capturedDispatchNotices(
+      extractCapturedDispatchLimits({ defaultMaxTurns: 0 }),
+      extractCapturedDispatchLimits({ defaultMaxTurns: 30 }),
+    );
+    expect(limit).toHaveLength(1);
+    expect(limit[0].previous).toBeUndefined();
+    expect(limit[0].next).toBe(30);
+  });
+
+  it("emits no notice when the captured value is unchanged", () => {
+    const previous = extractCapturedDispatchLimits({ defaultMaxTurns: 25 });
+    const next = extractCapturedDispatchLimits({ defaultMaxTurns: 25 });
+    expect(capturedDispatchNotices(previous, next)).toEqual([]);
+
+    // The listener updates its state after each change, so re-diffing the
+    // new state against itself is silent (once-per-change discipline).
+    const changed = extractCapturedDispatchLimits({ defaultMaxTurns: 40 });
+    expect(capturedDispatchNotices(changed, changed)).toEqual([]);
+  });
+
+  it("emits no notice for values the live chain already applies", () => {
+    // maxAgentsPerSession / maxTotalTurnsPerSession / perAgentTokenLimit are
+    // enforced live (spawn gate, turn gate, spend check) — changing them in a
+    // settings payload must not produce a captured-value notice.
+    const previous = extractCapturedDispatchLimits({ defaultMaxTurns: 25 });
+    const next = extractCapturedDispatchLimits({
+      defaultMaxTurns: 25,
+      maxAgentsPerSession: 8,
+      maxTotalTurnsPerSession: 500,
+      perAgentTokenLimit: 20_000,
+    });
+    expect(capturedDispatchNotices(previous, next)).toEqual([]);
   });
 });

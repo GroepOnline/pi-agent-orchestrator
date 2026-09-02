@@ -391,6 +391,71 @@ export function persistToastFor(
     : { message: `${successMessage} (session only; failed to persist)`, level: "warning" };
 }
 
+// ---- R2: dispatch-captured limits and one-time change notices ----
+
+/**
+ * Settings values that are provably CAPTURED at dispatch rather than read
+ * live at enforcement: `tools/agent.ts` bakes the effective max turns into
+ * every spawn and the runner resolves it once per run, so a change reaches
+ * only the NEXT dispatch. Live-enforced limits (maxAgentsPerSession at the
+ * spawn gate, maxTotalTurnsPerSession at the turn gate, perAgentTokenLimit in
+ * the spend check) are deliberately absent — they already apply to the
+ * running session at the next enforcement point and never emit a notice.
+ */
+export interface CapturedDispatchLimits {
+  /** Effective per-agent max turns; `undefined` = unlimited. */
+  defaultMaxTurns?: number;
+}
+
+/** One-time notice that a dispatch-captured limit changed (R2). */
+export interface CapturedLimitNotice {
+  setting: "defaultMaxTurns";
+  previous: number | undefined;
+  next: number | undefined;
+  /** Operator-facing message stating when the new value takes effect. */
+  message: string;
+}
+
+/** Extract the dispatch-captured limits from a settings object (0 = unlimited). */
+export function extractCapturedDispatchLimits(
+  settings: SubagentsSettings | undefined,
+): CapturedDispatchLimits {
+  return {
+    defaultMaxTurns:
+      typeof settings?.defaultMaxTurns === "number" && settings.defaultMaxTurns > 0
+        ? settings.defaultMaxTurns
+        : undefined,
+  };
+}
+
+/**
+ * Diff previously-applied vs newly-applied dispatch-captured limits (R2).
+ * Returns at most one notice per changed value. The caller feeds it once per
+ * `subagents:settings_changed` event — which fires exactly once per accepted
+ * settings change — so notices are once-per-change, never per turn. Returns
+ * `[]` when nothing captured changed, including changes that only touch
+ * live-enforced limits.
+ */
+export function capturedDispatchNotices(
+  previous: CapturedDispatchLimits,
+  next: CapturedDispatchLimits,
+): CapturedLimitNotice[] {
+  const notices: CapturedLimitNotice[] = [];
+  if (previous.defaultMaxTurns !== next.defaultMaxTurns) {
+    const from = previous.defaultMaxTurns ?? "unlimited";
+    const to = next.defaultMaxTurns ?? "unlimited";
+    notices.push({
+      setting: "defaultMaxTurns",
+      previous: previous.defaultMaxTurns,
+      next: next.defaultMaxTurns,
+      message:
+        `Default max turns changed from ${from} to ${to}: the new value applies to agents ` +
+        `dispatched from now on (next dispatch) — running agents keep the turn budget they were dispatched with.`,
+    });
+  }
+  return notices;
+}
+
 export function applyAndEmitLoaded(
   appliers: SettingsAppliers,
   emit: SettingsEmit,

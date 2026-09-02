@@ -103,4 +103,30 @@ describe("per-agent spend warnings", () => {
     manager.setPerAgentTokenLimit(12.7);
     expect(manager.getPerAgentTokenLimit()).toBe(12);
   });
+
+  it("applies a changed per-agent token cap at the next spend check (live-limit characterization)", () => {
+    // R2: the per-agent spend cap is read live by every spend check
+    // (agent-manager checkAgentSpend), so a mid-run change keeps applying to
+    // the running agent at the next enforcement point — no notice needed.
+    const manager = new AgentManager();
+    const seen: BudgetWarningType[] = [];
+    manager.setBudgetWarningHandler((type) => seen.push(type));
+    manager.setPerAgentTokenLimit(100);
+    const record = makeRecord("live-cap");
+    const check = (input: number, output: number) => {
+      record.lifetimeUsage.input = input;
+      record.lifetimeUsage.output = output;
+      (manager as unknown as { checkAgentSpend: (r: typeof record) => void }).checkAgentSpend(record);
+    };
+
+    check(45, 10); // 55% of 100 → spend_50
+    expect(seen).toEqual(["spend_50"]);
+
+    // Mid-run cap change: the NEXT check reads the new cap live. 55 of 60 is
+    // ~92%, which crosses spend_80 only under the new cap — the old cap would
+    // leave this usage at 55% (no new warning).
+    manager.setPerAgentTokenLimit(60);
+    check(50, 5);
+    expect(seen).toEqual(["spend_50", "spend_80"]);
+  });
 });
