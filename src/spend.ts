@@ -73,3 +73,55 @@ export function utilization(used: number, cap: number): number {
 export function utilizationLabel(used: number, cap: number): string {
   return `${utilization(used, cap)}% used (${used}/${cap})`;
 }
+
+/**
+ * Operator actions named by every session budget warning (R3): raise the
+ * limit, restart the session, or deny further work.
+ */
+const SESSION_BUDGET_ACTION =
+  "Raise the limit via /agents → Settings, restart the session for a fresh budget, or deny further work.";
+
+/** Input for a session-level budget warning (agent count or turn count threshold). */
+export interface SessionBudgetWarningInput {
+  kind: "agents" | "turns";
+  used: number;
+  cap: number;
+  /** True for the 90% thresholds, where enforcement is imminent. */
+  critical: boolean;
+}
+
+/**
+ * Full text of a session budget warning (R1 + R3): the percentage and the
+ * counter come from the same used/cap pair via utilizationLabel, and the
+ * message names concrete operator actions — raise the limit, restart the
+ * session, or deny further work. The critical (90%) variants lead with the
+ * imminent-stop consequence.
+ */
+export function sessionBudgetWarningMessage({ kind, used, cap, critical }: SessionBudgetWarningInput): string {
+  const noun = kind === "agents" ? "agent" : "turn";
+  const prefix = critical ? "🚨" : "⚠️";
+  const consequence = critical
+    ? (kind === "agents" ? "Spawns will stop soon — " : "Agents will stop soon — ")
+    : "";
+  return `${prefix} Session ${noun} budget ${utilizationLabel(used, cap)}. ${consequence}${SESSION_BUDGET_ACTION}`;
+}
+
+/**
+ * Full text of a per-agent token-cap warning (R1 + R3). `thresholdPct` is
+ * the crossed threshold (50/80/100); the rendered percentage routes through
+ * `utilization` so it always matches the counter. The hint names the two
+ * actions that apply to a per-agent cap: raise it via settings, or deny
+ * further work for the agent (it aborts at the cap).
+ */
+export function spendBudgetWarningMessage(input: {
+  thresholdPct: number;
+  perAgentTokenLimit: number;
+  agentCount: number;
+}): string {
+  const pct = utilization(input.thresholdPct, 100);
+  const prefix = pct === 100 ? "🚨" : "⚠️";
+  const action = pct === 100
+    ? "The agent aborts at the cap — raise the per-agent token cap via /agents → Settings, or deny further work for this agent."
+    : "Raise the per-agent token cap via /agents → Settings, or deny further heavy work for this agent.";
+  return `${prefix} Subagent token budget ${pct}% used (${input.agentCount} agent(s) capped at ${input.perAgentTokenLimit} tokens). ${action}`;
+}

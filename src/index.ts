@@ -73,7 +73,12 @@ import {
   type SubagentsSettings,
   saveSettings,
 } from "./settings.js";
-import { utilization, utilizationLabel } from "./spend.js";
+import {
+  sessionBudgetWarningMessage,
+  spendBudgetWarningMessage,
+  utilization,
+  utilizationLabel,
+} from "./spend.js";
 import { SwarmCoordinator, setActiveSwarmCoordinator } from "./swarm-join.js";
 import { onTelemetry } from "./telemetry.js";
 import { buildNotificationDetails, formatTaskNotification } from "./tool-result-helpers.js";
@@ -389,39 +394,45 @@ export default async function (pi: ExtensionAPI) {
 
   // Budget warnings: session-limit thresholds (once per threshold) + per-subagent
   // spend (50/80/100% of the token cap). Emitted as pi.events so the dashboard
-  // can show them, and as a single non-blocking notification message.
+  // can show them, and as a single non-blocking notification message. Message
+  // text (R1 utilization SSOT + R3 operator-action hint) is built by the pure
+  // helpers in spend.ts so every warning names a concrete action.
   manager.setBudgetWarningHandler((type, usage, limits) => {
     if (type.startsWith("spend_")) {
-      // The crossed threshold is a utilization level of the per-agent cap; route
-      // it through the shared helper so every warning percentage comes from the
-      // same math SSOT (R1 — never computed independently of the counter).
+      // The crossed threshold is a utilization level of the per-agent cap; the
+      // builder routes it through the shared helper so every warning percentage
+      // comes from the same math SSOT (R1 — never computed independently of
+      // the counter).
       const spendPct = type === "spend_50" ? 50 : type === "spend_80" ? 80 : 100;
+      const message = spendBudgetWarningMessage({
+        thresholdPct: spendPct,
+        perAgentTokenLimit: manager.getPerAgentTokenLimit(),
+        agentCount: usage.spawnedAgents,
+      });
       const pct = utilization(spendPct, 100);
-      const prefix = pct === 100 ? "🚨" : "⚠️";
-      const message = `${prefix} Subagent token budget ${pct}% used (${usage.spawnedAgents} agent(s) capped at ${manager.getPerAgentTokenLimit()} tokens).`;
       pi.events.emit("subagents:budget_warning", { type, usage, limits, threshold: `spend_${pct}`, message });
       pi.sendMessage({ customType: "subagent-notification", content: message, display: true });
       return;
     }
     const isCritical = type === "agents_at_90" || type === "turns_at_90";
+    const isAgents = type === "agents_at_80" || type === "agents_at_90";
     // R1/AE1: percentage and counter render from the SAME used/cap pair —
     // above the cap the true ratio shows (e.g. "120% used (30/25)"), never a
     // threshold label detached from the counter.
-    const threshold = type === "agents_at_80" || type === "agents_at_90"
-      ? `agent budget ${utilizationLabel(usage.spawnedAgents, limits.maxAgents)}`
-      : `turn budget ${utilizationLabel(usage.totalTurns, limits.maxTurns)}`;
-    const prefix = isCritical ? "🚨" : "⚠️";
-    const advice = isCritical
-      ? "Session budget nearly exhausted — spawns will stop soon!"
-      : "Consider /agents → Settings to increase limits.";
-    pi.events.emit("subagents:budget_warning", {
-      type,
-      usage,
-      limits,
-      threshold,
-      message: `${prefix} Session ${threshold}. ${advice}`,
+    const used = isAgents ? usage.spawnedAgents : usage.totalTurns;
+    const cap = isAgents ? limits.maxAgents : limits.maxTurns;
+    const threshold = `${isAgents ? "agent" : "turn"} budget ${utilizationLabel(used, cap)}`;
+    // R3: the message names the operator actions (raise the limit, restart,
+    // or deny further work); raising a limit re-arms the threshold in the
+    // manager so a later crossing warns again.
+    const message = sessionBudgetWarningMessage({
+      kind: isAgents ? "agents" : "turns",
+      used,
+      cap,
+      critical: isCritical,
     });
-    pi.sendMessage({ customType: "subagent-notification", content: `${prefix} Session ${threshold}. ${advice}`, display: true });
+    pi.events.emit("subagents:budget_warning", { type, usage, limits, threshold, message });
+    pi.sendMessage({ customType: "subagent-notification", content: message, display: true });
   });
 
   // Host-issued RPC capability token. Peers must present this via
