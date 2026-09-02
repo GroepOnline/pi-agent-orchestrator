@@ -33,6 +33,14 @@ export type OnAgentCompact = (record: AgentRecord, info: CompactionInfo) => void
 export type BudgetWarningType = "agents_at_80" | "turns_at_80" | "agents_at_90" | "turns_at_90" | "spend_50" | "spend_80" | "spend_100";
 export type OnBudgetWarning = (type: BudgetWarningType, usage: { spawnedAgents: number; totalTurns: number }, limits: { maxAgents: number; maxTurns: number }) => void;
 
+/**
+ * Fired-threshold keys per limit family (matching the keys used by
+ * `checkBudgetWarning`). When a limit changes, its family's keys are cleared
+ * so a later crossing warns again (R3 re-arm).
+ */
+const AGENT_THRESHOLD_KEYS: readonly string[] = ["agents_80", "agents_90"];
+const TURN_THRESHOLD_KEYS: readonly string[] = ["turns_80", "turns_90"];
+
 /** Default max concurrent background agents. */
 /** Fresh-install default: keep typical fan-out in the 1–3 agent range. */
 const DEFAULT_MAX_CONCURRENT = 3;
@@ -115,7 +123,11 @@ export class AgentManager {
   private sessionLimits: SessionLimits = {};
   private sessionUsage = { spawnedAgents: 0, totalTurns: 0 };
   private lastTurnCounts = new Map<string, number>();
-  /** Once-per-threshold guards so budget warnings fire a single time each. */
+  /**
+   * Once-per-threshold guards so budget warnings fire a single time each.
+   * Cleared per threshold family when its limit changes (R3 re-arm) and in
+   * full by `resetSessionUsage`.
+   */
   private firedBudgetThresholds = new Set<string>();
   /** Per-agent token cap for spend warnings (0 = off). */
   private perAgentTokenLimit = 0;
@@ -200,6 +212,12 @@ export class AgentManager {
 
   setSessionMaxSpawns(n: number): void {
     const normalized = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+    if (normalized !== this.sessionMaxSpawns) {
+      // R3 re-arm: a changed agent limit re-arms the agent-budget thresholds
+      // so a later crossing warns again. Only the agent keys are cleared —
+      // the turn threshold stays fired unless the turn limit changes too.
+      this.reArmBudgetThresholds(AGENT_THRESHOLD_KEYS);
+    }
     this.sessionMaxSpawns = normalized;
     this.sessionLimits.maxAgentsPerSession = normalized > 0 ? normalized : undefined;
   }
@@ -210,12 +228,25 @@ export class AgentManager {
 
   setSessionMaxTurns(n: number): void {
     const normalized = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+    if (normalized !== this.sessionMaxTurns) {
+      // R3 re-arm: mirror of setSessionMaxSpawns for the turn thresholds.
+      this.reArmBudgetThresholds(TURN_THRESHOLD_KEYS);
+    }
     this.sessionMaxTurns = normalized;
     this.sessionLimits.maxTotalTurnsPerSession = normalized > 0 ? normalized : undefined;
   }
 
   getSessionMaxTurns(): number {
     return this.sessionMaxTurns;
+  }
+
+  /**
+   * Clear the fired state for the given threshold keys so crossing that
+   * percentage again warns again (R3). Clearing only fires later — when a
+   * check observes a crossing — so a raise never warns by itself.
+   */
+  private reArmBudgetThresholds(keys: readonly string[]): void {
+    for (const key of keys) this.firedBudgetThresholds.delete(key);
   }
   getSessionUsage(): { spawnedAgents: number; totalTurns: number } {
     return { ...this.sessionUsage };

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { estimateCostUsd, formatSpend, totalTokens, utilization, utilizationLabel } from "../src/spend.js";
+import {
+  estimateCostUsd,
+  formatSpend,
+  sessionBudgetWarningMessage,
+  spendBudgetWarningMessage,
+  totalTokens,
+  utilization,
+  utilizationLabel,
+} from "../src/spend.js";
 
 describe("estimateCostUsd", () => {
   it("computes input+output at per-million rates", () => {
@@ -74,5 +82,55 @@ describe("utilizationLabel", () => {
 
   it("renders the floored ratio below the cap", () => {
     expect(utilizationLabel(20, 25)).toBe("80% used (20/25)");
+  });
+});
+
+/**
+ * Budget-warning message text (R3): EVERY threshold warning —
+ * spend_50/spend_80/spend_100, agents_at_80/90, turns_at_80/90 — must name
+ * an operator action: raise the limit, restart the session, or deny further
+ * work. The percentage always comes from the same used/cap pair (R1).
+ */
+describe("budget warning messages (R3 action hints)", () => {
+  it("every session warning names raise/restart/deny actions", () => {
+    for (const critical of [false, true]) {
+      for (const kind of ["agents", "turns"] as const) {
+        const used = critical ? 18 : 8;
+        const message = sessionBudgetWarningMessage({ kind, used, cap: 20, critical });
+        expect(message).toMatch(/raise the limit/i);
+        expect(message).toMatch(/restart/i);
+        expect(message).toMatch(/deny further work/i);
+      }
+    }
+  });
+
+  it("renders the true counter ratio in the message (R1/AE1)", () => {
+    expect(sessionBudgetWarningMessage({ kind: "turns", used: 30, cap: 25, critical: true }))
+      .toContain("120% used (30/25)");
+    expect(sessionBudgetWarningMessage({ kind: "agents", used: 25, cap: 25, critical: true }))
+      .toContain("100% used (25/25)");
+  });
+
+  it("critical session warnings add the imminent-stop consequence", () => {
+    expect(sessionBudgetWarningMessage({ kind: "agents", used: 9, cap: 10, critical: true }))
+      .toContain("Spawns will stop soon");
+    expect(sessionBudgetWarningMessage({ kind: "turns", used: 9, cap: 10, critical: true }))
+      .toContain("Agents will stop soon");
+  });
+
+  it("every spend warning names raise/deny actions; at the cap it names the abort", () => {
+    for (const thresholdPct of [50, 80, 100]) {
+      const message = spendBudgetWarningMessage({
+        thresholdPct,
+        perAgentTokenLimit: 10_000,
+        agentCount: 3,
+      });
+      expect(message).toMatch(/raise the per-agent token cap/i);
+      expect(message).toMatch(/deny further/i);
+    }
+    expect(spendBudgetWarningMessage({ thresholdPct: 100, perAgentTokenLimit: 10_000, agentCount: 3 }))
+      .toContain("aborts at the cap");
+    expect(spendBudgetWarningMessage({ thresholdPct: 80, perAgentTokenLimit: 10_000, agentCount: 3 }))
+      .toContain("80% used (3 agent(s) capped at 10000 tokens)");
   });
 });

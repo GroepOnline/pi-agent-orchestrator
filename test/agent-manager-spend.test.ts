@@ -130,3 +130,102 @@ describe("per-agent spend warnings", () => {
     expect(seen).toEqual(["spend_50", "spend_80"]);
   });
 });
+
+/**
+ * Threshold re-arm on limit change (R3): a changed session limit clears the
+ * fired-threshold state for its own threshold family so a later crossing
+ * warns again. Raising a limit never fires a warning by itself, and
+ * re-applying an unchanged limit must not re-arm (the once-per-threshold
+ * dedup stays intact).
+ */
+describe("threshold re-arm on limit change (R3)", () => {
+  function makeCheckedManager() {
+    const manager = new AgentManager();
+    const seen: BudgetWarningType[] = [];
+    manager.setBudgetWarningHandler((type) => seen.push(type));
+    const usage = (manager as unknown as {
+      sessionUsage: { spawnedAgents: number; totalTurns: number };
+    }).sessionUsage;
+    const check = () =>
+      (manager as unknown as { checkBudgetWarning: () => void }).checkBudgetWarning();
+    return { manager, seen, usage, check };
+  }
+
+  it("raising maxSpawns re-arms the agent thresholds and fires nothing by itself", () => {
+    const { manager, seen, usage, check } = makeCheckedManager();
+    manager.setSessionMaxSpawns(10);
+    usage.spawnedAgents = 9; // 90% of 10
+    check();
+    expect(seen).toEqual(["agents_at_90"]);
+
+    // The raise itself is silent even though the operator has not acted yet.
+    manager.setSessionMaxSpawns(20);
+    expect(seen).toEqual(["agents_at_90"]);
+
+    // Re-cross 90% of the NEW cap (18/20): a fresh warning fires.
+    usage.spawnedAgents = 18;
+    check();
+    expect(seen).toEqual(["agents_at_90", "agents_at_90"]);
+  });
+
+  it("raising maxTurns re-arms the turn thresholds and fires nothing by itself", () => {
+    const { manager, seen, usage, check } = makeCheckedManager();
+    manager.setSessionMaxTurns(10);
+    usage.totalTurns = 9; // 90% of 10
+    check();
+    expect(seen).toEqual(["turns_at_90"]);
+
+    manager.setSessionMaxTurns(20);
+    expect(seen).toEqual(["turns_at_90"]);
+
+    usage.totalTurns = 18; // 90% of the new cap
+    check();
+    expect(seen).toEqual(["turns_at_90", "turns_at_90"]);
+  });
+
+  it("raising one limit does not re-arm the other threshold family", () => {
+    const { manager, seen, usage, check } = makeCheckedManager();
+    manager.setSessionLimits({ maxAgentsPerSession: 10, maxTotalTurnsPerSession: 10 });
+    usage.spawnedAgents = 9;
+    usage.totalTurns = 9;
+    check();
+    expect(seen).toEqual(["agents_at_90", "turns_at_90"]);
+
+    // Raise agents only: the turn threshold stays fired even though turn
+    // usage remains above the line — no turn-limit change, no re-warn.
+    manager.setSessionMaxSpawns(20);
+    usage.spawnedAgents = 19; // re-cross 90% of the new agent cap
+    check();
+    expect(seen).toEqual(["agents_at_90", "turns_at_90", "agents_at_90"]);
+  });
+
+  it("setSessionLimits re-arms both threshold families when both limits change", () => {
+    const { manager, seen, usage, check } = makeCheckedManager();
+    manager.setSessionLimits({ maxAgentsPerSession: 10, maxTotalTurnsPerSession: 10 });
+    usage.spawnedAgents = 9;
+    usage.totalTurns = 9;
+    check();
+    expect(seen).toEqual(["agents_at_90", "turns_at_90"]);
+
+    manager.setSessionLimits({ maxAgentsPerSession: 20, maxTotalTurnsPerSession: 20 });
+    usage.spawnedAgents = 18;
+    usage.totalTurns = 18;
+    check();
+    expect(seen).toEqual(["agents_at_90", "turns_at_90", "agents_at_90", "turns_at_90"]);
+  });
+
+  it("re-applying an unchanged limit does not re-arm (dedup stays intact)", () => {
+    const { manager, seen, usage, check } = makeCheckedManager();
+    manager.setSessionMaxSpawns(10);
+    usage.spawnedAgents = 9;
+    check();
+    expect(seen).toEqual(["agents_at_90"]);
+
+    // The settings menu resubmits both fields; an identical value must not
+    // re-arm the threshold or the next turn-end would duplicate the warning.
+    manager.setSessionLimits({ maxAgentsPerSession: 10, maxTotalTurnsPerSession: 10 });
+    usage.totalTurns = 0;
+    check();
+    expect(seen).toEqual(["agents_at_90"]);
+  });
+});

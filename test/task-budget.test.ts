@@ -2,7 +2,7 @@
  * task-budget.test.ts — Tests for task budget and depth limiting.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentManager, activeAgentStorage } from "../src/agent-manager.js";
+import { AgentManager, activeAgentStorage, type BudgetWarningType } from "../src/agent-manager.js";
 import type { AgentRecord } from "../src/types.js";
 
 vi.mock("../src/agent-runner.js", () => ({
@@ -398,5 +398,90 @@ describe("Live session-limit enforcement (characterization)", () => {
     // Turn 8 crosses the new cap — the gate fires with the new numbers.
     turnGate!(8);
     expect(record.error).toBe("Session turn limit reached (8/8)");
+  });
+});
+
+/**
+ * Budget threshold warnings (R3). The once-per-threshold dedup
+ * (`firedBudgetThresholds` in agent-manager.ts) is pre-existing behavior —
+ * these tests are characterization and must keep passing. The re-arm tests
+ * below cover the U4 delta: a changed limit clears the fired state so a
+ * later crossing warns again.
+ */
+describe("Budget threshold warnings (R3)", () => {
+  let manager: AgentManager;
+
+  afterEach(() => {
+    manager?.dispose();
+    vi.mocked(runAgent).mockReset();
+    vi.clearAllMocks();
+  });
+
+  it("crossing 80% fires one agents warning; ten subsequent turns fire none (dedup characterization)", async () => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(16); // keep every spawn off the concurrency queue
+    const warnings: BudgetWarningType[] = [];
+    manager.setBudgetWarningHandler((type) => warnings.push(type));
+    manager.setSessionMaxSpawns(5); // agent threshold only — no turn limit armed
+
+    // Capture a turn gate (the warning check runs on every turn end).
+    let turnGate: ((turnCount: number) => void) | undefined;
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      turnGate = options.onTurnEnd;
+      return { responseText: "done", session: mockSession(), aborted: false, steered: false };
+    });
+
+    // Four agents = exactly 80% of the agent cap.
+    for (let i = 0; i < 4; i++) {
+      manager.spawn(mockPi, mockCtx, "Explore", `crew ${i}`, {
+        description: `crew-${i}`,
+        isBackground: true,
+      });
+    }
+
+    // First turn end observes 4/5 = 80% — fires once.
+    turnGate!(1);
+    expect(warnings).toEqual(["agents_at_80"]);
+
+    // Ten further turn-ends stay above the 80% line — the dedup keeps quiet.
+    for (let turn = 2; turn <= 11; turn++) turnGate!(turn);
+    expect(warnings).toEqual(["agents_at_80"]);
+  });
+
+  it("raising a limit re-arms the threshold so a later crossing warns again (R3)", async () => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(16);
+    const warnings: BudgetWarningType[] = [];
+    manager.setBudgetWarningHandler((type) => warnings.push(type));
+    manager.setSessionMaxSpawns(5);
+
+    let turnGate: ((turnCount: number) => void) | undefined;
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      turnGate = options.onTurnEnd;
+      return { responseText: "done", session: mockSession(), aborted: false, steered: false };
+    });
+
+    for (let i = 0; i < 4; i++) {
+      manager.spawn(mockPi, mockCtx, "Explore", `first ${i}`, {
+        description: `first-${i}`,
+        isBackground: true,
+      });
+    }
+    turnGate!(1); // 4/5 = 80% — first fire
+    expect(warnings).toEqual(["agents_at_80"]);
+
+    // Raising the limit re-arms the threshold but fires nothing by itself.
+    manager.setSessionMaxSpawns(10);
+    expect(warnings).toEqual(["agents_at_80"]);
+
+    // Re-cross 80% of the NEW cap (8/10): a fresh warning must fire.
+    for (let i = 0; i < 4; i++) {
+      manager.spawn(mockPi, mockCtx, "Explore", `second ${i}`, {
+        description: `second-${i}`,
+        isBackground: true,
+      });
+    }
+    turnGate!(2);
+    expect(warnings).toEqual(["agents_at_80", "agents_at_80"]);
   });
 });
