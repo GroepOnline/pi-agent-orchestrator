@@ -147,6 +147,40 @@ describe("buildParentContext", () => {
     expect(buildParentContext(mockContext(entries))).toBe("");
   });
 
+
+  it("bounds inherited context on complete entry boundaries and keeps the newest entries", () => {
+    const oldJson = `\`\`\`json\n${JSON.stringify({ old: "x".repeat(220) })}\n\`\`\``;
+    const recentCode = `\`\`\`ts\nfunction recent() { return 42; }\n\`\`\``;
+    const entries = [
+      { type: "message", message: { role: "user", content: oldJson } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: "Recent decision" }] } },
+      { type: "message", message: { role: "user", content: recentCode } },
+    ];
+
+    const context = buildParentContext(mockContext(entries), 420);
+    expect(context.length).toBeLessThanOrEqual(420);
+    expect(context).toContain("complete entry boundaries preserved");
+    expect(context).toContain("[Assistant]: Recent decision");
+    expect(context).toContain("function recent() { return 42; }");
+    expect(context).toContain("```ts");
+    expect(context).not.toContain('"old"');
+  });
+
+  it("omits an oversized newest entry instead of slicing its JSON or code", () => {
+    const oversized = `\`\`\`json\n${JSON.stringify({ payload: "z".repeat(4000) })}\n\`\`\``;
+    const entries = [
+      { type: "message", message: { role: "user", content: "Older small context" } },
+      { type: "message", message: { role: "assistant", content: [{ type: "text", text: oversized }] } },
+    ];
+
+    const context = buildParentContext(mockContext(entries), 360);
+    expect(context.length).toBeLessThanOrEqual(360);
+    expect(context).toContain("complete entry boundaries preserved");
+    expect(context).not.toContain("```json");
+    expect(context).not.toContain('"payload"');
+    expect(context).not.toContain("Older small context");
+  });
+
   it("ignores non-message non-compaction entries", () => {
     const entries = [
       {
