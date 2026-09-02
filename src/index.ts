@@ -66,6 +66,7 @@ import type { ScheduleChangeEvent } from "./schedule.js";
 import { SubagentScheduler } from "./schedule.js";
 import { resolveStorePath, ScheduleStore } from "./schedule-store.js";
 import { applyAndEmitLoaded, loadSettings, saveSettings } from "./settings.js";
+import { utilization, utilizationLabel } from "./spend.js";
 import { SwarmCoordinator, setActiveSwarmCoordinator } from "./swarm-join.js";
 import { onTelemetry } from "./telemetry.js";
 import { buildNotificationDetails, formatTaskNotification } from "./tool-result-helpers.js";
@@ -384,17 +385,24 @@ export default async function (pi: ExtensionAPI) {
   // can show them, and as a single non-blocking notification message.
   manager.setBudgetWarningHandler((type, usage, limits) => {
     if (type.startsWith("spend_")) {
-      const pct = type === "spend_50" ? "50" : type === "spend_80" ? "80" : "100";
-      const prefix = pct === "100" ? "🚨" : "⚠️";
+      // The crossed threshold is a utilization level of the per-agent cap; route
+      // it through the shared helper so every warning percentage comes from the
+      // same math SSOT (R1 — never computed independently of the counter).
+      const spendPct = type === "spend_50" ? 50 : type === "spend_80" ? 80 : 100;
+      const pct = utilization(spendPct, 100);
+      const prefix = pct === 100 ? "🚨" : "⚠️";
       const message = `${prefix} Subagent token budget ${pct}% used (${usage.spawnedAgents} agent(s) capped at ${manager.getPerAgentTokenLimit()} tokens).`;
       pi.events.emit("subagents:budget_warning", { type, usage, limits, threshold: `spend_${pct}`, message });
       pi.sendMessage({ customType: "subagent-notification", content: message, display: true });
       return;
     }
     const isCritical = type === "agents_at_90" || type === "turns_at_90";
+    // R1/AE1: percentage and counter render from the SAME used/cap pair —
+    // above the cap the true ratio shows (e.g. "120% used (30/25)"), never a
+    // threshold label detached from the counter.
     const threshold = type === "agents_at_80" || type === "agents_at_90"
-      ? `agent budget ${isCritical ? "90" : "80"}% used (${usage.spawnedAgents}/${limits.maxAgents})`
-      : `turn budget ${isCritical ? "90" : "80"}% used (${usage.totalTurns}/${limits.maxTurns})`;
+      ? `agent budget ${utilizationLabel(usage.spawnedAgents, limits.maxAgents)}`
+      : `turn budget ${utilizationLabel(usage.totalTurns, limits.maxTurns)}`;
     const prefix = isCritical ? "🚨" : "⚠️";
     const advice = isCritical
       ? "Session budget nearly exhausted — spawns will stop soon!"

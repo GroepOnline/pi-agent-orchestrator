@@ -49,3 +49,27 @@ export function formatSpend(usd: number): string {
 export function totalTokens(u: UsageTotals): number {
   return u.input + u.output;
 }
+
+/**
+ * Utilization percentage of a cap: floor(used / cap * 100).
+ *
+ * Single source of truth for budget-warning percentages (R1): the result is
+ * NEVER clamped, so going over the cap yields >100 (30/25 → 120) and the
+ * percentage always matches the rendered counter ratio. A non-positive cap
+ * yields 0 instead of Infinity/NaN (render sites never pass one: the manager
+ * only fires a warning after checking the cap is positive).
+ */
+export function utilization(used: number, cap: number): number {
+  if (cap <= 0) return 0;
+  return Math.floor((used / cap) * 100);
+}
+
+/**
+ * "N% used (used/cap)" for budget-warning lines. The percentage and the
+ * counter are derived from the SAME used/cap pair, so they can never
+ * disagree — including at and above the cap (25/25 → "100% used (25/25)",
+ * 30/25 → "120% used (30/25)").
+ */
+export function utilizationLabel(used: number, cap: number): string {
+  return `${utilization(used, cap)}% used (${used}/${cap})`;
+}

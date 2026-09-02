@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateCostUsd, formatSpend, totalTokens } from "../src/spend.js";
+import { estimateCostUsd, formatSpend, totalTokens, utilization, utilizationLabel } from "../src/spend.js";
 
 describe("estimateCostUsd", () => {
   it("computes input+output at per-million rates", () => {
@@ -32,5 +32,47 @@ describe("formatSpend", () => {
 describe("totalTokens", () => {
   it("sums input and output only", () => {
     expect(totalTokens({ input: 10, output: 5, cacheWrite: 100, cacheRead: 7 })).toBe(15);
+  });
+});
+
+describe("utilization", () => {
+  it("is never clamped above the cap: 30/25 is 120 (AE1)", () => {
+    expect(utilization(30, 25)).toBe(120);
+  });
+
+  it("is exactly 100 at the cap", () => {
+    expect(utilization(25, 25)).toBe(100);
+  });
+
+  it("equals floor(used / cap * 100) below the cap", () => {
+    expect(utilization(20, 25)).toBe(80);
+    expect(utilization(23, 25)).toBe(92);
+    expect(utilization(1, 3)).toBe(33);
+    expect(utilization(0, 25)).toBe(0);
+  });
+
+  it("renders spend thresholds (50/80/100% of a cap) through the same math", () => {
+    expect(utilization(50, 100)).toBe(50);
+    expect(utilization(80, 100)).toBe(80);
+    expect(utilization(100, 100)).toBe(100);
+  });
+
+  it("degenerate caps yield 0 instead of Infinity/NaN", () => {
+    expect(utilization(0, 0)).toBe(0);
+    expect(utilization(30, 0)).toBe(0);
+  });
+});
+
+describe("utilizationLabel", () => {
+  it("renders the counter ratio from the same pair: 120% used (30/25), never 90%", () => {
+    expect(utilizationLabel(30, 25)).toBe("120% used (30/25)");
+  });
+
+  it("renders 100% used at the cap", () => {
+    expect(utilizationLabel(25, 25)).toBe("100% used (25/25)");
+  });
+
+  it("renders the floored ratio below the cap", () => {
+    expect(utilizationLabel(20, 25)).toBe("80% used (20/25)");
   });
 });
