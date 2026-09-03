@@ -60,6 +60,7 @@ import {
 import { GroupJoinManager } from "./group-join.js";
 import { HookRegistry } from "./hooks.js";
 import { NotificationHub } from "./notification-hub.js";
+import { formatPartialFinalizationLabel } from "./orchestration-dispatch.js";
 import { createPostHogBridge, postHogConfigToMigrate } from "./posthog-bridge.js";
 import { clearSubagentsApi, registerSubagentsApi } from "./public-api.js";
 import type { ScheduleChangeEvent } from "./schedule.js";
@@ -117,7 +118,7 @@ export default async function (pi: ExtensionAPI) {
 
   // ---- Group join manager ----
   const groupJoin = new GroupJoinManager(
-    (records, partial) => {
+    (records, partial, meta) => {
       for (const r of records) {
         agentActivity.delete(r.id);
         liveWidgets.markFinished(r.id);
@@ -130,9 +131,14 @@ export default async function (pi: ExtensionAPI) {
         if (unconsumed.length === 0) { liveWidgets.update(); return; }
 
         const notifications = unconsumed.map(r => formatTaskNotification(r, 300)).join('\n\n');
-        const label = partial
-          ? `${unconsumed.length} agent(s) finished (partial — others still running)`
-          : `${unconsumed.length} agent(s) finished`;
+        // R5: a group whose fan-out failed mid-spawn finalizes with an
+        // explicit partial status naming spawned/missing counts — never as
+        // an unqualified success while a member is missing.
+        const label = meta?.missingMembers
+          ? formatPartialFinalizationLabel(unconsumed.length, meta.completedAgents, meta.missingMembers)
+          : partial
+            ? `${unconsumed.length} agent(s) finished (partial — others still running)`
+            : `${unconsumed.length} agent(s) finished`;
 
         const [first, ...rest] = unconsumed;
         const details = buildNotificationDetails(first, 300, agentActivity.get(first.id));
@@ -156,7 +162,7 @@ export default async function (pi: ExtensionAPI) {
   // Supports runtime join (the "swarm mode" feature) and provides query APIs
   // for the rich AgentDashboard.
   const swarmJoin = new SwarmCoordinator(
-    (records, partial, swarmId) => {
+    (records, partial, swarmId, meta) => {
       for (const r of records) {
         agentActivity.delete(r.id);
         liveWidgets.markFinished(r.id);
@@ -168,9 +174,13 @@ export default async function (pi: ExtensionAPI) {
         if (unconsumed.length === 0) { liveWidgets.update(); return; }
 
         const notifications = unconsumed.map(r => formatTaskNotification(r, 300)).join('\n\n');
-        const label = partial
-          ? `${unconsumed.length} swarm agent(s) finished (partial — swarm still active)`
-          : `Swarm ${swarmId} wave completed`;
+        // R5: same explicit partial status as groups — a swarm whose fan-out
+        // failed mid-spawn names spawned/missing counts instead of success.
+        const label = meta?.missingMembers
+          ? formatPartialFinalizationLabel(unconsumed.length, meta.contributorCount, meta.missingMembers, "swarm agent(s)")
+          : partial
+            ? `${unconsumed.length} swarm agent(s) finished (partial — swarm still active)`
+            : `Swarm ${swarmId} wave completed`;
 
         const [first, ...rest] = unconsumed;
         const details = buildNotificationDetails(first, 300, agentActivity.get(first.id));

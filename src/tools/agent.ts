@@ -13,7 +13,7 @@ import { buildAgentEstimate } from "../estimate.js";
 import { resolveAgentInvocationConfig, resolveJoinMode } from "../invocation-config.js";
 import { logger } from "../logger.js";
 import { resolveModel } from "../model-resolver.js";
-import { type OrchestrationDecision, resolveOrchestrationMode } from "../orchestration-dispatch.js";
+import { formatMidFanoutFailureReport, type OrchestrationDecision, resolveOrchestrationMode } from "../orchestration-dispatch.js";
 import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "../output-file.js";
 import {
   buildDetails, createActivityTracker, formatLifetimeTokens,
@@ -257,6 +257,22 @@ interface OrchestratedDispatchArgs {
  * Pure orchestration glue — no I/O, no LLM calls of its own. The dispatcher
  * itself is in `orchestration-dispatch.ts` and is unit-tested independently.
  */
+/**
+ * Best-effort stop of already-spawned fan-out members after a mid-fanout
+ * spawn failure. They must not keep running or report Done after the caller
+ * has been told the dispatch failed. A failed cancel must never mask the
+ * spawn error itself, so each abort is individually guarded.
+ */
+function cancelSpawnedMembers(manager: AgentManager, spawned: ReadonlyArray<{ id: string }>): void {
+  for (const member of spawned) {
+    try {
+      manager.abort(member.id);
+    } catch {
+      // Best-effort: cancellation failures are non-fatal here.
+    }
+  }
+}
+
 async function runOrchestratedDispatch(
   dispatch: Extract<OrchestrationDecision, { kind: "swarm" | "crew" }>,
   args: OrchestratedDispatchArgs,
@@ -292,10 +308,24 @@ async function runOrchestratedDispatch(
     try {
       id = args.manager.spawn(args.pi, args.piCtx, args.subagentType, member.prompt, spawnOptions);
     } catch (err) {
-      // Partial-failure surface: list the IDs we DID spawn, then the error.
+      // Combined mid-fanout failure path (R5) — one behavior, not three
+      // disconnected surfaces: a synchronous partial report to the caller,
+      // best-effort cancellation of the members that DID spawn, and a partial
+      // finalization of the surviving batch group (it must never finalize as
+      // unqualified success while a member is missing). The batch mark rides
+      // the preserved debounce window: the cancelled members stay suppressed
+      // from individual nudges via isPendingBatchFinalization until the batch
+      // finalizes and delivers the group with its missing-member count.
+      cancelSpawnedMembers(args.manager, spawned);
+      if (spawned.length > 0) {
+        args.batchOrchestrator.markBatchPartial(members.length - spawned.length);
+      }
       return textResult(
-        `Orchestration dispatch failed mid-fanout: ${err instanceof Error ? err.message : String(err)}\n` +
-          `Spawned ${spawned.length}/${members.length} before failure: ${spawned.map((s) => s.id).join(", ")}`,
+        formatMidFanoutFailureReport({
+          error: err,
+          spawnedIds: spawned.map((s) => s.id),
+          totalMembers: members.length,
+        }),
       );
     }
     const record = args.manager.getRecord(id);

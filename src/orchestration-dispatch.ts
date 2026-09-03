@@ -341,3 +341,43 @@ export function resolveOrchestrationMode(opts: ResolveOpts): OrchestrationDecisi
   }
   return { kind: "single" };
 }
+
+// ---- Mid-fanout failure reporting (R5) ----
+
+/**
+ * Format the synchronous partial report returned to the Agent-tool caller
+ * when a fan-out fails mid-spawn. Names the error, the spawned IDs, the
+ * spawned/total count, and the missing count, so the caller learns about the
+ * failure immediately — never only through later background notifications.
+ */
+export function formatMidFanoutFailureReport(opts: {
+  error: unknown;
+  spawnedIds: string[];
+  totalMembers: number;
+}): string {
+  const message = opts.error instanceof Error ? opts.error.message : String(opts.error);
+  const missing = Math.max(0, opts.totalMembers - opts.spawnedIds.length);
+  const cancelNote = opts.spawnedIds.length > 0
+    ? " Spawned agents are being cancelled and the group will finalize as partial."
+    : "";
+  return (
+    `Orchestration dispatch failed mid-fanout: ${message}\n` +
+    `Spawned ${opts.spawnedIds.length}/${opts.totalMembers} before failure: ${opts.spawnedIds.join(", ")}\n` +
+    `Missing ${missing} member(s).${cancelNote}`
+  );
+}
+
+/**
+ * Label for a batch-group completion notification whose fan-out failed
+ * mid-spawn: the surviving group finalizes with an explicit partial status
+ * naming spawned/missing counts — never as an unqualified success while a
+ * member is missing.
+ */
+export function formatPartialFinalizationLabel(
+  finished: number,
+  spawned: number,
+  missing: number,
+  noun = "agent(s)",
+): string {
+  return `${finished} ${noun} finished (partial — ${spawned} spawned, ${missing} missing: spawn failed mid-fanout)`;
+}

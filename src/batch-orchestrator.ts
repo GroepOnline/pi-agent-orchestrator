@@ -61,6 +61,12 @@ export class BatchOrchestrator {
     Omit<BatchConfig, "debounceMs" | "smartGroupThreshold" | "swarmThreshold">;
   private isFinalizing = false;
   private batchStartTime = 0;
+  /**
+   * Pending mid-fanout partial mark: members of the intended fan-out that
+   * will never spawn. Consumed by the next finalizeBatch together with the
+   * batch it was marked against.
+   */
+  private pendingPartialFanout: { missingCount: number } | undefined;
 
   constructor(
     private deps: BatchOrchestratorDeps,
@@ -103,6 +109,22 @@ export class BatchOrchestrator {
   }
 
   /**
+   * Mark the current pending batch as a partial fan-out: `missingCount`
+   * members of the intended dispatch will never spawn (mid-fanout failure).
+   * The next finalization forms the surviving group with an explicit
+   * missing-members count so it never finalizes as unqualified success.
+   * No-op when nothing is pending or the count is not positive — with zero
+   * survivors there is no group to finalize, and a mark must never leak into
+   * an unrelated later batch.
+   */
+  markBatchPartial(missingCount: number): void {
+    if (!Number.isFinite(missingCount) || missingCount <= 0) return;
+    if (this.currentBatch.length === 0) return;
+    const prev = this.pendingPartialFanout?.missingCount ?? 0;
+    this.pendingPartialFanout = { missingCount: prev + missingCount };
+  }
+
+  /**
    * Force immediate finalization of the current batch.
    * Useful for shutdown or explicit flush scenarios.
    */
@@ -129,6 +151,8 @@ export class BatchOrchestrator {
 
     const batchAgents = [...this.currentBatch];
     this.currentBatch = [];
+    const missingMembers = this.pendingPartialFanout?.missingCount ?? 0;
+    this.pendingPartialFanout = undefined;
     const batchId = ++this.batchCounter;
     const startTime = this.batchStartTime;
 
@@ -146,13 +170,21 @@ export class BatchOrchestrator {
       let swarmCount = 0;
 
       // --- Smart/Group batching ---
-      if (smartAgents.length >= this.config.smartGroupThreshold) {
+      // A partial fan-out (mid-fanout spawn failure) forces a group even below
+      // the threshold so the survivors finalize with an explicit missing-member
+      // count instead of individual nudges that hide the loss (R5).
+      const forceGroup = missingMembers > 0 && smartAgents.length > 0;
+      if (smartAgents.length >= this.config.smartGroupThreshold || forceGroup) {
         const groupId = `batch-${batchId}-group`;
         const ids = smartAgents.map((a) => a.id);
         for (const id of ids) handled.add(id);
         smartGroups++;
 
-        this.deps.groupJoin.registerGroup(groupId, ids);
+        if (missingMembers > 0) {
+          this.deps.groupJoin.registerGroup(groupId, ids, { missingMembers });
+        } else {
+          this.deps.groupJoin.registerGroup(groupId, ids);
+        }
         for (const { id } of smartAgents) {
           const record = this.deps.manager.getRecord(id);
           if (!record) continue;
@@ -169,6 +201,7 @@ export class BatchOrchestrator {
         const swarmId = this.deps.swarmJoin.createSwarm({
           name: `Batch-${batchId} Swarm`,
           strategy,
+          ...(missingMembers > 0 ? { missingMembers } : {}),
           ...this.config.defaultSwarmConfig,
         });
         swarmCount++;
@@ -252,5 +285,6 @@ export class BatchOrchestrator {
       this.batchFinalizeTimer = undefined;
     }
     this.currentBatch = [];
+    this.pendingPartialFanout = undefined;
   }
 }
