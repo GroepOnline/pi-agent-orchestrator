@@ -24,6 +24,13 @@ export interface GroupDeliveryMeta {
   timedOut: boolean;
   durationMs: number;
   retryAttempt?: number;
+  /**
+   * Members that never joined this group because their spawn failed
+   * mid-fanout. Absent when the group spawned complete. Lets the delivery
+   * layer render an explicit partial status naming spawned/missing counts
+   * even when every spawned member completed.
+   */
+  missingMembers?: number;
 }
 
 export type GroupEvent =
@@ -48,6 +55,12 @@ export interface GroupConfig {
   retryBackoff?: number;
   /** If true, deliver progressively as agents complete. Default: false (all-or-nothing). */
   progressiveDelivery?: boolean;
+  /**
+   * Members that will never join this group (mid-fanout spawn failure).
+   * Surfaced in the delivery meta so the group finalizes with an explicit
+   * partial status instead of unqualified success. Default: 0.
+   */
+  missingMembers?: number;
   /** Callback for group lifecycle events. */
   onEvent?: (groupId: string, event: GroupEvent) => void;
 }
@@ -63,6 +76,7 @@ interface AgentGroup {
   firstCompletionAt?: number;
   retryCount: number;
   retryHandle?: ReturnType<typeof setTimeout>;
+  missingMembers: number;
 }
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -87,15 +101,16 @@ export class GroupJoinManager {
 
   /** Register a group with full configuration. */
   registerGroup(config: GroupConfig): void;
-  /** Legacy: register a group of agent IDs. */
-  registerGroup(groupId: string, agentIds: string[]): void;
-  registerGroup(configOrId: GroupConfig | string, agentIds?: string[]): void {
+  /** Legacy: register a group of agent IDs, optionally marking members that will never join (mid-fanout spawn failure). */
+  registerGroup(groupId: string, agentIds: string[], opts?: { missingMembers?: number }): void;
+  registerGroup(configOrId: GroupConfig | string, agentIds?: string[], opts?: { missingMembers?: number }): void {
     let config: GroupConfig;
     if (typeof configOrId === "string") {
       config = {
         groupId: configOrId,
         agentIds: agentIds || [],
         timeout: this.defaultGroupTimeout,
+        ...(opts?.missingMembers ? { missingMembers: opts.missingMembers } : {}),
       };
     } else {
       config = configOrId;
@@ -109,6 +124,7 @@ export class GroupJoinManager {
       isStraggler: false,
       createdAt: Date.now(),
       retryCount: 0,
+      missingMembers: config.missingMembers ?? 0,
     };
 
     this.groups.set(config.groupId, group);
@@ -233,6 +249,7 @@ export class GroupJoinManager {
       timedOut: partial,
       durationMs: duration,
       retryAttempt: group.retryCount,
+      ...(group.missingMembers > 0 ? { missingMembers: group.missingMembers } : {}),
     };
 
     this.emit(group, { type: "delivery:attempt", records, partial, attempt: group.retryCount + 1, timestamp: Date.now() });

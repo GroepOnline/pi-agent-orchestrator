@@ -33,6 +33,11 @@ export interface SwarmDeliveryMeta {
   timedOut: boolean;
   /** Quorum achieved? */
   quorumMet: boolean;
+  /**
+   * Members that never joined because their spawn failed mid-fanout.
+   * Absent when the swarm spawned complete.
+   */
+  missingMembers?: number;
 }
 
 export type SwarmStrategy = "live" | "quorum" | "batch";
@@ -65,6 +70,12 @@ export interface SwarmConfig {
   maxDeliveryRate?: number;
   /** Auto-cleanup empty swarms. Default: true. */
   autoCleanup?: boolean;
+  /**
+   * Members that will never join this swarm (mid-fanout spawn failure).
+   * Surfaced in the delivery meta so the swarm finalizes with an explicit
+   * partial status instead of unqualified success.
+   */
+  missingMembers?: number;
   /** Callback when swarm state changes. */
   onStateChange?: (swarmId: string, event: SwarmEvent) => void;
 }
@@ -392,6 +403,7 @@ export class SwarmCoordinator {
       epoch: swarm.epoch,
       timedOut: opts.timedOut,
       quorumMet: opts.quorumMet,
+      ...(swarm.config.missingMembers ? { missingMembers: swarm.config.missingMembers } : {}),
     };
 
     // Track rate limit
