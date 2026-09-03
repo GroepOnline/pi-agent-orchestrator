@@ -1,6 +1,6 @@
 {
   "name": "@groeponline/pi-agent-orchestrator",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "description": "Observable multi-agent orchestration for Pi: autonomous subagents, isolated worktrees, swarms, schedules, handoffs, and a live operator dashboard.",
   "author": "GroepOnline",
   "license": "MIT",
@@ -82,7 +82,7 @@
     "@sinclair/typebox": "^0.34.52",
     "croner": "^10.0.1",
     "nanoid": "^6.0.1",
-    "posthog-node": "~5.49.1",
+    "posthog-node": "~5.50.0",
     "proper-lockfile": "^4.1.2"
   },
   "scripts": {
@@ -129,10 +129,10 @@
     "node": ">=22.22.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.9",
-    "@earendil-works/pi-agent-core": "^0.84.2",
+    "@biomejs/biome": "^2.5.11",
+    "@earendil-works/pi-agent-core": "^0.84.3",
     "@earendil-works/pi-ai": "^0.84.2",
-    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-coding-agent": "^0.84.3",
     "@types/node": "^26.2.0",
     "@types/proper-lockfile": "^4.1.4",
     "@xterm/addon-serialize": "^0.14.0",

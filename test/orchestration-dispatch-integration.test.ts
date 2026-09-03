@@ -24,6 +24,16 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
   // tools/agent.ts calls normalizeMaxTurns on the resolved config.
   // The real impl just clamps 0 → undefined; an identity is fine for the test.
   normalizeMaxTurns: (n: number | undefined): number | undefined => (n === 0 ? undefined : n),
@@ -242,6 +252,9 @@ describe("orchestration-dispatch integration — Agent tool end-to-end", () => {
     expect(groupJoin.registerGroup).toHaveBeenCalledTimes(1);
     const [, memberIds] = groupJoin.registerGroup.mock.calls[0]!;
     expect(memberIds).toHaveLength(3);
+    // Full-capacity fan-out: the group registers with NO partial marker —
+    // missingMembers is reserved for mid-fanout failures (R5).
+    expect(groupJoin.registerGroup.mock.calls[0]).toHaveLength(2);
 
     // Every record must end up in the same group.
     const groupIds = manager.listAgents().map((r) => r.groupId);
@@ -291,6 +304,8 @@ describe("orchestration-dispatch integration — Agent tool end-to-end", () => {
     // addAgentToSwarm is (swarmId, agentId) — priority was pruned in CHE-25.
     expect(swarmJoin.createSwarm).toHaveBeenCalledTimes(1);
     expect(swarmJoin.addAgentToSwarm).toHaveBeenCalledTimes(2);
+    // Full-capacity fan-out: no partial marker on the swarm config (R5).
+    expect(swarmJoin.createSwarm.mock.calls[0]![0]).not.toHaveProperty("missingMembers");
     const records = manager.listAgents();
     expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(
       1,
@@ -609,5 +624,139 @@ describe("orchestration-dispatch integration — Agent tool end-to-end", () => {
       await expect(record.promise).resolves.toBeDefined();
       expect(["stopped", "aborted", "completed", "error"]).toContain(record.status);
     }
+  });
+});
+
+describe("orchestration-dispatch integration — mid-fanout failure (R5 combined behavior)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setDefaultJoinMode("async"); // dispatcher sets the joinMode explicitly so the default doesn't matter
+    clearDispatchHistory();
+  });
+
+  afterEach(() => {
+    setOrchestrationMode("single"); // restore default
+  });
+
+  /** Generic Agent tool params — the mode (crew/swarm) comes from setOrchestrationMode. */
+  function fanoutParams(): AgentToolParams {
+    return {
+      subagent_type: "general-purpose",
+      prompt: "Plan X",
+      description: "Plan X",
+    };
+  }
+
+  it("mid-fanout spawn failure reports synchronously to the caller (characterization — AE3 first half)", async () => {
+    setOrchestrationMode("crew");
+    const deferred = { resolvers: [] as Array<() => void> };
+    installRunAgentMock(["p", "e", "r"], { deferred });
+
+    const { ctx, manager, groupJoin, batchOrchestrator, piCtx } = buildToolContext();
+    // The session limit admits only 2 of the 3 crew members — the third
+    // spawn throws synchronously at the spawn gate (issue #5 shape).
+    manager.setSessionMaxSpawns(2);
+    const tool = createAgentTool(ctx);
+
+    const result: any = await tool.execute!("call-id", fanoutParams(), undefined, undefined, piCtx);
+
+    const text = result.content[0].text as string;
+    // Pre-existing synchronous partial report must keep its shape: the error,
+    // then the spawned/total count listing the IDs that DID spawn.
+    expect(text).toContain("Orchestration dispatch failed mid-fanout");
+    expect(text).toContain("Session agent limit reached (2/2)");
+    expect(text).toContain("Spawned 2/3 before failure");
+    const spawnedIds = manager.listAgents().map((r) => r.id);
+    expect(spawnedIds).toHaveLength(2);
+    for (const id of spawnedIds) {
+      expect(text).toContain(id);
+    }
+
+    // The batch debounce still holds the survivors at report time — the
+    // failure path must not bypass the debounce/consumed-suppression pipeline.
+    expect(groupJoin.registerGroup).not.toHaveBeenCalled();
+
+    await batchOrchestrator.dispose();
+  });
+
+  it("mid-fanout spawn failure best-effort cancels the spawned members (none keep running / report Done)", async () => {
+    setOrchestrationMode("crew");
+    const deferred = { resolvers: [] as Array<() => void> };
+    installRunAgentMock(["p", "e", "r"], { deferred });
+
+    const { ctx, manager, batchOrchestrator, piCtx } = buildToolContext();
+    manager.setSessionMaxSpawns(2);
+    const tool = createAgentTool(ctx);
+
+    await tool.execute!("call-id", fanoutParams(), undefined, undefined, piCtx);
+
+    // Let the cancellation settle.
+    await new Promise((r) => setTimeout(r, 20));
+
+    const records = manager.listAgents();
+    expect(records).toHaveLength(2);
+    for (const record of records) {
+      // Cancelled members must not keep running or finish as completed ("Done").
+      expect(["stopped", "aborted"]).toContain(record.status);
+      await expect(record.promise).resolves.toBeDefined();
+    }
+
+    await batchOrchestrator.dispose();
+  });
+
+  it("surviving batch group finalizes with an explicit missing-member count (never silent success)", async () => {
+    setOrchestrationMode("crew");
+    const deferred = { resolvers: [] as Array<() => void> };
+    installRunAgentMock(["p", "e", "r"], { deferred });
+
+    const { ctx, manager, groupJoin, batchOrchestrator, piCtx } = buildToolContext();
+    manager.setSessionMaxSpawns(2);
+    const tool = createAgentTool(ctx);
+
+    await tool.execute!("call-id", fanoutParams(), undefined, undefined, piCtx);
+
+    // Cancelled members settle quickly; wait past the 100ms batch debounce so
+    // the surviving group finalizes through the preserved debounce path.
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(groupJoin.registerGroup).toHaveBeenCalledTimes(1);
+    const [groupId, memberIds, opts] = groupJoin.registerGroup.mock.calls[0]!;
+    expect(memberIds).toHaveLength(2);
+    // The group must carry the partial-fanout marker naming the missing
+    // member — it must never finalize as an unqualified success (R5).
+    expect(opts).toMatchObject({ missingMembers: 1 });
+    // Both survivors belong to that group, so their results finalize through it.
+    const groupIds = manager.listAgents().map((r) => r.groupId);
+    expect(groupIds.every((g) => g === groupId)).toBe(true);
+
+    await batchOrchestrator.dispose();
+  });
+
+  it("mid-fanout failure in swarm mode cancels the survivor and marks the swarm partial", async () => {
+    setOrchestrationMode("swarm");
+    const deferred = { resolvers: [] as Array<() => void> };
+    installRunAgentMock(["r1", "r2"], { deferred });
+
+    const { ctx, manager, swarmJoin, batchOrchestrator, piCtx } = buildToolContext();
+    manager.setSessionMaxSpawns(1);
+    const tool = createAgentTool(ctx);
+
+    const result: any = await tool.execute!("call-id", fanoutParams(), undefined, undefined, piCtx);
+
+    const text = result.content[0].text as string;
+    expect(text).toContain("Orchestration dispatch failed mid-fanout");
+    expect(text).toContain("Spawned 1/2 before failure");
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(swarmJoin.createSwarm).toHaveBeenCalledTimes(1);
+    expect(swarmJoin.createSwarm).toHaveBeenCalledWith(
+      expect.objectContaining({ missingMembers: 1 }),
+    );
+    const records = manager.listAgents();
+    expect(records).toHaveLength(1);
+    expect(["stopped", "aborted"]).toContain(records[0]!.status);
+
+    await batchOrchestrator.dispose();
   });
 });

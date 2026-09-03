@@ -6,7 +6,7 @@
  * If changes exist, a branch is created and returned in the result.
  */
 
-import { execFile as execFileCb, execFileSync } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -115,22 +115,22 @@ function formatCleanupError(error: unknown): string {
  * - If inspection, staging, commit, branch creation, or removal fails: preserve
  *   the worktree and return its path for manual recovery.
  */
-export function cleanupWorktree(
+export async function cleanupWorktree(
   cwd: string,
   worktree: WorktreeInfo,
   agentDescription: string,
-): WorktreeCleanupResult {
+): Promise<WorktreeCleanupResult> {
   if (!existsSync(worktree.path)) {
     return { hasChanges: false };
   }
 
   let status: string;
   try {
-    status = execFileSync("git", ["status", "--porcelain"], {
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
       cwd: worktree.path,
-      stdio: "pipe",
       timeout: 10000,
-    }).toString().trim();
+    });
+    status = stdout.toString().trim();
   } catch (error) {
     // We could not prove the worktree is clean. Preserve it conservatively.
     return {
@@ -141,7 +141,7 @@ export function cleanupWorktree(
   }
 
   if (!status) {
-    const removed = removeWorktree(cwd, worktree.path);
+    const removed = await removeWorktree(cwd, worktree.path);
     return removed
       ? { hasChanges: false }
       : {
@@ -152,8 +152,8 @@ export function cleanupWorktree(
   }
 
   try {
-    // Changes exist — stage, commit, and create a branch.
-    execFileSync("git", ["add", "-A"], { cwd: worktree.path, stdio: "pipe", timeout: 10000 });
+    // Changes exist — stage, commit, and create a branch without blocking the host event loop.
+    await execFileAsync("git", ["add", "-A"], { cwd: worktree.path, timeout: 10000 });
 
     // Sanitize commit messages before they reach git logs or downstream tooling.
     const rawDesc = typeof agentDescription === "string" ? agentDescription : String(agentDescription);
@@ -166,9 +166,8 @@ export function cleanupWorktree(
     const safeDesc = safeTruncate(safeDescStr, 200);
     const commitMsg = `pi-agent: ${safeDesc}`;
 
-    execFileSync("git", ["commit", "-m", commitMsg], {
+    await execFileAsync("git", ["commit", "-m", commitMsg], {
       cwd: worktree.path,
-      stdio: "pipe",
       timeout: 10000,
     });
 
@@ -179,22 +178,20 @@ export function cleanupWorktree(
 
     let branchName = safeBranchName;
     try {
-      execFileSync("git", ["branch", "--", branchName], {
+      await execFileAsync("git", ["branch", "--", branchName], {
         cwd: worktree.path,
-        stdio: "pipe",
         timeout: 5000,
       });
     } catch {
       branchName = `${branchName}-${Date.now()}`;
-      execFileSync("git", ["branch", "--", branchName], {
+      await execFileAsync("git", ["branch", "--", branchName], {
         cwd: worktree.path,
-        stdio: "pipe",
         timeout: 5000,
       });
     }
     worktree.branch = branchName;
 
-    const removed = removeWorktree(cwd, worktree.path);
+    const removed = await removeWorktree(cwd, worktree.path);
     return removed
       ? { hasChanges: true, branch: branchName }
       : {
@@ -215,16 +212,15 @@ export function cleanupWorktree(
 }
 
 /** Force-remove a worktree. Returns whether its directory is gone. */
-function removeWorktree(cwd: string, worktreePath: string): boolean {
+async function removeWorktree(cwd: string, worktreePath: string): Promise<boolean> {
   try {
-    execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
+    await execFileAsync("git", ["worktree", "remove", "--force", worktreePath], {
       cwd,
-      stdio: "pipe",
       timeout: 10000,
     });
   } catch {
     try {
-      execFileSync("git", ["worktree", "prune"], { cwd, stdio: "pipe", timeout: 5000 });
+      await execFileAsync("git", ["worktree", "prune"], { cwd, timeout: 5000 });
     } catch {
       /* ignore */
     }
@@ -235,8 +231,8 @@ function removeWorktree(cwd: string, worktreePath: string): boolean {
 /**
  * Prune any orphaned worktrees (crash recovery).
  */
-export function pruneWorktrees(cwd: string): void {
+export async function pruneWorktrees(cwd: string): Promise<void> {
   try {
-    execFileSync("git", ["worktree", "prune"], { cwd, stdio: "pipe", timeout: 5000 });
+    await execFileAsync("git", ["worktree", "prune"], { cwd, timeout: 5000 });
   } catch { /* ignore */ }
 }

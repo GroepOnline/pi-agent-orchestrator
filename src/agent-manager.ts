@@ -14,11 +14,11 @@ export const activeAgentStorage = new AsyncLocalStorage<string>();
 
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
+import { AgentRunnerError, resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
 import { getConfig } from "./agent-types.js";
 import type { CompactionSnapshot } from "./compaction-snapshot.js";
 import { type HookRegistry } from "./hooks.js";
-import { totalTokens } from "./spend.js";
+import { outcomeFromRunnerErrorCode, totalTokens } from "./spend.js";
 import { generateCorrelationId } from "./telemetry-otel.js";
 import type { AgentInvocation, AgentRecord, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
 import { addUsage } from "./usage.js";
@@ -32,6 +32,22 @@ export type OnAgentCompact = (record: AgentRecord, info: CompactionInfo) => void
 
 export type BudgetWarningType = "agents_at_80" | "turns_at_80" | "agents_at_90" | "turns_at_90" | "spend_50" | "spend_80" | "spend_100";
 export type OnBudgetWarning = (type: BudgetWarningType, usage: { spawnedAgents: number; totalTurns: number }, limits: { maxAgents: number; maxTurns: number }) => void;
+
+/**
+ * Fired-threshold keys per limit family (matching the keys used by
+ * `checkBudgetWarning`). When a limit changes, its family's keys are cleared
+ * so a later crossing warns again (R3 re-arm).
+ */
+const AGENT_THRESHOLD_KEYS: readonly string[] = ["agents_80", "agents_90"];
+const TURN_THRESHOLD_KEYS: readonly string[] = ["turns_80", "turns_90"];
+
+/**
+ * Prefix of the structured error the session turn-budget gate records on the
+ * record before aborting through the parent signal. The completion handler
+ * re-labels that abort as a budget cut with this message (R4) — the runner
+ * only sees a plain external stop.
+ */
+const SESSION_TURN_LIMIT_PREFIX = "Session turn limit reached";
 
 /** Default max concurrent background agents. */
 /** Fresh-install default: keep typical fan-out in the 1–3 agent range. */
@@ -115,7 +131,11 @@ export class AgentManager {
   private sessionLimits: SessionLimits = {};
   private sessionUsage = { spawnedAgents: 0, totalTurns: 0 };
   private lastTurnCounts = new Map<string, number>();
-  /** Once-per-threshold guards so budget warnings fire a single time each. */
+  /**
+   * Once-per-threshold guards so budget warnings fire a single time each.
+   * Cleared per threshold family when its limit changes (R3 re-arm) and in
+   * full by `resetSessionUsage`.
+   */
   private firedBudgetThresholds = new Set<string>();
   /** Per-agent token cap for spend warnings (0 = off). */
   private perAgentTokenLimit = 0;
@@ -200,6 +220,12 @@ export class AgentManager {
 
   setSessionMaxSpawns(n: number): void {
     const normalized = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+    if (normalized !== this.sessionMaxSpawns) {
+      // R3 re-arm: a changed agent limit re-arms the agent-budget thresholds
+      // so a later crossing warns again. Only the agent keys are cleared —
+      // the turn threshold stays fired unless the turn limit changes too.
+      this.reArmBudgetThresholds(AGENT_THRESHOLD_KEYS);
+    }
     this.sessionMaxSpawns = normalized;
     this.sessionLimits.maxAgentsPerSession = normalized > 0 ? normalized : undefined;
   }
@@ -210,12 +236,25 @@ export class AgentManager {
 
   setSessionMaxTurns(n: number): void {
     const normalized = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+    if (normalized !== this.sessionMaxTurns) {
+      // R3 re-arm: mirror of setSessionMaxSpawns for the turn thresholds.
+      this.reArmBudgetThresholds(TURN_THRESHOLD_KEYS);
+    }
     this.sessionMaxTurns = normalized;
     this.sessionLimits.maxTotalTurnsPerSession = normalized > 0 ? normalized : undefined;
   }
 
   getSessionMaxTurns(): number {
     return this.sessionMaxTurns;
+  }
+
+  /**
+   * Clear the fired state for the given threshold keys so crossing that
+   * percentage again warns again (R3). Clearing only fires later — when a
+   * check observes a crossing — so a raise never warns by itself.
+   */
+  private reArmBudgetThresholds(keys: readonly string[]): void {
+    for (const key of keys) this.firedBudgetThresholds.delete(key);
   }
   getSessionUsage(): { spawnedAgents: number; totalTurns: number } {
     return { ...this.sessionUsage };
@@ -415,11 +454,11 @@ export class AgentManager {
       detachParentSignal = undefined;
     };
 
-    const abandonStartup = (result = ""): void => {
+    const abandonStartup = async (result = ""): Promise<void> => {
       detach();
       if (record.worktree) {
         try {
-          cleanupWorktree(ctx.cwd, record.worktree, options.description);
+          await cleanupWorktree(ctx.cwd, record.worktree, options.description);
         } catch {
           /* ignore cleanup errors */
         }
@@ -451,7 +490,7 @@ export class AgentManager {
         record.status = "stopped";
         record.completedAt ??= Date.now();
       }
-      abandonStartup();
+      await abandonStartup();
       return;
     }
 
@@ -505,7 +544,7 @@ export class AgentManager {
           const maxTurns = this.sessionLimits.maxTotalTurnsPerSession;
           if (maxTurns !== undefined && this.sessionUsage.totalTurns >= maxTurns) {
             record.abortController?.abort();
-            record.error = `Session turn limit reached (${this.sessionUsage.totalTurns}/${maxTurns})`;
+            record.error = `${SESSION_TURN_LIMIT_PREFIX} (${this.sessionUsage.totalTurns}/${maxTurns})`;
           }
           // Budget warning at 80% of limits
           this.checkBudgetWarning();
@@ -539,7 +578,7 @@ export class AgentManager {
         },
       });
     })
-      .then(({ responseText, session, aborted, timedOut, steered, validationResults, validated, error }) => {
+      .then(async ({ responseText, session, aborted, timedOut, steered, validationResults, validated, error, outcome, outcomeReason }) => {
         record.result = responseText;
         record.session = session;
         // A surfaced model/provider error (no thrown exception) is still a
@@ -551,6 +590,27 @@ export class AgentManager {
         // agent was aborted, instead of a bare "aborted" with no explanation.
         if (timedOut) {
           record.error = "Duration quota exceeded";
+        }
+
+        // Explicit outcome contract (R4): record the runner-derived outcome on
+        // the result payload so get_subagent_result and the task notifications
+        // present budget cuts as blocked_budget and silent runs as
+        // not_executed — an empty result is never a successful completion.
+        if (outcome) {
+          record.outcome = outcome;
+          record.outcomeReason = outcomeReason;
+        }
+        // The session turn-limit gate aborts through the parent signal, which
+        // the runner can only classify as an external stop. Re-label it as a
+        // budget cut using the structured limit message recorded by onTurnEnd.
+        if (aborted && record.error?.startsWith(SESSION_TURN_LIMIT_PREFIX)) {
+          if (outcome === "executed") {
+            record.outcome = "executed";
+            record.outcomeReason = `${record.error} — agent executed work before the cut; output may be incomplete.`;
+          } else {
+            record.outcome = "blocked_budget";
+            record.outcomeReason = record.error;
+          }
         }
 
         // Store validation results on the record
@@ -577,12 +637,22 @@ export class AgentManager {
           }
         }
 
-        this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, status, error);
+        await this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, status, error);
         return responseText;
       })
-      .catch((err) => {
+      .catch(async (err) => {
         const errorMsg = err instanceof Error ? err.message : String(err);
-        this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, "error", errorMsg);
+        // Map the runner's error-code vocabulary to the outcome contract (R4)
+        // so a run that never executed (depth/model failures, hook gates) is
+        // still classified instead of left outcome-less.
+        if (err instanceof AgentRunnerError) {
+          const derived = outcomeFromRunnerErrorCode(err.code, errorMsg, err.context);
+          if (derived) {
+            record.outcome = derived.outcome;
+            record.outcomeReason = derived.reason;
+          }
+        }
+        await this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, "error", errorMsg);
         return "";
       });
 
@@ -598,7 +668,7 @@ export class AgentManager {
    * and background queue drain. Called from both .then() and .catch() after
    * result-specific logic.
    */
-  private finalizeAgent(
+  private async finalizeAgent(
     record: AgentRecord,
     ctx: ExtensionContext,
     description: string,
@@ -606,7 +676,7 @@ export class AgentManager {
     detach: () => void,
     status?: "completed" | "aborted" | "steered" | "error",
     error?: string,
-  ): void {
+  ): Promise<void> {
     // Don't overwrite status if externally stopped via abort()
     if (record.status !== "stopped" && status) {
       record.status = status;
@@ -625,7 +695,7 @@ export class AgentManager {
     // Clean up worktree if used
     if (record.worktree) {
       try {
-        const wtResult = cleanupWorktree(ctx.cwd, record.worktree, description);
+        const wtResult = await cleanupWorktree(ctx.cwd, record.worktree, description);
         record.worktreeResult = wtResult;
         if (!error && wtResult.hasChanges && wtResult.branch) {
           record.result = (record.result ?? "") +
@@ -703,6 +773,10 @@ export class AgentManager {
     record.completedAt = undefined;
     record.result = undefined;
     record.error = undefined;
+    // The outcome describes the run this record came from; a resume starts a
+    // new outcome cycle (cleared here, re-derived below from the resume text).
+    record.outcome = undefined;
+    record.outcomeReason = undefined;
 
     try {
       const responseText = await resumeAgent(record.session, prompt, {
@@ -727,6 +801,15 @@ export class AgentManager {
       record.status = "completed";
       record.result = responseText;
       record.completedAt = Date.now();
+      // R4 on the resume path: a resumed agent that returns empty output is
+      // not_executed, never a silent successful completion.
+      if (responseText.trim()) {
+        record.outcome = "executed";
+        record.outcomeReason = undefined;
+      } else {
+        record.outcome = "not_executed";
+        record.outcomeReason = "Agent produced no output after resume.";
+      }
     } catch (err) {
       record.status = "error";
       record.error = err instanceof Error ? err.message : String(err);

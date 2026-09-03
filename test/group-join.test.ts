@@ -120,6 +120,49 @@ describe("GroupJoinManager", () => {
     });
   });
 
+  describe("missingMembers (mid-fanout partial finalization)", () => {
+    it("reports missingMembers in delivery meta when the surviving members complete", () => {
+      const gjm = new GroupJoinManager(deliverCb);
+      gjm.registerGroup("group-1", ["a1", "a2"], { missingMembers: 1 });
+
+      expect(gjm.onAgentComplete(makeRecord({ id: "a1" }))).toBe("held");
+      expect(gjm.onAgentComplete(makeRecord({ id: "a2" }))).toBe("delivered");
+
+      expect(deliverCb).toHaveBeenCalledTimes(1);
+      const [records, partial, meta] = deliverCb.mock.calls[0]!;
+      expect(records.map((r: AgentRecord) => r.id)).toEqual(["a1", "a2"]);
+      // All spawned members completed — not a timeout partial.
+      expect(partial).toBe(false);
+      // But the delivery is explicit about the member that never spawned.
+      expect(meta).toMatchObject({ missingMembers: 1, completedAgents: 2 });
+      // Fully finalized: the group does not leak after delivery.
+      expect(gjm.listGroups()).toEqual([]);
+      expect(gjm.isGrouped("a1")).toBe(false);
+    });
+
+    it("accepts missingMembers via the full config form", () => {
+      const gjm = new GroupJoinManager(deliverCb);
+      gjm.registerGroup({ groupId: "group-1", agentIds: ["a1"], missingMembers: 2 });
+
+      gjm.onAgentComplete(makeRecord({ id: "a1" }));
+
+      const meta = deliverCb.mock.calls[0]![2];
+      expect(meta).toMatchObject({ missingMembers: 2, completedAgents: 1 });
+    });
+
+    it("omits missingMembers for groups that spawned complete (characterization)", () => {
+      const gjm = new GroupJoinManager(deliverCb);
+      gjm.registerGroup("group-1", ["a1", "a2"]);
+
+      gjm.onAgentComplete(makeRecord({ id: "a1" }));
+      gjm.onAgentComplete(makeRecord({ id: "a2" }));
+
+      const meta = deliverCb.mock.calls[0]![2];
+      expect(meta).not.toHaveProperty("missingMembers");
+      expect(meta.completedAgents).toBe(2);
+    });
+  });
+
   describe("isGrouped", () => {
     it("returns true for registered agents", () => {
       const gjm = new GroupJoinManager(deliverCb);
