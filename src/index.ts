@@ -206,10 +206,13 @@ export default async function (pi: ExtensionAPI) {
       pi.events.emit("subagents:completed", eventData);
     }
 
-    // Persist final record for cross-extension history reconstruction
+    // Persist final record for cross-extension history reconstruction.
+    // outcome/outcomeReason carry the R4 outcome contract so history readers
+    // can tell a budget cut or a silent run from a successful completion.
     pi.appendEntry("subagents:record", {
       id: record.id, type: record.type, description: record.description,
       status: record.status, result: record.result, error: record.error,
+      outcome: record.outcome, outcomeReason: record.outcomeReason,
       startedAt: record.startedAt, completedAt: record.completedAt,
     });
 

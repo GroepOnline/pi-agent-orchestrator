@@ -5,6 +5,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { CompactionSnapshot } from "./compaction-snapshot.js";
+import type { AgentOutcome } from "./spend.js";
 import type { LifetimeUsage } from "./usage.js";
 
 export type { CompactionSnapshot, ThinkingLevel };
@@ -134,6 +135,17 @@ export interface AgentRecord {
     status: AgentStatus;
     result?: string;
     error?: string;
+    /**
+     * Explicit outcome contract (R4): executed | blocked_budget | not_executed.
+     * Derived by the runner and recorded here so get_subagent_result and the
+     * task notifications present budget cuts and silent runs explicitly —
+     * an empty result is never presented as successful completion. Optional:
+     * records created before this field existed (or by paths that never set
+     * it) simply omit it.
+     */
+    outcome?: AgentOutcome;
+    /** Structured reason behind `outcome` — the abort message or a progress note. */
+    outcomeReason?: string;
     toolUses: number;
     /** Timestamp when the agent was spawned (record created). Never reset. */
     spawnedAt: number;

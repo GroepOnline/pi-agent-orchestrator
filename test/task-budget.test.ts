@@ -8,6 +8,16 @@ import type { AgentRecord } from "../src/types.js";
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
 }));
 
 vi.mock("../src/worktree.js", () => ({
@@ -16,7 +26,7 @@ vi.mock("../src/worktree.js", () => ({
   pruneWorktrees: vi.fn(),
 }));
 
-import { runAgent } from "../src/agent-runner.js";
+import { AgentRunnerError, runAgent } from "../src/agent-runner.js";
 
 const mockPi = {} as any;
 const mockCtx = { cwd: "/tmp" } as any;
@@ -483,5 +493,157 @@ describe("Budget threshold warnings (R3)", () => {
     }
     turnGate!(2);
     expect(warnings).toEqual(["agents_at_80", "agents_at_80"]);
+  });
+});
+
+/**
+ * Explicit outcome contract (R4 / AE2): the manager records the runner-derived
+ * outcome on the AgentRecord so get_subagent_result and the task notifications
+ * present budget cuts as `blocked_budget` — never as a completed empty result —
+ * and a silent no-op completion (issue #40) as `not_executed`. The session
+ * turn-limit gate aborts through the parent signal, which the runner can only
+ * classify as an external stop, so the manager re-labels it with the
+ * structured limit reason it recorded.
+ */
+describe("Explicit outcome contract (R4)", () => {
+  let manager: AgentManager;
+
+  afterEach(() => {
+    manager?.dispose();
+    vi.mocked(runAgent).mockReset();
+    vi.clearAllMocks();
+  });
+
+  it("records outcome blocked_budget for a token-quota abort (AE2)", async () => {
+    manager = new AgentManager();
+    vi.mocked(runAgent).mockResolvedValue({
+      responseText: "[pi-agent-orchestrator] Agent completed without producing output.\nStatus: aborted",
+      session: mockSession(),
+      aborted: true,
+      steered: false,
+      outcome: "blocked_budget",
+      outcomeReason: "Token quota exceeded (600/500 tokens)",
+    });
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "budget cut", {
+      description: "budget cut",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.status).toBe("aborted");
+    expect(record.outcome).toBe("blocked_budget");
+    expect(record.outcomeReason).toContain("Token quota exceeded");
+  });
+
+  it("records outcome not_executed for a silent no-op completion (issue #40 shape)", async () => {
+    manager = new AgentManager();
+    vi.mocked(runAgent).mockResolvedValue({
+      responseText: "[pi-agent-orchestrator] Agent completed without producing output.\nStatus: completed",
+      session: mockSession(),
+      aborted: false,
+      steered: false,
+      outcome: "not_executed",
+      outcomeReason: "Agent completed without producing output or executing any tools.",
+    });
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "no-op", {
+      description: "no-op",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.status).toBe("completed");
+    expect(record.outcome).toBe("not_executed");
+    expect(record.outcomeReason).toBeTruthy();
+  });
+
+  it("records outcome executed with the partial-progress note for a cut after real work", async () => {
+    manager = new AgentManager();
+    vi.mocked(runAgent).mockResolvedValue({
+      responseText: "partial findings so far",
+      session: mockSession(),
+      aborted: true,
+      steered: false,
+      outcome: "executed",
+      outcomeReason: "Aborted mid-run (Token quota exceeded (600/500 tokens)) — output may be incomplete.",
+    });
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "cut mid-work", {
+      description: "cut mid-work",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.outcome).toBe("executed");
+    expect(record.outcomeReason).toMatch(/incomplete/);
+    expect(record.result).toContain("partial findings");
+  });
+
+  it("re-labels a session turn-limit abort as blocked_budget with the structured limit reason", async () => {
+    manager = new AgentManager();
+    manager.setSessionMaxTurns(2);
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      // The manager's session turn-budget gate aborts through the parent
+      // signal; the runner sees a plain external stop with no structured
+      // reason — exactly the gap the manager-side re-label closes.
+      options?.onTurnEnd?.(2);
+      return {
+        responseText: "",
+        session: mockSession(),
+        aborted: true,
+        steered: false,
+        outcome: "not_executed",
+        outcomeReason: "Stopped before executing any work.",
+      };
+    });
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "long run", {
+      description: "long run",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.error).toBe("Session turn limit reached (2/2)");
+    expect(record.outcome).toBe("blocked_budget");
+    expect(record.outcomeReason).toContain("Session turn limit reached");
+  });
+
+  it("maps AgentRunnerError codes to the outcome on the catch path", async () => {
+    manager = new AgentManager();
+    vi.mocked(runAgent).mockRejectedValue(
+      new AgentRunnerError("Max agent depth reached (5/5)", "depth_exceeded"),
+    );
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "nested", {
+      description: "nested",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.status).toBe("error");
+    expect(record.outcome).toBe("not_executed");
+    expect(record.outcomeReason).toContain("Max agent depth reached");
+  });
+
+  it("leaves the outcome unset when the runner result carries none (backward compatibility)", async () => {
+    manager = new AgentManager();
+    resolvedRun();
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "plain", {
+      description: "plain",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.status).toBe("completed");
+    expect(record.outcome).toBeUndefined();
+    expect(record.outcomeReason).toBeUndefined();
   });
 });

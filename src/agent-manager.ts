@@ -14,11 +14,11 @@ export const activeAgentStorage = new AsyncLocalStorage<string>();
 
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
+import { AgentRunnerError, resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
 import { getConfig } from "./agent-types.js";
 import type { CompactionSnapshot } from "./compaction-snapshot.js";
 import { type HookRegistry } from "./hooks.js";
-import { totalTokens } from "./spend.js";
+import { outcomeFromRunnerErrorCode, totalTokens } from "./spend.js";
 import { generateCorrelationId } from "./telemetry-otel.js";
 import type { AgentInvocation, AgentRecord, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
 import { addUsage } from "./usage.js";
@@ -40,6 +40,14 @@ export type OnBudgetWarning = (type: BudgetWarningType, usage: { spawnedAgents: 
  */
 const AGENT_THRESHOLD_KEYS: readonly string[] = ["agents_80", "agents_90"];
 const TURN_THRESHOLD_KEYS: readonly string[] = ["turns_80", "turns_90"];
+
+/**
+ * Prefix of the structured error the session turn-budget gate records on the
+ * record before aborting through the parent signal. The completion handler
+ * re-labels that abort as a budget cut with this message (R4) — the runner
+ * only sees a plain external stop.
+ */
+const SESSION_TURN_LIMIT_PREFIX = "Session turn limit reached";
 
 /** Default max concurrent background agents. */
 /** Fresh-install default: keep typical fan-out in the 1–3 agent range. */
@@ -536,7 +544,7 @@ export class AgentManager {
           const maxTurns = this.sessionLimits.maxTotalTurnsPerSession;
           if (maxTurns !== undefined && this.sessionUsage.totalTurns >= maxTurns) {
             record.abortController?.abort();
-            record.error = `Session turn limit reached (${this.sessionUsage.totalTurns}/${maxTurns})`;
+            record.error = `${SESSION_TURN_LIMIT_PREFIX} (${this.sessionUsage.totalTurns}/${maxTurns})`;
           }
           // Budget warning at 80% of limits
           this.checkBudgetWarning();
@@ -570,7 +578,7 @@ export class AgentManager {
         },
       });
     })
-      .then(async ({ responseText, session, aborted, timedOut, steered, validationResults, validated, error }) => {
+      .then(async ({ responseText, session, aborted, timedOut, steered, validationResults, validated, error, outcome, outcomeReason }) => {
         record.result = responseText;
         record.session = session;
         // A surfaced model/provider error (no thrown exception) is still a
@@ -582,6 +590,27 @@ export class AgentManager {
         // agent was aborted, instead of a bare "aborted" with no explanation.
         if (timedOut) {
           record.error = "Duration quota exceeded";
+        }
+
+        // Explicit outcome contract (R4): record the runner-derived outcome on
+        // the result payload so get_subagent_result and the task notifications
+        // present budget cuts as blocked_budget and silent runs as
+        // not_executed — an empty result is never a successful completion.
+        if (outcome) {
+          record.outcome = outcome;
+          record.outcomeReason = outcomeReason;
+        }
+        // The session turn-limit gate aborts through the parent signal, which
+        // the runner can only classify as an external stop. Re-label it as a
+        // budget cut using the structured limit message recorded by onTurnEnd.
+        if (aborted && record.error?.startsWith(SESSION_TURN_LIMIT_PREFIX)) {
+          if (outcome === "executed") {
+            record.outcome = "executed";
+            record.outcomeReason = `${record.error} — agent executed work before the cut; output may be incomplete.`;
+          } else {
+            record.outcome = "blocked_budget";
+            record.outcomeReason = record.error;
+          }
         }
 
         // Store validation results on the record
@@ -613,6 +642,16 @@ export class AgentManager {
       })
       .catch(async (err) => {
         const errorMsg = err instanceof Error ? err.message : String(err);
+        // Map the runner's error-code vocabulary to the outcome contract (R4)
+        // so a run that never executed (depth/model failures, hook gates) is
+        // still classified instead of left outcome-less.
+        if (err instanceof AgentRunnerError) {
+          const derived = outcomeFromRunnerErrorCode(err.code, errorMsg, err.context);
+          if (derived) {
+            record.outcome = derived.outcome;
+            record.outcomeReason = derived.reason;
+          }
+        }
         await this.finalizeAgent(record, ctx, options.description, !!options.isBackground, detach, "error", errorMsg);
         return "";
       });
@@ -734,6 +773,10 @@ export class AgentManager {
     record.completedAt = undefined;
     record.result = undefined;
     record.error = undefined;
+    // The outcome describes the run this record came from; a resume starts a
+    // new outcome cycle (cleared here, re-derived below from the resume text).
+    record.outcome = undefined;
+    record.outcomeReason = undefined;
 
     try {
       const responseText = await resumeAgent(record.session, prompt, {
@@ -758,6 +801,15 @@ export class AgentManager {
       record.status = "completed";
       record.result = responseText;
       record.completedAt = Date.now();
+      // R4 on the resume path: a resumed agent that returns empty output is
+      // not_executed, never a silent successful completion.
+      if (responseText.trim()) {
+        record.outcome = "executed";
+        record.outcomeReason = undefined;
+      } else {
+        record.outcome = "not_executed";
+        record.outcomeReason = "Agent produced no output after resume.";
+      }
     } catch (err) {
       record.status = "error";
       record.error = err instanceof Error ? err.message : String(err);

@@ -24,6 +24,16 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
   // tools/agent.ts calls normalizeMaxTurns on the resolved config.
   // The real impl just clamps 0 → undefined; an identity is fine for the test.
   normalizeMaxTurns: (n: number | undefined): number | undefined => (n === 0 ? undefined : n),
