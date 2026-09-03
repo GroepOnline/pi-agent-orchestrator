@@ -65,10 +65,10 @@ MIMO_PROVIDER="${SELECTED_ROUTE%%|*}"
 MIMO_MODEL="${SELECTED_ROUTE#*|}"
 export MIMO_PROVIDER MIMO_MODEL
 
-AGG_BIN="${AGG_BIN:-/tmp/agg}"
-if [[ ! -x "$AGG_BIN" ]]; then
-  curl -sL "https://github.com/asciinema/agg/releases/download/v1.7.0/agg-x86_64-unknown-linux-gnu" \
-    -o "$AGG_BIN" && chmod +x "$AGG_BIN"
+AGG_BIN="${AGG_BIN:-$(command -v agg || true)}"
+if [[ -z "$AGG_BIN" || ! -x "$AGG_BIN" ]]; then
+  echo "ERROR: agg must be installed on PATH, or set AGG_BIN to an executable path." >&2
+  exit 1
 fi
 
 cleanup() {
@@ -78,18 +78,6 @@ trap cleanup EXIT
 
 cd "$ROOT"
 bash "$ROOT/scripts/install-groeponline-extensions.sh"
-
-mkdir -p "$HOME/.pi/agent"
-python3 <<'PY'
-import json, pathlib
-p = pathlib.Path.home() / ".pi/agent/trust.json"
-try:
-    data = json.loads(p.read_text())
-except Exception:
-    data = {}
-data["/workspace"] = True
-p.write_text(json.dumps(data))
-PY
 
 export TERM=xterm-256color
 export COLORTERM=truecolor
