@@ -152,6 +152,79 @@ describe("createGetResultTool", () => {
     expect(result.content[0].text).toContain("finished without producing text");
   });
 
+  it("renders a blocked_budget outcome and structured reason instead of No output.", async () => {
+    const ctx = makeCtx();
+    ctx.manager.getRecord.mockReturnValue(
+      makeRecord({
+        status: "aborted",
+        completedAt: Date.now(),
+        result: "[pi-agent-orchestrator] Agent completed without producing output.\nStatus: aborted",
+        outcome: "blocked_budget",
+        outcomeReason: "Token quota exceeded (600/500 tokens)",
+      }),
+    );
+    const tool = createGetResultTool(ctx);
+    const result = await tool.execute("call-1", { agent_id: "agent-1" }, undefined, undefined, ctx);
+    const text = result.content[0].text;
+    expect(text).toContain("Outcome: blocked_budget — Token quota exceeded (600/500 tokens)");
+    expect(text).not.toContain("No output.");
+  });
+
+  it("renders the not_executed outcome for a genuinely empty completed run", async () => {
+    const ctx = makeCtx();
+    ctx.manager.getRecord.mockReturnValue(
+      makeRecord({
+        status: "completed",
+        completedAt: Date.now(),
+        result: " \n\t ",
+        outcome: "not_executed",
+        outcomeReason: "Agent completed without producing output or executing any tools.",
+      }),
+    );
+    const tool = createGetResultTool(ctx);
+    const result = await tool.execute("call-1", { agent_id: "agent-1" }, undefined, undefined, ctx);
+    const text = result.content[0].text;
+    expect(text).toContain(
+      "Outcome: not_executed — Agent completed without producing output or executing any tools.",
+    );
+    expect(text).not.toContain("No output.");
+  });
+
+  it("renders the partial-progress note for an executed outcome with a reason", async () => {
+    const ctx = makeCtx();
+    ctx.manager.getRecord.mockReturnValue(
+      makeRecord({
+        status: "aborted",
+        completedAt: Date.now(),
+        result: "partial findings",
+        outcome: "executed",
+        outcomeReason: "Aborted mid-run (Token quota exceeded) — output may be incomplete.",
+      }),
+    );
+    const tool = createGetResultTool(ctx);
+    const result = await tool.execute("call-1", { agent_id: "agent-1" }, undefined, undefined, ctx);
+    const text = result.content[0].text;
+    expect(text).toContain("Outcome: executed — Aborted mid-run (Token quota exceeded)");
+    expect(text).toContain("partial findings");
+  });
+
+  it("does not add an outcome line for a normal executed completion without a reason", async () => {
+    const ctx = makeCtx();
+    ctx.manager.getRecord.mockReturnValue(
+      makeRecord({
+        status: "completed",
+        completedAt: Date.now(),
+        result: "Task finished successfully",
+        outcome: "executed",
+      }),
+    );
+    const tool = createGetResultTool(ctx);
+    const result = await tool.execute("call-1", { agent_id: "agent-1" }, undefined, undefined, ctx);
+    const text = result.content[0].text;
+    expect(text).toMatch(/Task finished successfully/);
+    expect(text).not.toContain("Outcome:");
+  });
+
   it("execute returns error for errored agent", async () => {
     const ctx = makeCtx();
     ctx.manager.getRecord.mockReturnValue(

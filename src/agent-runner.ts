@@ -42,6 +42,12 @@ import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { loadSettings } from "./settings.js";
 import { preloadSkills } from "./skill-loader.js";
+import {
+  type AgentAbortReason,
+  type AgentOutcome,
+  type AgentRunnerErrorCode,
+  deriveAgentOutcome,
+} from "./spend.js";
 import { emitTelemetry } from "./telemetry.js";
 import {
   endAgentSpan,
@@ -104,7 +110,7 @@ const CB_RECOVERY_TIMEOUT_MS = 30_000;
 export class AgentRunnerError extends Error {
   constructor(
     message: string,
-    public readonly code: "depth_exceeded" | "model_unavailable" | "quota_exceeded" | "aborted" | "timeout" | "unknown",
+    public readonly code: AgentRunnerErrorCode,
     public readonly context?: Record<string, unknown>,
   ) {
     super(message);
@@ -486,6 +492,17 @@ export interface RunResult {
    * non-empty `error` as a failure even though `session.prompt` resolved.
    */
   error?: string;
+  /**
+   * Structured reason when an internal budget gate (token/tool/duration/turn
+   * quota) stopped the run. Absent for normal completion and external stops,
+   * so a `blocked_budget` outcome is derivable rather than guessed from
+   * error strings (R4 / AE2).
+   */
+  abortReason?: AgentAbortReason;
+  /** Explicit outcome contract (R4): executed | blocked_budget | not_executed. */
+  outcome?: AgentOutcome;
+  /** Reason for the outcome — the structured abort message or a partial-progress note. */
+  outcomeReason?: string;
 }
 
 export interface RunMetrics {
@@ -928,6 +945,10 @@ ${chefPreflight.systemPromptAddition}`;
   let softLimitReached = false;
   let aborted = false;
   let timedOut = false;
+  // Structured reason for internal budget aborts (R4). Set at the abort site
+  // below so the outcome is derived from a deliberate signal, not from
+  // matching error strings. External stops leave it undefined.
+  let abortReason: AgentAbortReason | undefined;
 
   let currentMessageText = "";
   const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
@@ -944,6 +965,7 @@ ${chefPreflight.systemPromptAddition}`;
         maxDurationMs: quotas.maxDurationMs,
       });
       timedOut = true;
+      abortReason = { kind: "duration_quota", message: `Duration quota exceeded (${quotas.maxDurationMs}ms)` };
       session.abort();
       aborted = true;
       return;
@@ -951,6 +973,7 @@ ${chefPreflight.systemPromptAddition}`;
     const totalTokens = tokensIn + tokensOut;
     if (totalTokens > quotas.maxTokens) {
       logger.warn(`Token quota exceeded`, { agentId: options.agentId, totalTokens, maxTokens: quotas.maxTokens });
+      abortReason = { kind: "token_quota", message: `Token quota exceeded (${totalTokens}/${quotas.maxTokens} tokens)` };
       session.abort();
       aborted = true;
       return;
@@ -973,6 +996,10 @@ ${chefPreflight.systemPromptAddition}`;
           session.steer("You have reached your turn budget. Wrap up NOW: write your final end report — findings, what is done, what is blocked, exact file paths/commit SHAs. Do not start new work.");
         } else if (softLimitReached && turnCount >= maxTurns + graceTurns) {
           aborted = true;
+          abortReason = {
+            kind: "turn_budget",
+            message: `Turn budget exhausted (${turnCount}/${maxTurns} turns + ${graceTurns} grace turns)`,
+          };
           session.abort();
         }
       }
@@ -1012,6 +1039,7 @@ ${chefPreflight.systemPromptAddition}`;
 
       if (toolCallCount > quotas.maxToolCalls) {
         logger.warn(`Tool call quota exceeded`, { agentId: options.agentId, toolCallCount, maxToolCalls: quotas.maxToolCalls });
+        abortReason = { kind: "tool_quota", message: `Tool call quota exceeded (${toolCallCount}/${quotas.maxToolCalls} tool calls)` };
         session.abort();
         aborted = true;
         return;
@@ -1288,6 +1316,10 @@ ${chefPreflight.systemPromptAddition}`;
   }
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);
+  // Capture the raw-output signal BEFORE the fail-loud end-report substitution
+  // below — the outcome contract (R4) must know whether the agent actually
+  // produced text, not whether diagnostics were synthesized afterwards.
+  const hasRawOutput = responseText.length > 0;
   let runError: string | undefined;
   const modelError = !aborted && !options.signal?.aborted
     ? (getLastAssistantError(session) ?? exhaustedModelError)
@@ -1324,6 +1356,15 @@ ${chefPreflight.systemPromptAddition}`;
       durationMs,
     });
   }
+
+  // Explicit outcome contract (R4): classify how the run ended so callers
+  // never read a budget cut or a silent run as a successful empty result.
+  const derived = deriveAgentOutcome({
+    aborted,
+    abortReason,
+    hasOutput: hasRawOutput,
+    executedWork: toolCallCount > 0 || hasRawOutput,
+  });
   const duration = performance.now() - startTime;
 
   // Structured handoff parsing
@@ -1404,7 +1445,21 @@ ${chefPreflight.systemPromptAddition}`;
     latencyToFirstTokenMs: latencyToFirstToken,
   };
 
-  return { responseText, session, aborted, timedOut, steered: softLimitReached, validationResults, validated, handoff, metrics, error: runError };
+  return {
+    responseText,
+    session,
+    aborted,
+    timedOut,
+    steered: softLimitReached,
+    validationResults,
+    validated,
+    handoff,
+    metrics,
+    error: runError,
+    abortReason,
+    outcome: derived.outcome,
+    outcomeReason: derived.reason,
+  };
 }
 
 // ============================================================================

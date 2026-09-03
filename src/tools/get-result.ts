@@ -125,10 +125,23 @@ export function createGetResultTool(ctx: ToolContext) {
       if (record.compactionCount) statsParts.push(`Compactions: ${record.compactionCount}`);
       statsParts.push(`Duration: ${duration}`);
 
+      // Explicit outcome contract (R4): surface how the run actually ended.
+      // A plain "executed" without a reason is the normal case and adds no
+      // information, so it is not rendered.
+      const outcomeVisible = record.outcome !== undefined
+        && (record.outcome !== "executed" || record.outcomeReason !== undefined);
+      const outcomeLine = outcomeVisible
+        ? `Outcome: ${record.outcome}${record.outcomeReason ? ` — ${record.outcomeReason}` : ""}`
+        : undefined;
+
       let output =
         `Agent: ${record.id}\n` +
         `Type: ${displayName} | Status: ${record.status} | ${statsParts.join(" | ")}\n` +
         `Description: ${record.description}\n\n`;
+
+      if (outcomeLine) {
+        output += `${outcomeLine}\n\n`;
+      }
 
       if (record.status === "running" || record.status === "queued") {
         output +=
@@ -138,7 +151,11 @@ export function createGetResultTool(ctx: ToolContext) {
       } else if (record.status === "error") {
         output += `Error: ${record.error}`;
       } else if (!record.result?.trim()) {
-        output += `No output.\n\nThis agent finished without producing text. If this was a route-discovery task, prefer direct shell/docs lookup.`;
+        // Outcome-bearing records already explain themselves above; the legacy
+        // text stays for records created before the outcome contract existed.
+        output += outcomeLine
+          ? "No result text was returned for this run."
+          : `No output.\n\nThis agent finished without producing text. If this was a route-discovery task, prefer direct shell/docs lookup.`;
       } else {
         output += record.result?.trim() || "No output.";
       }

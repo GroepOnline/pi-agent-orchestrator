@@ -36,6 +36,16 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(async () => ""),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
   normalizeMaxTurns: (n: number | undefined) => (n === 0 ? undefined : n),
   getDefaultMaxTurns: () => undefined,
 }));

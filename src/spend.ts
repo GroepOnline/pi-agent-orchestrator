@@ -125,3 +125,141 @@ export function spendBudgetWarningMessage(input: {
     : "Raise the per-agent token cap via /agents → Settings, or deny further heavy work for this agent.";
   return `${prefix} Subagent token budget ${pct}% used (${input.agentCount} agent(s) capped at ${input.perAgentTokenLimit} tokens). ${action}`;
 }
+
+// ============================================================================
+// Explicit outcome contract (R4 / AE2)
+// ============================================================================
+
+/**
+ * Explicit outcome for a finished subagent run (R4): a run that ended under
+ * budget pressure — or with genuinely empty output — is never presented as a
+ * successful empty completion.
+ *
+ * - `executed`: the agent ran (normal completion, or a cut after real work —
+ *   with a partial-progress note as the reason).
+ * - `blocked_budget`: a budget gate stopped the agent before any work.
+ * - `not_executed`: the agent never did observable work (silent no-op
+ *   completion — the issue #40 shape — or a stop before any work).
+ */
+export type AgentOutcome = "executed" | "blocked_budget" | "not_executed";
+
+/**
+ * Error-code vocabulary of `AgentRunnerError` (`src/agent-runner.ts`). Kept
+ * here as the single source for the outcome mapping so the pure helpers stay
+ * dependency-free; the runner's error class consumes this type.
+ */
+export type AgentRunnerErrorCode =
+  | "depth_exceeded"
+  | "model_unavailable"
+  | "quota_exceeded"
+  | "aborted"
+  | "timeout"
+  | "unknown";
+
+/**
+ * Structured abort reason kinds. Internal budget gates (token/tool/duration/
+ * turn quotas, session turn limit) set these at the abort site so the outcome
+ * is derivable rather than guessed from error strings. External stops carry no
+ * abort reason at all; hook gates throw instead of aborting.
+ */
+export type AgentAbortKind =
+  | "token_quota"
+  | "tool_quota"
+  | "duration_quota"
+  | "turn_budget"
+  | "session_turn_limit"
+  | "hook_gate"
+  | "external_stop";
+
+/** Structured reason attached to a run that an internal gate stopped. */
+export interface AgentAbortReason {
+  kind: AgentAbortKind;
+  message: string;
+}
+
+export interface AgentOutcomeInput {
+  /** True when the run was aborted (internal budget gate or external stop). */
+  aborted: boolean;
+  /** Structured reason when an internal gate aborted the run. */
+  abortReason?: AgentAbortReason;
+  /** The agent produced non-empty assistant text (before any end-report substitution). */
+  hasOutput: boolean;
+  /** The agent executed observable work (tool calls) before ending. */
+  executedWork: boolean;
+}
+
+export interface AgentOutcomeResult {
+  outcome: AgentOutcome;
+  /** Structured abort message, or a partial-progress / no-output note. */
+  reason?: string;
+}
+
+/**
+ * Derive the explicit outcome (R4) from how a run ended. "Real work" follows
+ * what the fail-loud end report already measures: tool calls and output text.
+ */
+export function deriveAgentOutcome(input: AgentOutcomeInput): AgentOutcomeResult {
+  if (!input.aborted) {
+    if (input.hasOutput) return { outcome: "executed" };
+    if (input.executedWork) {
+      return {
+        outcome: "executed",
+        reason: "Agent completed without producing a final report.",
+      };
+    }
+    // Issue #40 shape: the run ended normally but produced nothing at all.
+    return {
+      outcome: "not_executed",
+      reason: "Agent completed without producing output or executing any tools.",
+    };
+  }
+
+  if (input.executedWork || input.hasOutput) {
+    // Cut after real executed work — partial progress, never "No output.".
+    const cause = input.abortReason ? input.abortReason.message : "stopped before a final report";
+    return {
+      outcome: "executed",
+      reason: `Aborted mid-run (${cause}) — output may be incomplete.`,
+    };
+  }
+
+  const reason = input.abortReason;
+  const isBudgetCut = reason !== undefined
+    && reason.kind !== "external_stop"
+    && reason.kind !== "hook_gate";
+  if (isBudgetCut) {
+    return { outcome: "blocked_budget", reason: reason.message };
+  }
+  return {
+    outcome: "not_executed",
+    reason: reason?.message ?? "Stopped before executing any work.",
+  };
+}
+
+/**
+ * Map a thrown `AgentRunnerError.code` to the outcome contract (R4) for runs
+ * that rejected instead of resolving. `quota_exceeded` → blocked_budget;
+ * codes meaning the agent never executed → not_executed; a `subagent:end`
+ * hook block fires after real work, so it maps to executed; `timeout` /
+ * `unknown` carry no budget semantics and stay unmapped (the error status
+ * presentation covers them).
+ */
+export function outcomeFromRunnerErrorCode(
+  code: AgentRunnerErrorCode,
+  message: string,
+  context?: Record<string, unknown>,
+): AgentOutcomeResult | undefined {
+  switch (code) {
+    case "quota_exceeded":
+      return { outcome: "blocked_budget", reason: message };
+    case "depth_exceeded":
+    case "model_unavailable":
+      return { outcome: "not_executed", reason: message };
+    case "aborted":
+      return context?.hook === "subagent:end"
+        ? { outcome: "executed", reason: message }
+        : { outcome: "not_executed", reason: message };
+    default:
+      return undefined;
+  }
+}
