@@ -3,6 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
   steerAgent: vi.fn(),
   getAgentConversation: vi.fn(),
   getDefaultMaxTurns: vi.fn(),

@@ -23,6 +23,16 @@ import type { AgentConfig } from "../src/types.js";
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
 }));
 
 vi.mock("../src/worktree.js", () => ({

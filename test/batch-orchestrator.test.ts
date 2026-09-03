@@ -267,6 +267,109 @@ describe("BatchOrchestrator", () => {
     });
   });
 
+  describe("partial finalization (markBatchPartial)", () => {
+    it("passes missingMembers to registerGroup when the marked batch finalizes", async () => {
+      const orch = new BatchOrchestrator(deps as any, { debounceMs: 50 });
+      orch.addToBatch("agent-1", "group");
+      orch.addToBatch("agent-2", "group");
+      orch.markBatchPartial(1);
+
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(deps.groupJoin.registerGroup).toHaveBeenCalledWith(
+        expect.any(String),
+        ["agent-1", "agent-2"],
+        { missingMembers: 1 },
+      );
+    });
+
+    it("forces a group below the smart-group threshold when marked partial", async () => {
+      const orch = new BatchOrchestrator(deps as any, {
+        debounceMs: 50,
+        smartGroupThreshold: 2,
+      });
+      // Single survivor of a 3-member fan-out — without the partial mark this
+      // would fall through to an individual nudge and hide the missing members.
+      orch.addToBatch("agent-1", "group");
+      orch.markBatchPartial(2);
+
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(deps.groupJoin.registerGroup).toHaveBeenCalledWith(
+        expect.any(String),
+        ["agent-1"],
+        { missingMembers: 2 },
+      );
+    });
+
+    it("passes missingMembers to createSwarm for marked swarm batches", async () => {
+      const orch = new BatchOrchestrator(deps as any, { debounceMs: 50 });
+      orch.addToBatch("agent-1", "swarm");
+      orch.markBatchPartial(1);
+
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(deps.swarmJoin.createSwarm).toHaveBeenCalledWith(
+        expect.objectContaining({ missingMembers: 1 }),
+      );
+    });
+
+    it("does not pass missingMembers when the batch was not marked (characterization)", async () => {
+      const orch = new BatchOrchestrator(deps as any, { debounceMs: 50 });
+      orch.addToBatch("agent-1", "group");
+      orch.addToBatch("agent-2", "group");
+
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(deps.groupJoin.registerGroup).toHaveBeenCalledTimes(1);
+      expect(deps.groupJoin.registerGroup.mock.calls[0]).toHaveLength(2);
+    });
+
+    it("consumes the partial mark on finalization (no leak into the next batch)", async () => {
+      const orch = new BatchOrchestrator(deps as any, { debounceMs: 50 });
+      orch.addToBatch("agent-1", "group");
+      orch.markBatchPartial(1);
+
+      await vi.advanceTimersByTimeAsync(60);
+
+      orch.addToBatch("agent-2", "group");
+      orch.addToBatch("agent-3", "group");
+
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(deps.groupJoin.registerGroup).toHaveBeenCalledTimes(2);
+      expect(deps.groupJoin.registerGroup.mock.calls[1]).toHaveLength(2);
+    });
+
+    it("accumulates marks from multiple failed fan-outs in one batch window", async () => {
+      const orch = new BatchOrchestrator(deps as any, { debounceMs: 50 });
+      orch.addToBatch("agent-1", "group");
+      orch.addToBatch("agent-2", "group");
+      orch.markBatchPartial(1);
+      orch.markBatchPartial(1);
+
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(deps.groupJoin.registerGroup).toHaveBeenCalledWith(
+        expect.any(String),
+        ["agent-1", "agent-2"],
+        { missingMembers: 2 },
+      );
+    });
+
+    it("ignores non-positive missing counts", async () => {
+      const orch = new BatchOrchestrator(deps as any, { debounceMs: 50 });
+      orch.addToBatch("agent-1", "group");
+      orch.addToBatch("agent-2", "group");
+      orch.markBatchPartial(0);
+
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(deps.groupJoin.registerGroup).toHaveBeenCalledTimes(1);
+      expect(deps.groupJoin.registerGroup.mock.calls[0]).toHaveLength(2);
+    });
+  });
+
   describe("configuration", () => {
     it("uses custom debounceMs", () => {
       const orch = new BatchOrchestrator(deps as any, { debounceMs: 500 });

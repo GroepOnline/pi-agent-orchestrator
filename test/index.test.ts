@@ -139,7 +139,12 @@ vi.mock("../src/telemetry.js", () => ({
 }));
 
 // Mock settings
-vi.mock("../src/settings.js", () => ({ applyAndEmitLoaded: vi.fn(), loadSettings: vi.fn(() => ({})) }));
+vi.mock("../src/settings.js", () => ({
+  applyAndEmitLoaded: vi.fn(),
+  loadSettings: vi.fn(() => ({})),
+  extractCapturedDispatchLimits: vi.fn(() => ({})),
+  capturedDispatchNotices: vi.fn(() => []),
+}));
 
 // Mock output-file
 vi.mock("../src/output-file.js", () => ({}));
