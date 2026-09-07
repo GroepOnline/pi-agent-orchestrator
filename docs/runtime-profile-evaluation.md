@@ -68,7 +68,7 @@ The dominant cold-load cost is the Pi host itself. The full entry point adds rou
 
 The direct runtime graph is small:
 
-- core: `@sinclair/typebox`, `nanoid`
+- core: `@sinclair/typebox`
 - worktrees: `proper-lockfile` (+ `graceful-fs`, `retry`, `signal-exit`)
 - scheduling: `croner`
 - observability: `@opentelemetry/api`, `posthog-node` (+ `@posthog/core`, `@posthog/types`)

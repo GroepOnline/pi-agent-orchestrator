@@ -50,7 +50,7 @@ This document formalizes the loop architecture, its phases, the decision heurist
 │  │   ├─ Token budget (default 500k)                           │
 │  │   ├─ Duration budget (default 10min)                       │
 │  │   └─ Tool call budget (default 100)                        │
-│  ├─ Compaction (Pi upstream AgentSession auto-compaction; local prune helpers unwired — #325) │
+│  ├─ Compaction (Pi upstream AgentSession auto-compaction)     │
 │  ├─ OTel tracing (spans: agent → turn → tool)                 │
 │  ├─ Swarm heartbeat + inter-agent messaging                   │
 │  └─ Mid-run steering (steer_subagent queue injection)         │
@@ -195,7 +195,7 @@ This invariant is critical for autonomous safety: a handoff-chain agent cannot a
 
 ### 5.2 Compaction (autonomous context management)
 
-Live compaction is **Pi upstream `AgentSession` auto-compaction only** (#325). Local prune helpers in `src/compaction.ts` exist but are **not wired** into `runAgent` / `resumeAgent`.
+Live compaction is **Pi upstream `AgentSession` auto-compaction only** (#325).
 
 When the upstream session compacts, the runner forwards:
 
@@ -1242,7 +1242,7 @@ These are the ONLY dashboard interactions that modify loop state:
 
 **Mistake:** Expecting an agent to remember tool outputs from 10 turns ago.
 
-**Reality:** Upstream Pi auto-compaction may summarize or drop older context when the session window fills (#325). Local tool-output prune helpers are unwired — do not assume a fixed “last 5 turns” retention policy. The agent must either re-read files or preserve key findings in its assistant messages.
+**Reality:** Upstream Pi auto-compaction may summarize or drop older context when the session window fills (#325). Do not assume a fixed “last 5 turns” retention policy. The agent must either re-read files or preserve key findings in its assistant messages.
 
 ### 22.7 Steering during compaction
 
@@ -1299,7 +1299,7 @@ This lets tests verify the entire orchestration pipeline without making actual L
 | `test/agent-runner.test.ts` | Turn lifecycle, quotas, compaction triggers |
 | `test/agent-manager.test.ts` | Spawn lifecycle, concurrency queuing, resume |
 | `test/validators.test.ts` | Validator prompt building, result parsing |
-| `test/compaction.test.ts` | Tool output pruning, token estimation |
+| `test/compaction-snapshot.test.ts` | Upstream compaction snapshot shape |
 
 ### 23.4 Invariant tests
 
@@ -1341,7 +1341,7 @@ All benchmarks emit structured `[BENCHMARK]` lines via `test/helpers/benchmark-l
 | `src/handoff.ts` | Structured handoff parse/render + legacy coercion |
 | `src/validators.ts` | Adversarial validator prompt/parse |
 | `src/schedule.ts` | Autonomous cron/interval scheduler |
-| `src/compaction.ts` | Local prune helpers (unwired; live compaction is Pi upstream auto-compaction — #325) |
+| `src/compaction-snapshot.ts` | Upstream Pi compaction observation (#325) |
 | `src/worktree.ts` | Git worktree isolation (safe parallel file edits) |
 | `src/tools/steer.ts` | Mid-run agent steering (steer_subagent tool) |
 | `src/agent-tree.ts` | Execution tree visualization (Mermaid/text/JSON) |

@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-No unreleased changes. The repository is now on the 0.19.x release train.
+- Dropped unused local tool-output prune helpers (`src/compaction.ts`). Live compaction stays Pi upstream auto-compaction.
+- Replaced `nanoid` with `node:crypto` for schedule job ids.
+- Removed novelty TUI spinner glyphs that no pack or role used.
+- Dropped unused docs-site deps (`lucide-react` and leftover `@radix-ui/react-*` next to `radix-ui`).
 
 ---
 

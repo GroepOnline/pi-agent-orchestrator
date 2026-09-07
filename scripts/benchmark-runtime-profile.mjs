@@ -42,7 +42,6 @@ const FEATURE_DEPENDENCIES = {
   "@opentelemetry/api": "observability",
   "@sinclair/typebox": "core",
   croner: "scheduling",
-  nanoid: "core",
   "posthog-node": "observability",
   "proper-lockfile": "worktrees",
 };

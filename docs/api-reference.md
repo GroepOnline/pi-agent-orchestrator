@@ -146,7 +146,7 @@ const unsubscribe = registerHook("subagent:start", async (payload) => {
 - `subagent:steer` — Instruction injection interrupt
 - `tool:call` — Pre-tool execution
 - `tool:result` — Post-tool execution
-- `compaction:start` / `compaction:end` — observational only; payloads are `{ reason }` and `{ reason, tokensBefore }` from upstream Pi events. Local `src/compaction.ts` pruning is not on the runtime path (#325).
+- `compaction:start` / `compaction:end` — observational only; payloads are `{ reason }` and `{ reason, tokensBefore }` from upstream Pi events.
 - `turn:start` / `turn:end`
 
 ---

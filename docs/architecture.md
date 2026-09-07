@@ -204,7 +204,7 @@ resolveModel() ──→ createSubagent() ──→ runAgent()
 | `src/agent-registry.ts` | Definition ingestion, memory lookup, in-memory settings state (incl. `getPromptCompressionLevel` / `setPromptCompressionLevel`) |
 | `src/custom-agents.ts` | Markdown frontmatter extraction and validation |
 | `src/default-agents.ts` | Built-in primitive definitions + lazy prompt regeneration via `READONLY_PROMPT_PARAMS` (compression levels) |
-| `src/compaction.ts` | Local prune helpers (not wired into `runAgent`; live compaction is Pi upstream auto-compaction — see #325) |
+| `src/compaction-snapshot.ts` | Upstream Pi `compaction_end` observation shape (#325) |
 | `src/context.ts` | Vector stack payload creation |
 | `src/context-mode-bridge.ts` | Sandbox execution primitives |
 | `src/handoff.ts` | Unstructured data to JSON state boundary; `buildHandoffPrompt(level)` selects one of 3 prompt variants (full/balanced/aggressive) matching the compression level |

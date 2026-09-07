@@ -64,7 +64,6 @@ The published package intentionally keeps runtime dependencies small and auditab
 | `@opentelemetry/api` | Standard tracing/telemetry interop without owning a backend. |
 | `@sinclair/typebox` | Runtime schemas for tool and RPC contracts. |
 | `croner` | Cron/interval scheduling for persistent agent jobs. |
-| `nanoid` | Collision-resistant local identifiers. |
 | `posthog-node` | Optional telemetry bridge; inert until explicitly configured. |
 | `proper-lockfile` | Cross-process locking for persisted scheduler/orchestration state. |
 

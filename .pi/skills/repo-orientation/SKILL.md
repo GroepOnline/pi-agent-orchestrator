@@ -37,7 +37,7 @@ Lint auto-fix: `node_modules/.bin/biome check --write --unsafe src/ test/ script
 - `agent-types.ts` — permission model · `agent-permissions.json` (root) — resource allow/deny for the docs site
 - `agent-runner.ts` / `agent-manager.ts` / `agent-registry.ts` / `default-agents.ts` / `custom-agents.ts` — agent lifecycle & config
 - `settings.ts` — persistent settings (`SubagentsSettings`)
-- `compaction.ts` / `context.ts` — context pruning / parent context
+- `compaction-snapshot.ts` / `context.ts` — upstream compaction observation / parent context
 - `handoff.ts` — handoff protocol · `hooks.ts` — lifecycle hooks
 - `memory.ts` / `prompts.ts` / `validators.ts`
 - `schedule*.ts` — scheduling engine · `swarm-join.ts` / `group-join.ts` / `batch-orchestrator.ts` / `orchestration-dispatch.ts` — multi-agent topologies

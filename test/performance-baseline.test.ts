@@ -6,11 +6,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentManager } from "../src/agent-manager.js";
-import {
-  type CompactableMessage,
-  estimateReduction,
-  pruneOldToolOutputs,
-} from "../src/compaction.js";
 import { buildParentContext } from "../src/context.js";
 import { HookRegistry } from "../src/hooks.js";
 
@@ -56,24 +51,6 @@ const resolvedRun = () =>
     aborted: false,
     steered: false,
   });
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Create a compactable message. */
-function makeMsg(role: "user" | "assistant" | "toolResult", content: string, toolName?: string): CompactableMessage {
-  return { role, content, toolName };
-}
-
-/** Build a conversation with N turns. Each turn = user → assistant → toolResult. */
-function buildConversation(turnCount: number, toolOutputLen = 1000): CompactableMessage[] {
-  const messages: CompactableMessage[] = [];
-  for (let i = 1; i <= turnCount; i++) {
-    messages.push(makeMsg("user", `Question ${i}`));
-    messages.push(makeMsg("assistant", `Response ${i}`));
-    messages.push(makeMsg("toolResult", "x".repeat(toolOutputLen), "read"));
-  }
-  return messages;
-}
 
 // ── 1. Agent Spawn Latency ──────────────────────────────────────────────────
 
@@ -199,50 +176,6 @@ describe("Performance: context building", () => {
   });
 });
 
-// ── 3. Compaction Reduction ─────────────────────────────────────────────────
-
-describe("Performance: compaction reduction", () => {
-  it("pruneOldToolOutputs reduces message count for old turns", () => {
-    const conversation = buildConversation(10, 2000); // 10 turns, 30 messages
-
-    const originalCount = conversation.length;
-    const result = pruneOldToolOutputs(conversation, 5);
-
-    // After pruning with keepLastNTurns=5:
-    // Last 5 turns (15 msgs) intact + first 5 turns keep only user+assistant (10 msgs) = 25
-    expect(result.length).toBeLessThan(originalCount);
-
-    // Verify reduction estimate is sensible
-    const compactionResult = estimateReduction(conversation, result);
-    expect(compactionResult.reductionPercent).toBeGreaterThan(0);
-    // Should not exceed 100%
-    expect(compactionResult.reductionPercent).toBeLessThanOrEqual(100);
-    expect(compactionResult.turnCount).toBe(10);
-  });
-
-  it("pruneOldToolOutputs with keepLastNTurns=1 clamps to MIN_KEEP_TURNS=2", () => {
-    const conversation = buildConversation(5, 2000);
-    const result = pruneOldToolOutputs(conversation, 1);
-
-    // All 5 user messages survive
-    const userCount = result.filter((m) => m.role === "user").length;
-    expect(userCount).toBe(5);
-
-    // All 5 assistant messages survive
-    const assistantCount = result.filter((m) => m.role === "assistant").length;
-    expect(assistantCount).toBe(5);
-  });
-
-  it("does not mutate the original array", () => {
-    const original = buildConversation(5, 1000);
-    const copy = JSON.parse(JSON.stringify(original));
-
-    pruneOldToolOutputs(original, 3);
-
-    expect(original).toEqual(copy);
-  });
-});
-
 // ── 4. Deferred Context ─────────────────────────────────────────────────────
 
 describe("Performance: deferred context", () => {
@@ -275,69 +208,6 @@ describe("Performance: deferred context", () => {
     expect(record.spawnedAt).toBeLessThanOrEqual(afterSpawn);
 
     manager.dispose();
-  });
-});
-
-// ── 5. Token Estimation ─────────────────────────────────────────────────────
-
-describe("Performance: token estimation", () => {
-  it("estimateReduction returns sensible percentage (0-100%)", () => {
-    // Full conversation with large tool outputs
-    const original: CompactableMessage[] = [
-      makeMsg("user", "Find all bugs"),
-      makeMsg("assistant", "Looking..."),
-      makeMsg("toolResult", "x".repeat(10000), "grep"), // ~2500 tokens
-      makeMsg("toolResult", "y".repeat(8000), "read"), // ~2000 tokens
-    ];
-
-    // Compacted version without tool outputs
-    const compacted: CompactableMessage[] = [
-      makeMsg("user", "Find all bugs"),
-      makeMsg("assistant", "Looking..."),
-    ];
-
-    const result = estimateReduction(original, compacted);
-
-    expect(result.originalTokens).toBeGreaterThan(result.compactedTokens);
-    expect(result.reductionPercent).toBeGreaterThan(0);
-    expect(result.reductionPercent).toBeLessThanOrEqual(100);
-    expect(result.turnCount).toBe(1);
-  });
-
-  it("estimateReduction returns 0% when nothing removed", () => {
-    const identical: CompactableMessage[] = [
-      makeMsg("user", "hello"),
-      makeMsg("assistant", "world"),
-    ];
-
-    const result = estimateReduction(identical, [...identical]);
-    expect(result.reductionPercent).toBe(0);
-    expect(result.originalTokens).toBe(result.compactedTokens);
-  });
-
-  it("estimateReduction handles empty arrays", () => {
-    const result = estimateReduction([], []);
-    expect(result.reductionPercent).toBe(0);
-    expect(result.originalTokens).toBe(0);
-    expect(result.compactedTokens).toBe(0);
-    expect(result.turnCount).toBe(0);
-  });
-
-  it("estimateTokens avoids stringifying large content arrays", () => {
-    const hugeContent = Array(1000).fill({ type: "text", text: "x".repeat(100) });
-    // avoid makeMsg signature error and create directly
-    const original: CompactableMessage[] = [
-      { role: "assistant", content: hugeContent }
-    ];
-
-    const start = performance.now();
-    const result = estimateReduction(original, original);
-    const elapsed = performance.now() - start;
-
-    expect(result.originalTokens).toBeGreaterThan(0);
-    // Assert on speed compared to 1000ms bounds so it isn't flaky on CI,
-    // it was previously 40ms without the optimization, now it's around 5ms
-    expect(elapsed).toBeLessThan(1000);
   });
 });
 

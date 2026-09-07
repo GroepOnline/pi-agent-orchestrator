@@ -112,9 +112,8 @@ export interface AgentConfig {
     /** Per-agent override for MAX_MEMORY_LINES. Falls back to global default (200). */
     maxMemoryLines?: number;
     /**
-     * Intended keep-turns for local tool-output pruning in `src/compaction.ts`.
-     * Not consumed by `runAgent` today — subagent compaction is Pi upstream
-     * auto-compaction only (#325). Kept for config/schema compatibility.
+     * Unused. Kept for config/schema compatibility. Subagent compaction is
+     * Pi upstream auto-compaction only (#325).
      */
     compactionKeepTurns?: number;
     /** Partitioned state: mapping partition name → allowed tool names for that partition. */
@@ -190,8 +189,7 @@ export interface AgentRecord {
     compactionCount: number;
     /**
      * Snapshot of the most recent upstream Pi `compaction_end` event
-     * (success or aborted). Local prune helpers in `src/compaction.ts` are
-     * not on the live subagent path (#325).
+     * (success or aborted).
      */
     lastCompaction?: CompactionSnapshot;
     /** Resolved spawn params, captured for UI display. Fixed at spawn time. */
