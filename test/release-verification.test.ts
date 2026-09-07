@@ -2,7 +2,7 @@
  * release-verification.test.ts — Offline verification of the public npm release contract.
  *
  * Tests cover package contents, license consistency, registry configuration,
- * the frozen 0.18 release train, and the prepare/publish workflow split.
+ * the frozen 0.19 release train, and the prepare/publish workflow split.
  */
 
 import { spawnSync } from "node:child_process";
@@ -51,6 +51,7 @@ function createBaselinePolicySandbox(version = "0.17.5"): string {
     "docs/releases/v0.18.0.md",
     "docs/releases/v0.18.1.md",
     "docs/releases/v0.19.0.md",
+    "docs/releases/v0.19.1.md",
     "scripts/release-policy.mjs",
   ]) {
     const destination = join(sandbox, path);
@@ -214,20 +215,21 @@ describe("0.19 release policy", () => {
   it("declares 0.19.x as the only allowed train and blocks 0.20.0", () => {
     const policy = JSON.parse(readRoot(".release-policy.json"));
     expect(policy.releaseTrain).toBe("0.19");
-    expect(policy.initialRelease).toBe("0.19.0");
+    expect(policy.initialRelease).toBe("0.19.1");
     expect(policy.sourceBaselines).toContain("0.18.1");
+    expect(policy.sourceBaselines).toContain("0.19.0");
     expect(policy.allowPrerelease).toBe(false);
     expect(policy.blockedNextMinor).toBe("0.20.0");
-    expect(policy.releaseCommitTitle).toBe("chore(release): v0.19.0");
+    expect(policy.releaseCommitTitle).toBe("chore(release): v0.19.1");
   });
 
   it("accepts stable 0.19 candidates", () => {
-    expect(runReleasePolicy("candidate", "0.19.0").status).toBe(0);
+    expect(runReleasePolicy("candidate", "0.19.1").status).toBe(0);
     expect(runReleasePolicy("candidate", "0.19.7").status).toBe(0);
   });
 
   it("rejects 0.20, old trains, and prereleases", () => {
-    for (const blocked of ["0.20.0", "0.17.2", "1.0.0", "0.19.0-beta.1"]) {
+    for (const blocked of ["0.20.0", "0.19.0", "0.17.2", "1.0.0", "0.19.1-beta.1"]) {
       const result = runReleasePolicy("candidate", blocked);
       expect(result.status, `${blocked}: ${result.stderr}`).not.toBe(0);
     }

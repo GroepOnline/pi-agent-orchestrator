@@ -71,7 +71,7 @@ export function assertReleaseCandidate(version, policy) {
   const initial = parseStableVersion(policy.initialRelease);
   const blocked = parseStableVersion(policy.blockedNextMinor);
 
-  if (policy.allowPrerelease !== false) fail("allowPrerelease must remain false for the 0.18 stabilization release");
+  if (policy.allowPrerelease !== false) fail("allowPrerelease must remain false for the locked release train");
   if (parsed.major !== trainMajor || parsed.minor !== trainMinor) {
     fail(`${version} is outside the locked ${policy.releaseTrain}.x release train; ${policy.blockedNextMinor} remains blocked`);
   }
