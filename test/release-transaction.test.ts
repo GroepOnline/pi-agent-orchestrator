@@ -160,7 +160,58 @@ describe("v0.19 release transaction", () => {
     );
     expect(rejected.status).not.toBe(0);
     expect(rejected.stderr).toContain(
-      "changed files must be exactly CHANGELOG.md, package-lock.json, package.json; received package.json",
+      "missing required files: CHANGELOG.md, package-lock.json",
+    );
+  });
+
+  it("allows Markdown and SVG documentation companions in the release commit", { timeout: 30000 }, () => {
+    const root = createReleaseSandbox();
+    const prepare = node(root, "scripts/prepare-release.mjs", "0.19.1", "2026-08-25");
+    expect(prepare.status, prepare.stderr).toBe(0);
+
+    writeFileSync(join(root, "README.md"), "# Release docs refresh\n");
+    mkdirSync(join(root, "docs", "guides"), { recursive: true });
+    writeFileSync(join(root, "docs", "guides", "release.md"), "# Release guide\n");
+    mkdirSync(join(root, "docs", "images"), { recursive: true });
+    writeFileSync(
+      join(root, "docs", "images", "release-flow.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 5h10"/></svg>\n',
+    );
+
+    git(root, "add", ".");
+    git(root, "commit", "-m", "chore(release): v0.19.1");
+    const verify = node(
+      root,
+      "scripts/verify-release-transaction.mjs",
+      "HEAD^",
+      "HEAD",
+      "0.19.1",
+    );
+    expect(verify.status, verify.stderr).toBe(0);
+  });
+
+  it("rejects source and binary asset companions in the release commit", { timeout: 30000 }, () => {
+    const root = createReleaseSandbox();
+    const prepare = node(root, "scripts/prepare-release.mjs", "0.19.1", "2026-08-25");
+    expect(prepare.status, prepare.stderr).toBe(0);
+
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "release-side-effect.ts"), "export const unsafe = true;\n");
+    mkdirSync(join(root, "docs", "images"), { recursive: true });
+    writeFileSync(join(root, "docs", "images", "release.png"), "not-a-real-png\n");
+
+    git(root, "add", ".");
+    git(root, "commit", "-m", "chore(release): v0.19.1");
+    const verify = node(
+      root,
+      "scripts/verify-release-transaction.mjs",
+      "HEAD^",
+      "HEAD",
+      "0.19.1",
+    );
+    expect(verify.status).not.toBe(0);
+    expect(verify.stderr).toContain(
+      "disallowed files: docs/images/release.png, src/release-side-effect.ts",
     );
   });
 

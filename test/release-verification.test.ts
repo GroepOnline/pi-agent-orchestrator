@@ -358,7 +358,9 @@ describe("transactional release workflow", () => {
     expect(content).toContain("npm run verify:release-policy:publish");
     expect(content).toContain("node scripts/verify-release-transaction.mjs");
     expect(content).toContain("node scripts/release-policy.mjs candidate");
-    expect(verifier).toContain('ALLOWED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"]');
+    expect(verifier).toContain('REQUIRED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"]');
+    expect(verifier).toContain('path === "README.md"');
+    expect(verifier).toContain('path.endsWith(".md") || path.endsWith(".svg")');
     expect(verifier).toContain("package.json changed fields other than version");
     expect(verifier).toContain("package-lock changed outside top-level version");
     expect(verifier).toContain("CHANGELOG history from v0.17.1 backwards was modified");
