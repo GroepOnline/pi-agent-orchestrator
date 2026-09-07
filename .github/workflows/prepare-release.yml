@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Exact release version (e.g. 0.19.1). Must match the unlocked train in .release-policy.json."
+        description: "Exact next patch version (e.g. 0.19.2). Must remain inside the unlocked train in .release-policy.json."
         required: true
         type: string
       confirmation:
@@ -69,13 +69,16 @@ jobs:
           node scripts/release-recovery.mjs assert-absent "$PACKAGE" "$RELEASE_VERSION"
 
           if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" >/dev/null 2>&1; then
-            OPEN_RELEASE_PRS="$(gh pr list --head "$RELEASE_BRANCH" --state open --json number --jq 'length')"
-            if [ "$OPEN_RELEASE_PRS" != "0" ]; then
-              echo "Release branch $RELEASE_BRANCH already has an open PR; finish or close it before retrying." >&2
-              exit 1
+            REMOTE_RELEASE_SHA="$(git ls-remote --heads origin "$RELEASE_BRANCH" | awk '{print $1}')"
+            EXISTING_RELEASE_PR="$(gh pr list --head "$RELEASE_BRANCH" --state open --json url --jq '.[0].url // ""')"
+            if [ -n "$EXISTING_RELEASE_PR" ]; then
+              echo "Refreshing existing release PR $EXISTING_RELEASE_PR from current main."
+              echo "REMOTE_RELEASE_SHA=$REMOTE_RELEASE_SHA" >> "$GITHUB_ENV"
+              echo "EXISTING_RELEASE_PR=$EXISTING_RELEASE_PR" >> "$GITHUB_ENV"
+            else
+              echo "Removing stale release branch $RELEASE_BRANCH from an earlier failed preparation."
+              git push origin --delete "$RELEASE_BRANCH"
             fi
-            echo "Removing stale release branch $RELEASE_BRANCH from an earlier failed preparation."
-            git push origin --delete "$RELEASE_BRANCH"
           fi
 
       - name: Install dependencies
@@ -89,6 +92,13 @@ jobs:
         run: |
           npm run verify:release-policy
           node scripts/release-policy.mjs candidate "$RELEASE_VERSION"
+
+      - name: Generate release notes from merged main changes when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_VERSION="$(node -p "require('./package.json').version")"
+          node scripts/generate-release-notes.mjs "$RELEASE_VERSION" "$SOURCE_VERSION"
 
       - name: Prepare source version, changelog, and promo metadata
         run: node scripts/prepare-release.mjs "$RELEASE_VERSION" "$(date -u +%F)"
@@ -112,8 +122,6 @@ jobs:
           git diff --check
           ACTUAL="$(git diff --name-only | sort)"
           EXPECTED="$(printf '%s\n' CHANGELOG.md package-lock.json package.json showcase/remotion/public/promo-data.json "docs/releases/v${RELEASE_VERSION}.md" | sort)"
-          # Every changed file must be expected; prepare may leave files it
-          # already finds in the repo (e.g. the release notes template) untouched.
           UNEXPECTED="$(comm -23 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$EXPECTED"))"
           if [ -n "$UNEXPECTED" ]; then
             echo "Release preparation changed unexpected files:" >&2
@@ -127,14 +135,17 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "$RELEASE_BRANCH"
-          git add CHANGELOG.md package.json package-lock.json showcase/remotion/public/promo-data.json
+          git switch -C "$RELEASE_BRANCH"
+          git add CHANGELOG.md package.json package-lock.json showcase/remotion/public/promo-data.json "docs/releases/v${RELEASE_VERSION}.md"
           git commit -m "$RELEASE_TITLE"
-          # The transition verifier delegates to the release-transaction verifier for release branches.
           node scripts/verify-version-transition.mjs HEAD^ HEAD "$RELEASE_BRANCH"
-          git push origin "HEAD:$RELEASE_BRANCH"
+          if [ -n "${REMOTE_RELEASE_SHA:-}" ]; then
+            git push --force-with-lease="$RELEASE_BRANCH:$REMOTE_RELEASE_SHA" origin "HEAD:$RELEASE_BRANCH"
+          else
+            git push origin "HEAD:$RELEASE_BRANCH"
+          fi
 
-      - name: Open reviewed release PR
+      - name: Open or refresh reviewed release PR
         id: pr
         shell: bash
         env:
@@ -150,13 +161,18 @@ jobs:
           - Synchronizes all package-lock root metadata from `package.json`.
           - Finalizes the v__RELEASE_VERSION__ changelog date and deterministic Remotion promo metadata.
           - Contains no runtime or workflow changes.
-          - Publishing starts only after this PR is approved, fully green, and merged.
+          - Auto-merge is enabled immediately; publishing starts when required checks and repository review policy are satisfied.
           - The publisher rejects every version outside the currently unlocked release policy.
 
           After merge, `.github/workflows/release.yml` validates the exact squash commit, publishes npm with provenance, creates `v__RELEASE_VERSION__` on that commit, and creates the matching GitHub Release.
           EOF
           sed -i "s/__RELEASE_VERSION__/$RELEASE_VERSION/g" release-pr.md
-          PR_URL="$(gh pr create --base main --head "$RELEASE_BRANCH" --title "$RELEASE_TITLE" --body-file release-pr.md)"
+          if [ -n "${EXISTING_RELEASE_PR:-}" ]; then
+            PR_URL="$EXISTING_RELEASE_PR"
+            gh pr edit "$PR_URL" --title "$RELEASE_TITLE" --body-file release-pr.md
+          else
+            PR_URL="$(gh pr create --base main --head "$RELEASE_BRANCH" --title "$RELEASE_TITLE" --body-file release-pr.md)"
+          fi
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
           gh pr edit "$PR_URL" --add-reviewer SoulWayy || echo "Reviewer request could not be added automatically; branch protection still requires external approval."
           gh pr comment "$PR_URL" --body "@coderabbitai review" || echo "CodeRabbit review trigger was not accepted; external approval remains mandatory."
@@ -170,7 +186,7 @@ jobs:
           gh workflow run ci.yml --ref "$RELEASE_BRANCH"
           gh workflow run linter.yml --ref "$RELEASE_BRANCH"
 
-      - name: Enable auto-merge after checks and external approval
+      - name: Enable auto-merge after required gates
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
