@@ -28,6 +28,10 @@ function normalizeLineEndings(value) {
   return value.replace(/\r\n?/g, "\n");
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function cloneJson(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
@@ -80,7 +84,7 @@ async function prepareRelease(version, releaseDate) {
   }
 
   const changelog = normalizeLineEndings(await readFile(changelogPath, "utf8"));
-  if (new RegExp(`^## v${version.replaceAll(".", "\\.")} \\(`, "m").test(changelog)) {
+  if (new RegExp(`^## v${escapeRegExp(version)} \\(`, "m").test(changelog)) {
     fail(`CHANGELOG already contains v${version}`);
   }
   const unreleasedHeading = "## [Unreleased]";
