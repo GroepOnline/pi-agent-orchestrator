@@ -13,6 +13,8 @@
   ],
   "allowPrerelease": false,
   "blockedNextMinor": "0.20.0",
-  "unlockInstruction": "0.19.x patch releases are automatic after main advances. A dedicated reviewed pull request must advance releaseTrain before 0.20.0 or any later minor can publish.",
-  "autoPatchOnMain": true
+  "releaseBranch": "release/v0.19.1",
+  "releaseCommitTitle": "chore(release): v0.19.1",
+  "autoPatchOnMain": true,
+  "unlockInstruction": "0.19.x patch releases are automatic after main advances. A dedicated reviewed pull request must advance releaseTrain before 0.20.0 or any later minor can publish."
 }
