@@ -5,7 +5,6 @@
   "maxEndHookRevisions": 0,
   "defaultJoinMode": "smart",
   "schedulingEnabled": true,
-  "tracingEnabled": true,
   "animationStyle": "orchestrator",
   "uiStyle": "premium",
   "orchestrationMode": "single",

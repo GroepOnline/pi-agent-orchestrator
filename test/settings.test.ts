@@ -114,25 +114,6 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({});
   });
 
-  it("round-trips tracingEnabled (true and false), and absence stays absent", () => {
-    saveSettings({ tracingEnabled: false }, projectDir);
-    expect(loadSettings(projectDir)).toEqual({ tracingEnabled: false });
-
-    saveSettings({ tracingEnabled: true }, projectDir);
-    expect(loadSettings(projectDir)).toEqual({ tracingEnabled: true });
-
-    // Absence — caller's "use default" signal — must not become a stored false.
-    saveSettings({}, projectDir);
-    expect(loadSettings(projectDir)).toEqual({});
-  });
-
-  it("sanitize drops non-boolean tracingEnabled silently", async () => {
-    writeProject({ tracingEnabled: "yes" } as any);
-    expect(loadSettings(projectDir)).toEqual({});
-    writeProject({ tracingEnabled: 1 } as any);
-    expect(loadSettings(projectDir)).toEqual({});
-  });
-
   it("sanitize drops non-boolean schedulingEnabled silently", async () => {
     writeProject({ schedulingEnabled: "yes" } as any);
     expect(loadSettings(projectDir)).toEqual({});
@@ -362,38 +343,6 @@ describe("settings persistence", () => {
       expect(loadSettings(projectDir)).toEqual({});
     });
 
-    it("preserves a configured posthog block through sanitization", () => {
-      writeProject({
-        posthog: { key: "phc_abc", host: "https://eu.posthog.com", distinctId: "node-1" },
-      });
-      expect(loadSettings(projectDir)).toEqual({
-        posthog: { key: "phc_abc", host: "https://eu.posthog.com", distinctId: "node-1" },
-      });
-    });
-
-    it("preserves a partial posthog block (key only)", () => {
-      writeProject({ posthog: { key: "phc_abc" } });
-      expect(loadSettings(projectDir)).toEqual({ posthog: { key: "phc_abc" } });
-    });
-
-    it("drops non-string and empty posthog fields", () => {
-      writeProject({ posthog: { key: 42, host: true, distinctId: "" } });
-      expect(loadSettings(projectDir)).toEqual({});
-    });
-
-    it("drops a malformed posthog value (array / non-object)", () => {
-      writeProject({ posthog: ["phc_abc"] as any });
-      expect(loadSettings(projectDir)).toEqual({});
-      writeProject({ posthog: "phc_abc" as any });
-      expect(loadSettings(projectDir)).toEqual({});
-    });
-
-    it("round-trips a saved posthog config so the bridge can enable on load", () => {
-      saveSettings({ posthog: { key: "phc_roundtrip", distinctId: "node-9" } }, projectDir);
-      expect(loadSettings(projectDir)).toEqual({
-        posthog: { key: "phc_roundtrip", distinctId: "node-9" },
-      });
-    });
   });
 
   describe("save result + corrupt-file warning", () => {
@@ -451,7 +400,6 @@ describe("settings persistence", () => {
         setMaxEndHookRevisions: vi.fn(),
         setDefaultJoinMode: vi.fn(),
         setSchedulingEnabled: vi.fn(),
-        setTracingEnabled: vi.fn(),
         setAnimationStyle: vi.fn(),
         setUiStyle: vi.fn(),
         setShowActivityStream: vi.fn(),
@@ -590,21 +538,6 @@ describe("settings persistence", () => {
       expect(appliers.setSchedulingEnabled).not.toHaveBeenCalled();
     });
 
-    it("calls setTracingEnabled(true) when tracingEnabled is true", () => {
-      applySettings({ tracingEnabled: true }, appliers);
-      expect(appliers.setTracingEnabled).toHaveBeenCalledWith(true);
-    });
-
-    it("calls setTracingEnabled(false) when tracingEnabled is false", () => {
-      applySettings({ tracingEnabled: false }, appliers);
-      expect(appliers.setTracingEnabled).toHaveBeenCalledWith(false);
-    });
-
-    it("does not call setTracingEnabled when the field is absent", () => {
-      applySettings({ maxConcurrent: 4 }, appliers);
-      expect(appliers.setTracingEnabled).not.toHaveBeenCalled();
-    });
-
     it("applies display boolean settings correctly", () => {
       applySettings({ showActivityStream: true, showTokenUsage: false, showTurnProgress: true }, appliers);
       expect(appliers.setShowActivityStream).toHaveBeenCalledWith(true);
@@ -659,7 +592,6 @@ describe("settings persistence", () => {
         setMaxEndHookRevisions: vi.fn(),
         setDefaultJoinMode: vi.fn(),
         setSchedulingEnabled: vi.fn(),
-        setTracingEnabled: vi.fn(),
         setAnimationStyle: vi.fn(),
         setUiStyle: vi.fn(),
         setShowActivityStream: vi.fn(),
@@ -710,35 +642,32 @@ describe("settings persistence", () => {
   });
 
   describe("saveAndEmitChanged", () => {
-    it("preserves file-only/expert settings (subagentModel, posthog) not surfaced in the snapshot", () => {
+    it("preserves file-only/expert settings (subagentModel) not surfaced in the snapshot", () => {
       // Regression: saveSettings() overwrites the project file. Settings that
       // are consumed via loadSettings() at spawn time (not held in the
-      // in-memory registry / buildSettingsSnapshot) — e.g. subagentModel and
-      // the optional posthog bridge — must survive a menu save round-trip.
+      // in-memory registry / buildSettingsSnapshot) — e.g. subagentModel —
+      // must survive a menu save round-trip.
       // A naive overwrite silently wiped them; saveAndEmitChanged now merges
       // the snapshot over the persisted file first.
       writeProject({
         maxConcurrent: 4,
         subagentModel: "inherit",
-        posthog: { key: "phc_test" },
       });
 
       const emit = vi.fn();
-      // Menu changes maxConcurrent only; the snapshot omits subagentModel/posthog.
+      // Menu changes maxConcurrent only; the snapshot omits subagentModel.
       saveAndEmitChanged({ maxConcurrent: 8 }, "Max concurrency set to 8", emit, projectDir);
 
       // The snapshot field is updated; the file-only fields are carried through.
       expect(loadSettings(projectDir)).toEqual({
         maxConcurrent: 8,
         subagentModel: "inherit",
-        posthog: { key: "phc_test" },
       });
       // The emitted settings reflect the merged persisted state.
       expect(emit).toHaveBeenCalledWith("subagents:settings_changed", {
         settings: {
           maxConcurrent: 8,
           subagentModel: "inherit",
-          posthog: { key: "phc_test" },
         },
         persisted: true,
       });

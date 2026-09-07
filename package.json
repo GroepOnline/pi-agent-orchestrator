@@ -78,11 +78,8 @@
     }
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.1",
     "@sinclair/typebox": "^0.34.52",
-    "croner": "^10.0.1",
-    "posthog-node": "~5.51.4",
-    "proper-lockfile": "^4.1.2"
+    "croner": "^10.0.1"
   },
   "scripts": {
     "build": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc",
@@ -134,7 +131,6 @@
     "@earendil-works/pi-ai": "^0.84.2",
     "@earendil-works/pi-coding-agent": "^0.84.4",
     "@types/node": "^26.4.0",
-    "@types/proper-lockfile": "^4.1.4",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "@vitest/coverage-v8": "^4.1.11",

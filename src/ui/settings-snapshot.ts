@@ -27,7 +27,6 @@ export function buildSettingsSnapshot(manager: AgentManager, getters: SettingsGe
     maxEndHookRevisions: getters.getMaxEndHookRevisions(),
     defaultJoinMode: getters.getDefaultJoinMode(),
     schedulingEnabled: getters.isSchedulingEnabled(),
-    tracingEnabled: getters.isTracingEnabled(),
     animationStyle: getAnimationStyle(),
     uiStyle: getUiStyle(),
     orchestrationMode: getOrchestrationMode(),

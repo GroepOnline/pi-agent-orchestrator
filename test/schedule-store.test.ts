@@ -38,7 +38,7 @@ describe("ScheduleStore", () => {
 
   afterEach(() => {
     // maxRetries + retryDelay handles Windows file-locking races where the
-    // proper-lockfile lockfile directory is briefly held open after release.
+    // fs.mkdir lock directory is briefly held open after release.
     // EBUSY/EPERM triggers Node's built-in retry-with-linear-backoff.
     rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
@@ -231,7 +231,7 @@ describe("ScheduleStore", () => {
     expect(JSON.parse(readFileSync(target, "utf-8")).jobs[0].id).toBe("secret");
   });
 
-  it("recovers from a legacy plain-file .lock before using proper-lockfile", async () => {
+  it("recovers from a legacy plain-file .lock before acquiring an fs.mkdir lock dir", async () => {
     const file = join(tmp, "s.json");
     const lockPath = `${file}.lock`;
     writeFileSync(lockPath, "999999999");

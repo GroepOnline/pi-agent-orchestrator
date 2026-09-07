@@ -13,26 +13,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, promises as fs, constants as fsConstants } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { lock } from "proper-lockfile";
 import { logger } from "./logger.js";
 import type { ScheduledSubagent, ScheduleStoreData } from "./types.js";
 
 const MAX_STORE_BYTES = 5 * 1024 * 1024;
 const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
-/** Cover the full stale window: 650 * 50ms ≈ 32.5s > stale 30s. */
-const LOCK_OPTIONS = {
-  retries: {
-    retries: 650,
-    factor: 1,
-    minTimeout: 50,
-    maxTimeout: 50,
-  },
-  stale: 30_000,
-  // Never resolve through symlinks — ScheduleStore rejects non-regular paths.
-  realpath: false,
-} as const;
-
 const OPEN_READ_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
+const LOCK_STALE_MS = 30_000;
+const LOCK_RETRY_MS = 50;
 
 function safeSessionFileStem(sessionId: string): string {
   if (SAFE_SESSION_ID.test(sessionId)) return sessionId;
@@ -182,30 +170,46 @@ export class ScheduleStore {
     }
   }
 
-  /** Acquire lock → reload → mutate → save → release. */
-  private async withLock<T>(fn: () => T): Promise<T> {
+  private async acquireDirLock(): Promise<void> {
     await this.ensureDir();
     await removeLegacyFileLock(this.lockPath);
-
-    // deleteFileIfEmpty() may unlink between create and lock; recreate and retry.
-    let release: (() => Promise<void>) | undefined;
-    for (let attempt = 0; ; attempt++) {
-      await this.ensureBackingFile();
+    const started = Date.now();
+    for (;;) {
       try {
-        release = await lock(this.filePath, LOCK_OPTIONS);
-        break;
+        await fs.mkdir(this.lockPath);
+        return;
       } catch (error) {
-        if (!isErrno(error, "ENOENT") || attempt >= 5) throw error;
+        if (!isErrno(error, "EEXIST")) throw error;
+        try {
+          const stat = await fs.stat(this.lockPath);
+          if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+            await fs.rmdir(this.lockPath).catch(() => undefined);
+            continue;
+          }
+        } catch {
+          continue;
+        }
+        if (Date.now() - started > LOCK_STALE_MS) throw error;
+        await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
       }
     }
+  }
 
+  private async releaseDirLock(): Promise<void> {
+    await fs.rmdir(this.lockPath).catch(() => undefined);
+  }
+
+  /** Acquire lock → reload → mutate → save → release. */
+  private async withLock<T>(fn: () => T): Promise<T> {
+    await this.acquireDirLock();
     try {
+      await this.ensureBackingFile();
       await this.load();
       const result = fn();
       await this.save();
       return result;
     } finally {
-      await release?.();
+      await this.releaseDirLock();
     }
   }
 
@@ -274,17 +278,14 @@ export class ScheduleStore {
   /** Delete the backing file only after a lock-protected disk reload confirms it is empty. */
   async deleteFileIfEmpty(): Promise<void> {
     if (!existsSync(this.filePath)) return;
-    await removeLegacyFileLock(this.lockPath);
-
-    let release: (() => Promise<void>) | undefined;
+    await this.acquireDirLock();
     try {
-      release = await lock(this.filePath, LOCK_OPTIONS);
       await this.load();
       if (this.jobs.size === 0) await fs.unlink(this.filePath);
     } catch (error) {
       if (!isErrno(error, "ENOENT")) throw error;
     } finally {
-      await release?.();
+      await this.releaseDirLock();
     }
   }
 }

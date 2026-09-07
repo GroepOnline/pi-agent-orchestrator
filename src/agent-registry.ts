@@ -110,27 +110,6 @@ export function setFreeModelsOnly(enabled: boolean): void {
   freeModelsOnly = enabled;
 }
 
-// ---- Tracing switch ----
-
-/**
- * Master switch for OpenTelemetry span emission in agent-runner. Defaults to
- * enabled. When false, every public telemetry helper short-circuits to a shared
- * no-op span. Runtime toggles affect subsequent spans immediately.
- */
-let tracingEnabled = true;
-
-/** Check if OpenTelemetry tracing is enabled. */
-export function isTracingEnabled(): boolean {
-  return tracingEnabled;
-}
-
-/** Enable or disable OpenTelemetry tracing. */
-export function setTracingEnabled(enabled: boolean): void {
-  tracingEnabled = enabled;
-}
-
-// ---- Animation & UI/UX style configuration ----
-
 /**
  * Motion profiles are backwards compatible with the original single-spinner
  * choices. Pack profiles select deterministic per-agent motion; `reduced`

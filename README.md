@@ -57,7 +57,7 @@ A common flow is `idea -> mission -> orchestration run`. You can also use the Or
 | Ready-made workflows | Progressive-disclosure orchestration and Pi TypeScript engineering skills plus audit, plan, and implementation prompt templates |
 | Local execution | No hosted control plane, no package-owned telemetry backend, and no package-owned data service |
 
-The extension runs inside the Pi host process and does not require a package-owned hosted control plane or data service. Optional telemetry is inert by default; it only sends events when an operator explicitly configures a PostHog project key, and that behavior is documented and test-covered.
+The extension runs inside the Pi host process and does not require a package-owned hosted control plane or data service. In-process telemetry stays local (`src/telemetry.ts`); there is no package-owned PostHog or OpenTelemetry backend.
 
 ## Real terminal showcase
 

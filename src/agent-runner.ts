@@ -28,12 +28,10 @@ import {
   runAdversarialValidation,
 } from "./agent-runner-validator.js";
 import { type EffectiveConfig, getAgentConfig, getConfig, getMemoryToolNames, getReadOnlyMemoryToolNames, getToolNamesForType } from "./agent-types.js";
-import { loadChefGroepPreflight } from "./chefgroep-preflight.js";
 import { buildCompactionSnapshot, type CompactionSnapshot } from "./compaction-snapshot.js";
 import { buildParentContext, extractText } from "./context.js";
 import { resolveCtxInjectionForAgent } from "./context-mode-bridge.js";
 import { DEFAULT_AGENTS } from "./default-agents.js";
-import { detectEnv } from "./env.js";
 import { buildEnvFromContext } from "./env-context.js";
 import { type AgentHandoff, parseHandoff, renderHandoffForParent } from "./handoff.js";
 import { type HookRegistry, normalizeHookResponse } from "./hooks.js";
@@ -49,16 +47,6 @@ import {
   deriveAgentOutcome,
 } from "./spend.js";
 import { emitTelemetry } from "./telemetry.js";
-import {
-  endAgentSpan,
-  endCompactionSpan,
-  endToolSpan,
-  endTurnSpan,
-  startAgentSpan,
-  startCompactionSpan,
-  startToolSpan,
-  startTurnSpan,
-} from "./telemetry-otel.js";
 import type { SubagentType, ThinkingLevel, ValidationResult } from "./types.js";
 import {
   hasValidators,
@@ -455,12 +443,7 @@ export interface RunOptions {
   levelLimit?: number;
   parentConfig?: EffectiveConfig;
   partitions?: readonly string[];
-  /**
-   * Short correlation id (8 hex chars) shared by every span the agent
-   * emits. If absent, `startAgentSpan` simply omits the `correlation.id`
-   * attribute. The manager sets this on every spawn so the id is stable
-   * across `resumeAgent` calls and is queryable from the agent record.
-   */
+  /** Short correlation id (8 hex chars). Set by AgentManager at spawn. */
   correlationId?: string;
   hooks?: HookRegistry;
   spawnedAt?: number;
@@ -669,10 +652,11 @@ export async function runAgent(
   });
 
   const effectiveCwd = options.cwd ?? ctx.cwd;
-  // CHEF-100 Phase 1 dual-read: consume host workspaceContext when
-  // available (zero shell-out), fall back to legacy detectEnv on pre-RFC
-  // hosts. See src/env-context.ts and docs/chef-rfcs/CHEF-100-workspace-context.md.
-  const env = buildEnvFromContext(options.pi) ?? await detectEnv(options.pi, effectiveCwd);
+  const env = buildEnvFromContext(options.pi) ?? {
+    isGitRepo: false,
+    branch: "",
+    platform: process.platform,
+  };
   const parentSystemPrompt = ctx.getSystemPrompt();
 
   // Resolve extensions/skills
@@ -723,34 +707,6 @@ export async function runAgent(
       );
     }
     systemPrompt = buildAgentPrompt({ ...fallback, name: type }, effectiveCwd, env, parentSystemPrompt, extras, compressionLevel);
-  }
-
-  // ChefGroep OS operational context is injected unconditionally when present.
-  // This removes per-agent prompting and keeps every subagent on the same fleet,
-  // datastore and mutation-logging contract. Ordinary installations fail open
-  // when ChefGroep OS is not installed; malformed/oversized state is visible.
-  const chefPreflight = loadChefGroepPreflight({ agentId: options.agentId });
-  if (chefPreflight.status === "loaded" && chefPreflight.systemPromptAddition) {
-    systemPrompt = `${systemPrompt}
-
-${chefPreflight.systemPromptAddition}`;
-    logger.debug("ChefGroep operational preflight injected", {
-      agentId: options.agentId ?? "unknown",
-      path: chefPreflight.path,
-    });
-  } else if (chefPreflight.status === "invalid" || chefPreflight.status === "oversize") {
-    logger.warn("ChefGroep operational preflight rejected", {
-      agentId: options.agentId ?? "unknown",
-      path: chefPreflight.path,
-      status: chefPreflight.status,
-      error: chefPreflight.error,
-    });
-  } else {
-    logger.debug("ChefGroep operational preflight unavailable", {
-      agentId: options.agentId ?? "unknown",
-      path: chefPreflight.path,
-      status: chefPreflight.status,
-    });
   }
 
   // Context-mode injection — only for agents that opt in via useContextMode,
@@ -922,18 +878,6 @@ ${chefPreflight.systemPromptAddition}`;
 
   options.onSessionCreated?.(session);
 
-  // OpenTelemetry span — created after all throwable setup completes.
-  // If session creation or hook dispatch throws, no span leaks.
-  const { span: agentSpan, ctx: agentCtx } = startAgentSpan(options.agentId ?? "unknown", type, {
-    description: agentConfig?.description,
-    depth: currentLevel,
-    model: `${model.provider}/${model.id}`,
-    correlationId: options.correlationId,
-  });
-  const activeToolSpans = new Map<string, import("@opentelemetry/api").Span>();
-  let currentTurnSpan: import("@opentelemetry/api").Span | undefined;
-  let toolSpanSeq = 0;
-
   // Turn tracking and quotas
   let turnCount = 0;
   let toolCallCount = 0;
@@ -980,9 +924,6 @@ ${chefPreflight.systemPromptAddition}`;
     }
 
     if (event.type === "turn_end") {
-      // End previous turn span
-      if (currentTurnSpan) { endTurnSpan(currentTurnSpan); currentTurnSpan = undefined; }
-
       options.hooks
         ?.dispatch("turn:end", options.agentId ?? "unknown")
         .catch((err) => {
@@ -1006,11 +947,6 @@ ${chefPreflight.systemPromptAddition}`;
     }
 
     if (event.type === "turn_start") {
-      // End any prior turn span (safety)
-      if (currentTurnSpan) { endTurnSpan(currentTurnSpan); currentTurnSpan = undefined; }
-      // Start new turn span
-      currentTurnSpan = startTurnSpan(options.agentId ?? "unknown", turnCount + 1, agentCtx);
-
       options.hooks
         ?.dispatch("turn:start", options.agentId ?? "unknown")
         .catch((err) => {
@@ -1032,10 +968,6 @@ ${chefPreflight.systemPromptAddition}`;
 
     if (event.type === "tool_execution_start") {
       toolCallCount++;
-      // Start tool span
-      const toolSpanKey = `${event.toolName}-${++toolSpanSeq}`;
-      const toolSpan = startToolSpan(options.agentId ?? "unknown", event.toolName, agentCtx);
-      activeToolSpans.set(toolSpanKey, toolSpan);
 
       if (toolCallCount > quotas.maxToolCalls) {
         logger.warn(`Tool call quota exceeded`, { agentId: options.agentId, toolCallCount, maxToolCalls: quotas.maxToolCalls });
@@ -1048,15 +980,6 @@ ${chefPreflight.systemPromptAddition}`;
     }
 
     if (event.type === "tool_execution_end") {
-      // End tool span — iterate in reverse for most-recent matching span
-      for (const [key, ts] of [...activeToolSpans.entries()].reverse()) {
-        if (key.startsWith(`${event.toolName}-`)) {
-          endToolSpan(ts);
-          activeToolSpans.delete(key);
-          break;
-        }
-      }
-
       options.onToolActivity?.({ type: "end", toolName: event.toolName });
     }
 
@@ -1079,14 +1002,6 @@ ${chefPreflight.systemPromptAddition}`;
       const snapshot = buildCompactionSnapshot(event);
       options.onCompaction?.(snapshot);
       if (!event.aborted) {
-        const compactionSpan = startCompactionSpan(
-          options.agentId ?? "unknown",
-          event.reason,
-          snapshot.tokensBefore,
-          agentCtx,
-        );
-        endCompactionSpan(compactionSpan);
-
         options.hooks
           ?.dispatch("compaction:end", options.agentId ?? "unknown", {
             reason: event.reason,
@@ -1283,19 +1198,6 @@ ${chefPreflight.systemPromptAddition}`;
       aborted = true;
       // fall through to the graceful return path below
     } else {
-    // End agent span with error status
-    const errDuration = performance.now() - startTime;
-    endAgentSpan(agentSpan, {
-      status: "error",
-      durationMs: errDuration,
-      turns: turnCount,
-      toolCalls: toolCallCount,
-      tokensIn,
-      tokensOut,
-      tokensCacheWrite,
-      error: err instanceof Error ? err.message : String(err),
-    });
-
     options.hooks
       ?.dispatch("subagent:error", options.agentId ?? "unknown", {
         error: err instanceof Error ? err.message : String(err),
@@ -1309,10 +1211,6 @@ ${chefPreflight.systemPromptAddition}`;
     unsubTurns();
     collector.unsubscribe();
     cleanupAbort();
-    // Clean up any dangling turn/tool spans
-    if (currentTurnSpan) { endTurnSpan(currentTurnSpan); currentTurnSpan = undefined; }
-    for (const ts of activeToolSpans.values()) { endToolSpan(ts); }
-    activeToolSpans.clear();
   }
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);
@@ -1411,28 +1309,6 @@ ${chefPreflight.systemPromptAddition}`;
     type,
     duration,
     validatorResults: validationResults?.map((r) => ({ passed: r.passed, summary: r.summary })),
-  });
-
-  // End OpenTelemetry agent span. `timedOut` implies `aborted`, but we record
-  // the cause in the span so the trace still distinguishes a quota timeout.
-  // A surfaced model/provider error must also land as "error" — never "completed".
-  const finalStatus =
-    runError ? "error"
-    : aborted ? "aborted"
-    : softLimitReached ? "steered"
-    : "completed";
-  endAgentSpan(agentSpan, {
-    status: finalStatus,
-    ...(timedOut ? { error: `Duration quota exceeded (${quotas.maxDurationMs}ms)` }
-    : runError ? { error: runError }
-    : {}),
-    durationMs: duration,
-    turns: turnCount,
-    toolCalls: toolCallCount,
-    tokensIn,
-    tokensOut,
-    tokensCacheWrite,
-    validated,
   });
 
   const metrics: RunMetrics = {

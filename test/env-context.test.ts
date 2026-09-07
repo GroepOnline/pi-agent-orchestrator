@@ -1,16 +1,7 @@
 /**
  * env-context.test.ts — Unit tests for `buildEnvFromContext`.
  *
- * Parallel-test PR for the CHEF-100 Phase 1 dual-read adapter
- * (implementation: PR #215, src/env-context.ts). Covers the
- * synchronous `pi.workspaceContext` read path. The legacy `detectEnv`
- * shell-out path is exercised in test/env.test.ts — these two files
- * together give full coverage of the dual-read's two branches.
- *
- * Mock pattern: minimal `ExtensionAPI`-shaped object cast through
- * `unknown`. Avoids `as any` per AGENTS.md Common Mistake #8 — the
- * cast target is a typed structural union (here, `ExtensionAPI`
- * itself, parameterised over `workspaceContext`), not an escape hatch.
+ * Covers the synchronous `pi.workspaceContext` read path.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

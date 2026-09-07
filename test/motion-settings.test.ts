@@ -22,7 +22,6 @@ function appliers(setAnimationStyle: (style: Parameters<SettingsAppliers["setAni
     setMaxEndHookRevisions: noop,
     setDefaultJoinMode: noop,
     setSchedulingEnabled: noop,
-    setTracingEnabled: noop,
     setAnimationStyle,
     setUiStyle: noop,
     setShowActivityStream: noop,

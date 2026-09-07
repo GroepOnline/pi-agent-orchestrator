@@ -6,6 +6,9 @@
 - Replaced `nanoid` with `node:crypto` for schedule job ids.
 - Removed novelty TUI spinner glyphs that no pack or role used.
 - Dropped unused docs-site deps (`lucide-react` and leftover `@radix-ui/react-*` next to `radix-ui`).
+- Removed the unwired orchestra engine (`workflow-runner` / `run-manager` / `execution-strategy`). Live crew stays `orchestration-dispatch`.
+- Dropped OpenTelemetry and PostHog bridges (`@opentelemetry/api`, `posthog-node`). In-process `telemetry.ts` remains.
+- Dropped ChefGroep OS preflight injection, legacy `detectEnv` git exec, and `proper-lockfile`.
 
 ---
 

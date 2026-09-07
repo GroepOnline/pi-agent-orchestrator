@@ -184,8 +184,6 @@ interface SubagentsSettings {
   maxEndHookRevisions?: number;       // Revision turns after blocking subagent:end (default 0 = fail closed)
   defaultJoinMode?: JoinMode;          // Agent join topology (default: "smart")
   schedulingEnabled?: boolean;         // Master switch for cron scheduling (default: true)
-  tracingEnabled?: boolean;           // Master switch for OpenTelemetry span emission in agent-runner (default: true). When false, every span helper in telemetry-otel.ts short-circuits to a shared no-op span.
-  posthog?: { key?: string; host?: string; distinctId?: string };  // Optional PostHog product-analytics bridge. Inert unless `key` is persisted in `.pi/subagents.json` (ambient `POSTHOG_KEY`/`POSTHOG_HOST`/`POSTHOG_DISTINCT_ID` env vars are read only once on first run to seed that config), so a default install ships zero outbound analytics. When enabled, agent lifecycle events (spawned, completed, dispatch decisions, validation failures, unknown-tool telemetry) are captured to your own PostHog project.
   subagentModel?: string;             // Override the model used by spawned subagents. `"inherit"` uses the session-default (parent) model; `"<provider>/<modelId>"` pins a specific model; unset (default) keeps each agent's own configured model. Escape hatch when a built-in read-only agent's pinned model is unreachable. When unset, runAgent also auto-retries once on the session-default model after a soft 401 / PAID_MODEL_AUTH_REQUIRED on the agent's pin (CHE-15).
   animationStyle?: "braille" | "dots" | "lines" | "classic" | "none";  // Spinner style (default: "braille")
   uiStyle?: "premium" | "retro" | "plain";  // UI theme (default: "premium")
@@ -255,9 +253,9 @@ Read-side accessors for the settings that the `/agents` menu can change at runti
 interface SettingsGetters {
   getDefaultMaxTurns: () => number | undefined;
   getGraceTurns: () => number;
+  getMaxEndHookRevisions: () => number;
   getDefaultJoinMode: () => JoinMode;
   isSchedulingEnabled: () => boolean;
-  isTracingEnabled: () => boolean;
 }
 ```
 
@@ -271,9 +269,9 @@ Write-side counterpart to `SettingsGetters`. The `/agents` menu calls these afte
 interface SettingsSetters {
   setDefaultMaxTurns: (n: number | undefined) => void;
   setGraceTurns: (n: number) => void;
+  setMaxEndHookRevisions: (n: number) => void;
   setDefaultJoinMode: (mode: JoinMode) => void;
   setSchedulingEnabled: (b: boolean) => void;
-  setTracingEnabled: (b: boolean) => void;
 }
 ```
 

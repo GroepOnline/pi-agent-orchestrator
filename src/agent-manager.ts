@@ -19,7 +19,6 @@ import { getConfig } from "./agent-types.js";
 import type { CompactionSnapshot } from "./compaction-snapshot.js";
 import { type HookRegistry } from "./hooks.js";
 import { outcomeFromRunnerErrorCode, totalTokens } from "./spend.js";
-import { generateCorrelationId } from "./telemetry-otel.js";
 import type { AgentInvocation, AgentRecord, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
 import { addUsage } from "./usage.js";
 import { cleanupWorktree, createWorktree, pruneWorktrees, } from "./worktree.js";
@@ -48,6 +47,10 @@ const TURN_THRESHOLD_KEYS: readonly string[] = ["turns_80", "turns_90"];
  * only sees a plain external stop.
  */
 const SESSION_TURN_LIMIT_PREFIX = "Session turn limit reached";
+
+function generateCorrelationId(): string {
+  return randomUUID().replace(/-/g, "").slice(0, 8);
+}
 
 /** Default max concurrent background agents. */
 /** Fresh-install default: keep typical fan-out in the 1–3 agent range. */

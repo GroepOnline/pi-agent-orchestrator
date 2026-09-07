@@ -46,7 +46,7 @@ Lint auto-fix: `node_modules/.bin/biome check --write --unsafe src/ test/ script
 
 ## Project config (for pi / agents)
 
-- `.pi/subagents.json` — project subagent tuning (concurrency, thinking, tracing, UI style)
+- `.pi/subagents.json` — project subagent tuning (concurrency, thinking, UI style)
 - `agent-permissions.json` — resource permission model for the public docs site (read-only)
 - `scripts/setup-git-hooks.sh` — local pre-commit/pre-push hooks
 - `.github/workflows/` — CI / QA / publish / release (see `release` skill for the release flow)

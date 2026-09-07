@@ -209,10 +209,10 @@ export interface AgentRecord {
     /** Active partition for this agent (first partition from invocation.partitions). */
     activePartition?: string;
     /**
-     * Short (8-hex-char) correlation id shared across the agent's spans +
-     * log lines. Generated at spawn time and preserved across
-     * `resumeAgent`, so re-running an agent keeps the same id and traces
-     * line up in the OTel exporter and the `/agents health` report.
+     * Short (8-hex-char) correlation id shared across the agent's log lines.
+     * Generated at spawn time and preserved across `resumeAgent`, so
+     * re-running an agent keeps the same id and log lines line up in the
+     * `/agents health` report.
      */
     correlationId?: string;
 }

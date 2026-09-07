@@ -96,7 +96,6 @@ function fakeAccessors(): {
       getMaxEndHookRevisions: () => 0,
       getDefaultJoinMode: () => getDefaultJoinMode(),
       isSchedulingEnabled: () => true,
-      isTracingEnabled: () => true,
     },
     setters: {
       setDefaultMaxTurns: vi.fn(),
@@ -104,7 +103,6 @@ function fakeAccessors(): {
       setMaxEndHookRevisions: vi.fn(),
       setDefaultJoinMode: vi.fn((m) => setDefaultJoinMode(m)),
       setSchedulingEnabled: vi.fn(),
-      setTracingEnabled: vi.fn(),
     },
   };
 }
