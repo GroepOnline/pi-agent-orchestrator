@@ -20,6 +20,7 @@
 |---|---|
 | [Performance](./PERFORMANCE.md) | Benchmarks, spawn latency optimization, compaction efficiency |
 | [How-To: Performance](./HOWTO-perf.md) | Step-by-step profiling, benchmark thresholds, CI interpretation |
+| [Runtime profile evaluation](./runtime-profile-evaluation.md) | Reproducible package/load-cost attribution and package-split decision |
 | [Overdrive Patterns](./overdrive-patterns.md) | Performance optimization patterns and linter rules |
 
 ## // REPO INDEX
