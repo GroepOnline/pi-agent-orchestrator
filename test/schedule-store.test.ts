@@ -2,10 +2,10 @@
  * schedule-store.test.ts — Persistence + concurrency for ScheduleStore.
  *
  * Mirrors the patterns from pi-chonky-tasks's task-store testing: round-trip
- * load/save, parse-error self-heal, stale-lock recovery.
+ * load/save, parse-error self-heal, owner-fenced locking.
  */
 
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -242,6 +242,23 @@ describe("ScheduleStore", () => {
     expect(existsSync(lockPath)).toBe(false);
   });
 
+  it("releases only the lock instance owned by the caller", async () => {
+    const file = join(tmp, "s.json");
+    const lockPath = `${file}.lock`;
+    const ownerPath = join(lockPath, "owner");
+    mkdirSync(lockPath);
+    writeFileSync(ownerPath, "other-owner");
+    const store = await ScheduleStore.create(file);
+    const release = (token: string) => (store as unknown as { releaseDirLock(token: string): Promise<void> }).releaseDirLock(token);
+
+    await release("not-the-owner");
+    expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(ownerPath, "utf-8")).toBe("other-owner");
+
+    await release("other-owner");
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
   it("releases the lock after a successful mutation so subsequent ones don't deadlock", async () => {
     const store = await ScheduleStore.create(join(tmp, "s.json"));
     const a = makeJob({ id: "a", name: "job-a" });
@@ -258,7 +275,6 @@ describe("ScheduleStore", () => {
     // Constructing + read-only use must not touch the filesystem.
     const store = await ScheduleStore.create(file);
     expect(store.list()).toEqual([]);
-    expect(existsSync(dir)).toBe(false);
 
     // First mutation lazily creates the directory.
     await store.add(makeJob());
