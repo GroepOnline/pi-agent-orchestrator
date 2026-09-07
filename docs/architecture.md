@@ -1,12 +1,12 @@
-# // ARCHITECTURE
+# Architecture
 
-> HIGH-LEVEL SUBSYSTEM OVERVIEW FOR `@groeponline/pi-agent-orchestrator`. STRUCTURAL TOPOLOGY AND DATA FLOW DEFINITIONS.
+Pi Agent Orchestrator is a Pi extension that keeps orchestration inside the host process. It adds dispatch, bounded child-agent execution, optional worktree isolation, scheduling, structured handoffs and an operator dashboard without introducing a package-owned control-plane service.
 
----
+![Pi Agent Orchestrator execution flow](./images/orchestration_flow.svg)
 
 ## // SYSTEM DIAGRAM
 
-![Pi Agent Orchestrator Architecture](./images/orchestrator_architecture.png)
+The text block below is the stable showcase metadata contract used by the Remotion pipeline. The source-controlled SVG above and the refreshed runtime topology below are the primary human-facing views.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -80,120 +80,72 @@
    └────────────┘        └─────────────┘
 ```
 
----
-
-## // CORE MODULES
-
-### `src/agent-types.ts` — Permission Model
-
-Execution constraints enforce rigid boundaries:
-
-1. **Base primitive array:** Declared in config (`builtinToolNames`).
-2. **Parent restriction intersection:** Child agents strictly inherit parent constraint matrices.
-3. **Memory partition filtration:** Isolation boundary filter rules applied.
-4. **Disallow floor:** Absolute nullification list; constraints scale downward only.
-
-```ts
-// Structural execution constraint logic
-function resolveAgentTools(config, parentConfig) {
-  const base = config.builtinToolNames;
-  const filtered = applyPartitionFilter(base, config.contextMode);
-  const restricted = PermissionUtils.applyParentRestrictions(filtered, parentConfig);
-  const final = subtract(restricted, config.disallowedTools);
-  return final;
-}
-```
-
-### `src/agent-runner.ts` — Lifecycle Execution
+## Runtime topology
 
 ```text
-spawn → build context → create session → run loop
-  │          │              │              │
-  │          │              │              └── tool calls, compaction, hooks
-  │          │              └── ExtensionAPI.createAgentSession()
-  │          └── extractText, buildParentContext, buildCtxInjection
-  └── resolveModel, getConfig, apply partition + parent restrictions
+Pi host process
+  │
+  ├── extension bootstrap (`src/index.ts`)
+  │     ├── commands
+  │     ├── tools
+  │     ├── lifecycle hooks
+  │     └── UI bindings
+  │
+  ├── orchestration dispatch
+  │     └── single / crew / swarm / auto
+  │
+  ├── agent registry + definitions
+  │     ├── built-in agents
+  │     └── `.pi/agents/*.md`
+  │
+  ├── bounded execution
+  │     ├── model resolution
+  │     ├── effective tool resolution
+  │     ├── budgets / depth / turn limits
+  │     ├── optional context-mode sandbox
+  │     └── optional git worktree
+  │
+  ├── lifecycle state
+  │     ├── queue / running / completion
+  │     ├── usage + performance
+  │     ├── schedules
+  │     └── handoffs
+  │
+  └── operator surface
+        ├── `/agents`
+        ├── resource top
+        ├── schedules
+        ├── health / performance
+        └── steering / termination
 ```
 
-### `src/context.ts` + `src/context-mode-bridge.ts` — Context Pipeline
+The extension runs in the same process as Pi. Package-owned telemetry and hosted state are not required. Optional telemetry exporters only become active when configured by the operator.
 
-- **Phase 1:** Aggregation of parent execution log (`buildParentContext`).
-- **Phase 2:** Sandbox boundary injection (`buildCtxInjection`).
-- **Phase 3:** Deferred calculation blocks. Generates 15-48% token reduction by executing precisely at session spawn point.
+## Permission resolution
 
-### `src/schedule.ts` + `src/schedule-store.ts` — Temporal Processing
+Child-agent capability is derived mechanically before execution. The important invariant is monotonic restriction: descendants can lose capabilities, but they cannot silently regain a tool or scope removed by their parent.
 
-- `SubagentScheduler`: Core chronometer engine.
-- `ScheduleStore`: File-backed block persistence (`.pi/subagent-schedules/<sessionId>.json`).
-- Disabled blocks isolated; completed blocks explicitly pruned.
-
-### `src/ui/agent-dashboard.ts` — Telemetry Dashboard
-
-High-density interactive metrics overlay:
-- **Vim primitives**: `j/k` traversal, `Enter` intervene, `K` terminate, `?` overlay.
-- **Visual multiselection**: `v` operator block operations.
-- **Permission inspection**: `p` execution matrix view.
-- **Swarm topology**: `w` real-time dynamic node join/leave view.
-- **Telemetry rendering**: 5 rendering modes (`dots`, `pulse`, `wave`, `bar`, `clock`).
-- **Refresh interval**: Programmable MS delay.
-
-### `src/swarm-join.ts` — Swarm Protocol
-
-Dynamic cluster topology control:
-- Runtime dynamic node join/leave operations.
-- State telemetry surfaced via `w` operator.
-- Parallel processing state machine.
-- Registry persistence bound to agent lifecycle memory.
-
-### `src/ui/agent-widget.ts` — Above-Editor Widget + Footer Status Bar
-
-The persistent widget above the editor shows running/queued/finished agents with:
-- Virtual scrolling with pagination
-- Thinking level display (🧠)
-- Compact batch rendering (3+ queued agents of same type)
-- Activity heatmap indicator
-- Adaptive refresh (200ms active / 1000ms idle)
-
-**Footer status bar:** `AgentWidget.update()` calls `ctx.ui.setStatus("subagents", text)` with a live summary such as `2 running, 1 queued agents`. The status key is always `"subagents"` so it coexists with other extensions' footer slots.
-
-**UI context binding:** On `session_start` and every `tool_execution_start`, `src/index.ts` calls `bindWidgetUiCtx()` — `setUICtx`, `ensureTimer`, and `update`. This ensures the footer status bar and editor widget work immediately after a Pi reload without waiting for the next tool call.
-
-**Cleanup:** `dispose()` and `setUICtx()` on context switch clear both the widget (`setWidget("agents", undefined)`) and footer status (`setStatus("subagents", undefined)`).
-
-### `src/logger.ts` + `src/telemetry.ts` — Interactive Terminal Safety
-
-- **`logger`**: Silent in TTY sessions unless `PI_SUBAGENTS_LOG_LEVEL` is set. Non-interactive processes (CI, pipes) default to `warn`.
-- **`emitTelemetry`**: Events without registered handlers are dropped silently — no fail-open `console.warn` that would corrupt Pi's chat input or scrollback.
-
----
-
-## // EXECUTION DATA FLOW
+Conceptually:
 
 ```text
-Input command / temporal trigger
-  │
-  ▼
-ExtensionCommand (src/index.ts)
-  │
-  ▼
-resolveModel() ──→ createSubagent() ──→ runAgent()
-  │                      │                  │
-  │                      │                  ├── Tool invoke matrix
-  │                      │                  │      └── Runtime boundary validation
-  │                      │                  ├── Pi upstream auto-compaction hooks (#325)
-  │                      │                  ├── Interrupt hooks
-  │                      │                  └── Handoff JSON payload struct
-  │                      │
-  │                      └── Context payload construction
-  │                            ├── Parent vector stack
-  │                            └── Sandbox primitives
-  │
-  └── Hardware identifier → ExtensionAPI.createAgentSession(model)
+agent-declared tools
+      │
+      ▼
+parent restriction intersection
+      │
+      ▼
+partition / context-mode filtering
+      │
+      ▼
+explicit disallow rules
+      │
+      ▼
+effective toolset
 ```
 
----
+Execution is additionally bounded by turn, budget and depth limits. When worktree isolation is enabled, filesystem/branch isolation is applied independently from tool permissions.
 
-## // FILE MAP
+Relevant modules:
 
 | Module Path | Structural Responsibility |
 |---|---|
@@ -273,49 +225,164 @@ resolveModel() ──→ createSubagent() ──→ runAgent()
 | `src/ui/notification-renderer.ts` | State change visual logic |
 | `src/ui/dashboard/` | Directory containing modular dashboard components (compact rows, progress bars, etc.) |
 
----
+- `src/agent-types.ts` — agent configuration and permission primitives.
+- `src/readonly-helpers.ts` — canonical read-only tool sets.
+- `src/memory.ts` — memory/partition boundaries.
+- `src/context-mode-bridge.ts` and `src/ctx-tool-names.ts` — optional `ctx_*` sandbox integration.
+- `src/worktree.ts` — git worktree isolation.
+- `src/invocation-config.ts` — per-invocation overrides. (chore(release): v0.19.1)
 
-## // SYNCHRONIZATION STATE MACHINE
+## Agent lifecycle
 
-Batched telemetry protocol avoids execution-thread blockages when concurrent children terminate.
-
-### Components
-
-- **pendingNudges** (`src/index.ts`): Pointer array with 200ms flush boundary.
-- **GroupJoinManager** (`src/group-join.ts`): Sync barrier block. Emits single matrix on resolve.
-- **SwarmCoordinator** (`src/swarm-join.ts`): Dynamic runtime node state logic.
-- **currentBatchAgents** (`src/index.ts`): Execution window buffer array.
-
-### State Diagram
+The normal execution path is:
 
 ```text
-Agent completes
-  │
-  ├─→ Result already consumed?
-  │    └─ Yes → Halt propagation
-  │
-  ├─→ Existing in currentBatchAgents window?
-  │    └─ Yes → Hold for finalizeBatch
-  │
-  ├─→ Member of GroupJoinManager barrier?
-  │    └─ Yes → Execute barrier logic
-  │              ├─ Full clear? → Emit immediately
-  │              └─ Partial? → Reset 30s hardware timeout
-  │
-  ├─→ Member of SwarmCoordinator topology?
-  │    └─ Yes → Execute node check
-  │
-  └─→ Else → scheduleNudge(200ms) → Flush single payload
+request
+  → dispatch decision
+  → resolve agent definition
+  → resolve model
+  → resolve permissions + limits
+  → build parent/context payload
+  → create Pi agent session
+  → execute turns + tools
+  → collect usage / lifecycle events
+  → validate result
+  → parse/render structured handoff
+  → return state to parent/operator
 ```
 
-### Debounce Pipeline
+Cancellation and steering remain explicit lifecycle operations. The detailed ordering, concurrency rules and ownership of tool results are documented in [Tool calling](./tool-calling.md).
 
-1. **Parallel tool invokes**: Rapid-fire instructions bind to `currentBatchAgents`.
-2. **Buffer lock**: Return block forces a 100ms `batchFinalizeTimer`.
-3. **Retroactive dispatch**: `finalizeBatch()` computes diff against pending results and pushes single unified object.
-4. **Latency bleed handling**: Process completion post-buffer hits fallback paths.
+Key modules:
 
-### Telemetry Interruption
+- `src/agent-registry.ts` — built-in/custom definition lookup and settings state.
+- `src/default-agents.ts` — built-in agent definitions.
+- `src/custom-agents.ts` — `.pi/agents/*.md` parsing and validation.
+- `src/model-resolver.ts` — model identifier normalization.
+- `src/agent-runner.ts` — subagent session creation and execution loop.
+- `src/agent-manager.ts` — host AgentManager abstraction.
+- `src/context.ts` — parent context construction.
+- `src/hooks.ts` — execution interrupt hooks.
+- `src/validators.ts` — output/result validation.
+- `src/usage.ts` and `src/estimate.ts` — usage and token estimation.
 
-Calling `get_subagent_result` triggers explicit `cancelNudge(agentId)`. Telemetry object explicitly deleted before 200ms tick executes. Prevents state-feedback loop on manual read operations.
+## Dispatch
 
+`src/orchestration-dispatch.ts` resolves the supported strategy families:
+
+| Strategy | Shape |
+| --- | --- |
+| `single` | One bounded execution path; default |
+| `crew` | Several role-oriented agents |
+| `swarm` | Coordinated parallel membership |
+| `auto` | Heuristic selection among supported plans |
+
+Multi-agent dispatch is opt-in. The dispatcher records decisions through `src/dispatch-history.ts`, which feeds operator health views and makes recent strategy choices inspectable.
+
+See [Execution strategies](./execution-strategies.md) for behavior and selection details.
+
+## Structured handoffs
+
+Handoffs are a first-class boundary between agents. The goal is to transfer explicit state rather than depending on hidden conversational context.
+
+`src/handoff.ts` owns parsing and parent rendering. Handoff payloads can carry conclusions plus typed artifacts such as files, branches, URLs and notes. Prompt variants are selected from the configured compression level so the transfer contract remains compatible with static prompt-compression profiles.
+
+v0.19.1 includes a bounded Explore handoff demo and deterministic parser check for this path. See [v0.19.1 release notes](./releases/v0.19.1.md).
+
+## Scheduling
+
+Persistent scheduled work is split between execution and storage:
+
+- `src/schedule.ts` — scheduling engine.
+- `src/schedule-store.ts` — file-backed schedule persistence under `.pi/subagent-schedules/<sessionId>.json`.
+- daemon schedule UI — exposed through the `/agents` operator surface.
+
+One-shot, interval and cron-style jobs share the same visible lifecycle model as interactive runs.
+
+## Swarms and groups
+
+Coordination is separate from individual agent execution:
+
+- `src/swarm-join.ts` — dynamic swarm membership.
+- `src/group-join.ts` — batch/group synchronization.
+- `src/batch-orchestrator.ts` — batch finalization and update coalescing.
+- `src/agent-tree.ts` — tree/graph representation for agent topology.
+
+This separation keeps concurrency mechanics from changing the permission model of an individual child agent.
+
+## Operator UI
+
+The operator surface is built from small UI modules rather than a separate web control plane.
+
+Important pieces:
+
+- `src/commands/agents.ts` — `/agents` command registration.
+- `src/output-handler.ts` — command output and UI entry points.
+- `src/ui/agent-dashboard.ts` — dashboard composition.
+- `src/ui/agent-widget.ts` — persistent editor widget and `subagents` footer status.
+- `src/ui/agent-detail.ts` and `src/ui/agent-viewer.ts` — detailed agent state.
+- `src/ui/agent-actions.ts` — lifecycle actions.
+- `src/ui/agent-wizards.ts` — interactive creation/configuration flows.
+- `src/ui/settings-snapshot.ts` — settings state exposed to the UI.
+
+UI context is rebound during lifecycle events so a Pi reload does not require an unrelated tool call before status becomes visible again. Cleanup removes both the widget and footer status when the UI context is disposed or replaced.
+
+## Cross-extension RPC
+
+`src/cross-extension-rpc.ts` exposes a bounded integration surface for peer extensions in the same process. The contract uses capability-token authentication, mutation rate limits and a strict allowlist for spawn options. Audit data is recorded through `src/audit-logger.ts`.
+
+RPC is an integration boundary, not an alternate permission bypass: child execution still goes through the same effective capability resolution.
+
+## Telemetry and logging
+
+- `src/telemetry.ts` — internal event emission.
+- `src/telemetry-otel.ts` — optional OpenTelemetry lifecycle spans.
+- `src/logger.ts` — structured logging that stays quiet in interactive TTY sessions unless explicitly enabled.
+- `src/events.ts` — typed lifecycle event catalog.
+
+Unconfigured telemetry does not create a package-owned remote data path. Interactive logging is intentionally quiet by default to avoid corrupting Pi's terminal input or scrollback.
+
+## Prompt compression
+
+Prompt compression changes static system-prompt guidance; it is not conversation-history compaction. Relevant pieces include:
+
+- `src/prompts.ts`
+- `src/handoff.ts`
+- `src/default-agents.ts`
+- `src/agent-registry.ts`
+
+See [Prompt compression](./prompt-compression.md) for the exact scope.
+
+## Source map
+
+| Area | Primary modules |
+| --- | --- |
+| Bootstrap | `src/index.ts`, `src/env.ts`, `src/globals.ts` |
+| Agent definitions | `src/agent-registry.ts`, `src/default-agents.ts`, `src/custom-agents.ts`, `src/template-registry.ts`, `src/agent-templates.ts` |
+| Execution | `src/agent-runner.ts`, `src/agent-manager.ts`, `src/agent-types.ts`, `src/model-resolver.ts`, `src/invocation-config.ts` |
+| Context | `src/context.ts`, `src/context-mode-bridge.ts`, `src/memory.ts`, `src/ctx-tool-names.ts` |
+| Isolation | `src/worktree.ts`, `src/readonly-helpers.ts` |
+| Handoffs | `src/handoff.ts`, `src/prompts.ts`, `src/output-file.ts` |
+| Dispatch | `src/orchestration-dispatch.ts`, `src/dispatch-history.ts`, `src/batch-orchestrator.ts` |
+| Coordination | `src/swarm-join.ts`, `src/group-join.ts`, `src/agent-tree.ts` |
+| Scheduling | `src/schedule.ts`, `src/schedule-store.ts` |
+| Tools | `src/tools/agent.ts`, `src/tools/context.ts`, `src/tools/get-result.ts`, `src/tools/steer.ts` |
+| Commands | `src/commands/agents.ts`, `src/commands/hooks.ts`, `src/commands/templates.ts` |
+| UI | `src/output-handler.ts`, `src/ui/*` |
+| Validation | `src/validators.ts`, `src/tool-result-helpers.ts` |
+| Usage/performance | `src/usage.ts`, `src/estimate.ts`, `src/health-report.ts` |
+| Integration | `src/cross-extension-rpc.ts`, `src/audit-logger.ts`, `src/events.ts` |
+| Observability | `src/telemetry.ts`, `src/telemetry-otel.ts`, `src/logger.ts` |
+
+## Architectural invariants
+
+1. **Single host process:** orchestration runs in Pi; no package-owned control plane is required.
+2. **Monotonic permissions:** descendants cannot widen inherited execution capabilities.
+3. **Explicit concurrency:** multi-agent behavior is opt-in and strategy-driven.
+4. **Explicit transfer:** structured handoffs carry state between execution boundaries.
+5. **Optional isolation:** worktrees add filesystem/branch isolation without replacing permission checks.
+6. **Operator visibility:** active execution remains inspectable and interruptible through the local UI.
+7. **No implicit release actions:** merge, publish, tag and deploy are not side effects of orchestration unless explicitly requested.
+8. **Optional observability:** telemetry/export is disabled until configured.
+
+For the public first-run path, return to [Getting started](./getting-started.md). For exact schemas and lifecycle semantics, continue with [API reference](./api-reference.md) and [Tool calling](./tool-calling.md).

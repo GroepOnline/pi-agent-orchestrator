@@ -1,57 +1,60 @@
 # Showcase media layout
 
-Binary showcase media (`*.mp4`, large `*.gif`) should not keep growing inside
-this repository. Git history already carries multiple generations of the same
-files; every clone and every PR CI run pays for that.
+Documentation visuals and generated showcase media have different jobs and should be stored accordingly.
 
-## Target layout
+## Ownership
 
-| Path | Owns |
-| --- | --- |
-| `GroepOnline/pi-agent-orchestrator` | Source, site app code, small posters/SVGs |
-| `GroepOnline/pi-agent-orchestrator-assets` (sibling) | Binary media under `images/` |
-| `GroepOnline/showcase-videos` | Remotion compositions / generated films |
+| Asset class | Canonical location | Rule |
+| --- | --- | --- |
+| Small source-controlled diagrams and SVGs | `GroepOnline/pi-agent-orchestrator` | Reviewable in normal PR diffs |
+| Small generated posters/social cards needed by the package/site | `docs/images/` while required by current build wiring | Keep only when a build or metadata path depends on them |
+| Large MP4/GIF showcase media | `GroepOnline/pi-agent-orchestrator-assets` | Do not keep growing the main repo history |
+| Remotion composition source / generated films | `GroepOnline/showcase-videos` plus the repo's `showcase/remotion/` integration | Composition source stays reviewable; large outputs remain external where possible |
 
-Checkout side by side:
+The README and architecture overview use `docs/images/orchestration_flow.svg`. This is intentionally a compact, source-controlled vector rather than a generated screenshot or social card. The generated `social_preview.png` remains a social/package metadata asset and is no longer the primary README hero.
+
+## Local checkout layout
 
 ```text
 OrgChefgroep/
   pi-agent-orchestrator/
-  pi-agent-orchestrator-assets/   # images/dashboard_preview.mp4, …
+  pi-agent-orchestrator-assets/
   showcase-videos/
 ```
 
-## Local wiring
+Clone the binary asset repository once when you need the complete media set:
 
 ```bash
-# clone once
 git clone git@github.com:GroepOnline/pi-agent-orchestrator-assets.git ../pi-agent-orchestrator-assets
-
-# optional: point docs/images at the external images/ tree
 npm run assets:link
 npm run assets:status
 ```
 
-Override the location with `ORCHESTRATOR_MEDIA_DIR=/absolute/path`.
+Override the media location with `ORCHESTRATOR_MEDIA_DIR=/absolute/path`.
 
-`site/web/scripts/stage-public.mjs` already honors `ORCHESTRATOR_MEDIA_DIR`
-(and otherwise reads `docs/images`, whether that is a real directory or a
-symlink).
+`site/web/scripts/stage-public.mjs` honors `ORCHESTRATOR_MEDIA_DIR`; otherwise it reads `docs/images`, whether that path is a normal directory or a symlink.
 
-## CI / Pages
+## Documentation image policy
 
-Until the migration finishes, required media still ships in `docs/images/` so
-Cloudflare Pages and GitHub Pages builds keep working without an extra clone.
-The follow-up cutover is:
+Primary documentation should prefer, in order:
 
-1. Copy current `docs/images/*.{mp4,gif}` into `pi-agent-orchestrator-assets/images/`
-2. Stop tracking those binaries in this repo (keep `.svg` / small `.png` posters)
-3. Teach `cloudflare-pages.yml` / `pages.yml` to checkout the assets repo into
-   `docs/images` (or set `ORCHESTRATOR_MEDIA_DIR`) before `stage-public`
-4. Optional later: `git filter-repo` to purge historical blobs from this repo
+1. Small SVG diagrams that explain architecture or flow.
+2. Real product posters generated from product renderers.
+3. Short real-product video only when motion is essential to understanding the feature.
 
-## Why not git-lfs here
+Avoid using a marketing/social image as the only explanation of a technical workflow. Social cards optimize for sharing, while README and architecture visuals should optimize for comprehension and diffability.
 
-LFS still stores large objects in the same project quota and complicates
-`npm pack` / shallow CI clones. A sibling assets repo keeps `git clone` of the
-extension fast and matches how `showcase-videos` already works for Remotion.
+## Current migration state
+
+Required media still exists under `docs/images/` because Cloudflare Pages, GitHub Pages and existing showcase scripts expect those paths. The staged cutover remains:
+
+1. Keep source SVGs and small required posters in the main repository.
+2. Copy large `*.mp4` and large `*.gif` outputs to `pi-agent-orchestrator-assets/images/`.
+3. Stop tracking migrated large binaries in the main repository.
+4. Teach `cloudflare-pages.yml` and `pages.yml` to check out or stage the asset repository before site packaging.
+5. Keep `ORCHESTRATOR_MEDIA_DIR` as the explicit local/CI override.
+6. Consider historical blob cleanup separately; do not mix history rewriting into a normal release PR.
+
+## Why not Git LFS here
+
+Git LFS still couples large objects to the same project quota and complicates shallow CI, package verification and developer setup. A sibling binary asset repository keeps the extension checkout smaller and preserves a clean separation between reviewable source and generated media.
