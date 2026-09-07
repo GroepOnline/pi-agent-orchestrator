@@ -180,22 +180,35 @@ jobs:
 
       - name: Install lowest supported peer dependencies
         run: |
+          set -euo pipefail
           npm ci
-          # The host packages are devDependencies for local typechecking, but
-          # this job intentionally replaces them with the public peer floor.
-          # Remove the dev ranges first so npm does not mark 0.81.1 invalid
-          # against the repository's normal ^0.83.0 development baseline.
-          node --input-type=module -e '
-            import fs from "node:fs";
-            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            delete pkg.devDependencies["@earendil-works/pi-ai"];
-            delete pkg.devDependencies["@earendil-works/pi-coding-agent"];
-            fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
-          '
-          npm install --no-save --package-lock=false --include=dev \
+          # npm 10.9.8 can crash in Arborist (null edgesOut) when package.json
+          # is mutated after npm ci and the root graph is immediately reified.
+          # Keep the reviewed lockfile/tree intact: resolve the public peer floor
+          # in an isolated runner directory, then replace only the two host
+          # package directories that this compatibility lane intentionally tests.
+          FLOOR_DIR="$RUNNER_TEMP/pi-lowest-peer"
+          rm -rf "$FLOOR_DIR"
+          mkdir -p "$FLOOR_DIR"
+          printf '{"private":true}\n' > "$FLOOR_DIR/package.json"
+          npm install --prefix "$FLOOR_DIR" --no-save --package-lock=false \
             @earendil-works/pi-ai@0.81.1 \
             @earendil-works/pi-coding-agent@0.81.1
-          npm ls @earendil-works/pi-ai @earendil-works/pi-coding-agent
+          rm -rf \
+            node_modules/@earendil-works/pi-ai \
+            node_modules/@earendil-works/pi-coding-agent
+          cp -a "$FLOOR_DIR/node_modules/@earendil-works/pi-ai" \
+            node_modules/@earendil-works/pi-ai
+          cp -a "$FLOOR_DIR/node_modules/@earendil-works/pi-coding-agent" \
+            node_modules/@earendil-works/pi-coding-agent
+          node --input-type=module -e '
+            import ai from "./node_modules/@earendil-works/pi-ai/package.json" with { type: "json" };
+            import agent from "./node_modules/@earendil-works/pi-coding-agent/package.json" with { type: "json" };
+            if (ai.version !== "0.81.1" || agent.version !== "0.81.1") {
+              throw new Error(`lowest-peer install mismatch: pi-ai=${ai.version}, pi-coding-agent=${agent.version}`);
+            }
+            console.log(`Lowest peer floor installed: pi-ai=${ai.version}, pi-coding-agent=${agent.version}`);
+          '
 
       - name: Typecheck
         run: npm run typecheck

@@ -13,7 +13,7 @@ Operator detail lives in [`.github/NPM_SETUP.md`](../../../.github/NPM_SETUP.md)
 
 ## Automated flow
 
-1. Before running the button for the next valid patch release (currently `0.18.2`), advance the pinned release workflow and policy in a dedicated reviewed change: the current source is already `0.18.1`, while the checked-in workflow still prepares the initial `0.18.1` release and cannot run again.
+1. Before running the button for the next valid patch release (currently `0.19.1`), advance the pinned release workflow and policy in a dedicated reviewed change: the current source is `0.19.0`; the reviewed policy is pinned to the next patch before preparation.
 2. Run the newly pinned **Prepare Release** workflow on `main` with its exact confirmation value. The workflow writes `package.json`, both lockfile root versions, `CHANGELOG.md`, and `showcase/remotion/public/promo-data.json`, then opens the matching release branch.
 3. After that PR squash-merges, `release.yml` matches subject `chore(release): v$VERSION`.
 4. It re-runs the immutable gate, publishes the packed tarball with provenance, then creates tag `v$VERSION` and the GitHub Release.
@@ -35,7 +35,7 @@ prepare-release.yml (button on main)
    npm view @groeponline/pi-agent-orchestrator version
    ```
 
-3. Keep `.release-policy.json` on the locked `0.18.x` train. Do not unlock `0.19.0` in a product PR.
+3. Keep `.release-policy.json` on the locked `0.19.x` train. `0.20.0` remains blocked and requires a dedicated policy change.
 4. Ensure the package catalog contract passes:
 
    ```bash

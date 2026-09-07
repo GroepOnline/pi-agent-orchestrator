@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Exact release version (e.g. 0.19.0). Must match the unlocked train in .release-policy.json."
+        description: "Exact release version (e.g. 0.19.1). Must match the unlocked train in .release-policy.json."
         required: true
         type: string
       confirmation:
