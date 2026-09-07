@@ -52,12 +52,35 @@ export function compareVersions(left, right) {
   return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
 }
 
+export function assertReleaseSourceVersion(version, policy) {
+  if (policy.sourceBaselines.includes(version)) return parseStableVersion(version);
+  return assertReleaseCandidate(version, policy);
+}
+
+export function nextPatchVersion(sourceVersion, policy) {
+  const source = assertReleaseSourceVersion(sourceVersion, policy);
+  const initial = parseStableVersion(policy.initialRelease);
+  if (compareVersions(source, initial) < 0) return initial.raw;
+  const next = `${source.major}.${source.minor}.${source.patch + 1}`;
+  assertReleaseCandidate(next, policy);
+  return next;
+}
+
+export function assertNextPatchTransition(sourceVersion, candidateVersion, policy) {
+  const expected = nextPatchVersion(sourceVersion, policy);
+  if (candidateVersion !== expected) {
+    fail(`expected next patch ${expected} from ${sourceVersion}, received ${candidateVersion}`);
+  }
+  return assertReleaseCandidate(candidateVersion, policy);
+}
+
 export async function loadReleasePolicy(root = ROOT) {
   const policy = JSON.parse(await readFile(resolve(root, ".release-policy.json"), "utf8"));
   if (policy.schemaVersion !== 1) fail("unsupported .release-policy.json schemaVersion");
   if (!/^\d+\.\d+$/.test(policy.releaseTrain ?? "")) fail("releaseTrain must be major.minor");
   parseStableVersion(policy.initialRelease);
   parseStableVersion(policy.blockedNextMinor);
+  if (policy.autoPatchOnMain !== true) fail("autoPatchOnMain must remain enabled for the 0.19 patch train");
   if (!Array.isArray(policy.sourceBaselines) || policy.sourceBaselines.length === 0) {
     fail("sourceBaselines must contain at least one pre-release source version");
   }
@@ -80,7 +103,6 @@ export function assertReleaseCandidate(version, policy) {
   return parsed;
 }
 
-/** Pre-train maintenance baselines (e.g. 0.17.5) listed in sourceBaselines. */
 export function assertMaintenanceBaseline(version, policy) {
   const parsed = parseStableVersion(version);
   const initial = parseStableVersion(policy.initialRelease);
@@ -121,15 +143,16 @@ export async function verifyRepositoryReleaseState(root = ROOT, options = {}) {
   }
 
   const changelog = await readFile(resolve(root, "CHANGELOG.md"), "utf8");
-  const releaseHeader = new RegExp(`^## v${policy.initialRelease.replaceAll(".", "\\.")} \\((?:UNRELEASED|\\d{4}-\\d{2}-\\d{2})\\)$`, "m");
-  const templateExists = await readFile(resolve(root, `docs/releases/v${policy.initialRelease}.md`), "utf8")
+  const releaseVersion = requireCandidate || !isBaseline ? pkg.version : policy.initialRelease;
+  const releaseHeader = new RegExp(`^## v${releaseVersion.replaceAll(".", "\\.")} \\((?:UNRELEASED|\\d{4}-\\d{2}-\\d{2})\\)$`, "m");
+  const templateExists = await readFile(resolve(root, `docs/releases/v${releaseVersion}.md`), "utf8")
     .then((content) => content.trim().length > 0)
     .catch(() => false);
   if (!releaseHeader.test(changelog) && !templateExists) {
-    fail(`missing CHANGELOG entry or release template for v${policy.initialRelease}`);
+    fail(`missing CHANGELOG entry or release template for v${releaseVersion}`);
   }
   if (requireCandidate && !releaseHeader.test(changelog)) {
-    fail(`publish state requires a finalized dated CHANGELOG entry for v${policy.initialRelease}`);
+    fail(`publish state requires a finalized dated CHANGELOG entry for v${releaseVersion}`);
   }
 
   return { policy, packageVersion: pkg.version, isBaseline };
