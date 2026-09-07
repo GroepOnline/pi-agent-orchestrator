@@ -275,6 +275,7 @@ describe("ScheduleStore", () => {
     // Constructing + read-only use must not touch the filesystem.
     const store = await ScheduleStore.create(file);
     expect(store.list()).toEqual([]);
+    expect(existsSync(dir)).toBe(false);
 
     // First mutation lazily creates the directory.
     await store.add(makeJob());
