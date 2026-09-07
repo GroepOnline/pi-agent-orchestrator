@@ -6,7 +6,7 @@ import { assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs"
 import { decideNpmPublish, npmViewVersion } from "./release-recovery.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ALLOWED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"];
+const REQUIRED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"];
 const PROMO_DATA_PATH = "showcase/remotion/public/promo-data.json";
 const ROOT_LOCK_FIELDS = [
   "name",
@@ -18,6 +18,13 @@ const ROOT_LOCK_FIELDS = [
   "peerDependenciesMeta",
   "engines",
 ];
+
+function isAllowedDocumentationPath(path) {
+  return (
+    path === "README.md" ||
+    (path.startsWith("docs/") && (path.endsWith(".md") || path.endsWith(".svg")))
+  );
+}
 
 function fail(message) {
   throw new Error(`Release transaction violation: ${message}`);
@@ -74,8 +81,8 @@ async function verify(parentRef, releaseRef, expectedVersion) {
   const parentHasPromoData = existsAt(parentRef, PROMO_DATA_PATH);
   const releaseNotesPath = `docs/releases/v${expectedVersion}.md`;
   const releaseAddsNotes = !existsAt(parentRef, releaseNotesPath) && existsAt(releaseRef, releaseNotesPath);
-  const expectedFiles = [
-    ...ALLOWED_FILES,
+  const requiredFiles = [
+    ...REQUIRED_FILES,
     ...(parentHasPromoData ? [PROMO_DATA_PATH] : []),
     ...(releaseAddsNotes ? [releaseNotesPath] : []),
   ];
@@ -84,12 +91,20 @@ async function verify(parentRef, releaseRef, expectedVersion) {
     .split("\n")
     .filter(Boolean)
     .sort();
-  if (!sameJson(changed, [...expectedFiles].sort())) {
-    const additionalRequirement = parentHasPromoData
-      ? `; required additional file ${PROMO_DATA_PATH}`
-      : "";
+  const missingRequired = requiredFiles.filter((path) => !changed.includes(path));
+  const disallowed = changed.filter(
+    (path) => !requiredFiles.includes(path) && !isAllowedDocumentationPath(path),
+  );
+  if (missingRequired.length > 0 || disallowed.length > 0) {
+    const problems = [];
+    if (missingRequired.length > 0) {
+      problems.push(`missing required files: ${missingRequired.join(", ")}`);
+    }
+    if (disallowed.length > 0) {
+      problems.push(`disallowed files: ${disallowed.join(", ")}`);
+    }
     fail(
-      `changed files must be exactly ${ALLOWED_FILES.join(", ")}; received ${changed.join(", ")}${additionalRequirement}`,
+      `${problems.join("; ")}. Documentation companions are limited to README.md, docs/**/*.md, and docs/**/*.svg`,
     );
   }
 
