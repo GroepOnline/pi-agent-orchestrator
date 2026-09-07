@@ -122,7 +122,8 @@
     "showcase:verify-media": "node scripts/verify-showcase-media.mjs",
     "showcase:vhs": "bash scripts/render-showcase-vhs.sh",
     "screenshots": "npm run build && node scripts/render-screenshots.mjs",
-    "verify:pi-package": "node scripts/verify-pi-package-contract.mjs"
+    "verify:pi-package": "node scripts/verify-pi-package-contract.mjs",
+    "bench:profile": "npm run build && node scripts/benchmark-runtime-profile.mjs"
   },
   "type": "module",
   "engines": {
