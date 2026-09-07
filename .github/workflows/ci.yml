@@ -180,22 +180,21 @@ jobs:
 
       - name: Install lowest supported peer dependencies
         run: |
-          npm ci
           # The host packages are devDependencies for local typechecking, but
-          # this job intentionally replaces them with the public peer floor.
-          # Remove the dev ranges first so npm does not mark 0.81.1 invalid
-          # against the repository's normal ^0.83.0 development baseline.
+          # this job intentionally resolves all three from the public peer floor.
+          # Rewrite the manifest before the first install. Running npm ci and
+          # then replacing packages in-place triggers an npm Arborist edgesOut
+          # crash on dependency-update branches.
           node --input-type=module -e '
             import fs from "node:fs";
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            delete pkg.devDependencies["@earendil-works/pi-ai"];
-            delete pkg.devDependencies["@earendil-works/pi-coding-agent"];
+            pkg.devDependencies["@earendil-works/pi-ai"] = "0.81.1";
+            pkg.devDependencies["@earendil-works/pi-coding-agent"] = "0.81.1";
+            pkg.devDependencies["@earendil-works/pi-agent-core"] = "0.81.1";
             fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
           '
-          npm install --no-save --package-lock=false --include=dev \
-            @earendil-works/pi-ai@0.81.1 \
-            @earendil-works/pi-coding-agent@0.81.1
-          npm ls @earendil-works/pi-ai @earendil-works/pi-coding-agent
+          npm install --package-lock=false --include=dev
+          npm ls @earendil-works/pi-ai @earendil-works/pi-coding-agent @earendil-works/pi-agent-core
 
       - name: Typecheck
         run: npm run typecheck
