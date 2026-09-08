@@ -16,9 +16,9 @@
  *     `subagent-notification` followUp path. No new delivery code.
  */
 
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Cron } from "croner";
-import { nanoid } from "nanoid";
 import type { AgentManager } from "./agent-manager.js";
 import { logger } from "./logger.js";
 import { resolveModel } from "./model-resolver.js";
@@ -170,7 +170,7 @@ export class SubagentScheduler {
     
     const detected = SubagentScheduler.detectSchedule(input.schedule);
     return {
-      id: nanoid(10),
+      id: randomUUID().replace(/-/g, "").slice(0, 10),
       name: input.name,
       description: input.description,
       schedule: detected.normalized,

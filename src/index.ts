@@ -35,7 +35,6 @@ import {
   setShowAgentTopWidget,
   setShowTokenUsage,
   setShowTurnProgress,
-  setTracingEnabled,
   setUiStyle,
 } from "./agent-registry.js";
 import { setDefaultMaxTurns, setGraceTurns, setMaxEndHookRevisions } from "./agent-runner.js";
@@ -61,7 +60,6 @@ import { GroupJoinManager } from "./group-join.js";
 import { HookRegistry } from "./hooks.js";
 import { NotificationHub } from "./notification-hub.js";
 import { formatPartialFinalizationLabel } from "./orchestration-dispatch.js";
-import { createPostHogBridge, postHogConfigToMigrate } from "./posthog-bridge.js";
 import { clearSubagentsApi, registerSubagentsApi } from "./public-api.js";
 import type { ScheduleChangeEvent } from "./schedule.js";
 import { SubagentScheduler } from "./schedule.js";
@@ -70,9 +68,7 @@ import {
   applyAndEmitLoaded,
   capturedDispatchNotices,
   extractCapturedDispatchLimits,
-  loadSettings,
   type SubagentsSettings,
-  saveSettings,
 } from "./settings.js";
 import {
   sessionBudgetWarningMessage,
@@ -340,45 +336,6 @@ export default async function (pi: ExtensionAPI) {
     }),
   );
 
-  // ---- PostHog product-analytics bridge (opt-in, inert without a key) ----
-  // No project key is hardcoded: the bridge stays null unless the user persists
-  // a `posthog.key` in `.pi/subagents.json`, so a default install ships zero
-  // outbound analytics. When enabled, agent lifecycle events flow to the user's
-  // own PostHog project.
-  //
-  // First-run migration: seed persisted posthog config from ambient env vars,
-  // once. Thereafter the bridge resolves only the persisted PostHogConfig (no
-  // runtime env reads), so telemetry egress always requires a stored opt-in.
-  const postHogMigrationBase = loadSettings();
-  const envPostHogConfig = postHogConfigToMigrate(postHogMigrationBase.posthog);
-  if (envPostHogConfig) {
-    saveSettings({ ...postHogMigrationBase, posthog: envPostHogConfig });
-  }
-  const posthogBridge = await createPostHogBridge(loadSettings().posthog ?? {});
-  const posthogUnsubs: Array<() => void> = [];
-  if (posthogBridge) {
-    posthogUnsubs.push(
-      onTelemetry("agent:spawned", (p) => posthogBridge.capture("agent_spawned", p)),
-      onTelemetry("agent:completed", (p) => posthogBridge.capture("agent_completed", p)),
-      onTelemetry("subagent:dispatch_decision", (p) =>
-        // Redact task text — only lengths/enums leave the host when PostHog is opted in.
-        posthogBridge.capture("subagent_dispatch", {
-          kind: p.kind,
-          configuredMode: p.configuredMode,
-          source: p.source,
-          promptLength: p.promptLength,
-          descriptionLength: typeof p.description === "string" ? p.description.length : 0,
-        }),
-      ),
-      onTelemetry("agent:validation-failed", (p) =>
-        posthogBridge.capture("agent_validation_failed", p),
-      ),
-      onTelemetry("agent:unknown-tools", (p) =>
-        posthogBridge.capture("agent_unknown_tools", p),
-      ),
-    );
-  }
-
   // Schedule firings + errors arrive on the cross-extension event bus.
   const scheduleUnsub = pi.events.on("subagents:scheduled", (payload) => {
     if (!isDebugCaptureSinkOn()) return;
@@ -555,10 +512,6 @@ export default async function (pi: ExtensionAPI) {
     // already swallow errors, and disable() is idempotent.
     disableDebugCapture(true);
     for (const unsub of debugTelemetryUnsubs) unsub();
-    for (const unsub of posthogUnsubs) unsub();
-    // Await the SDK flush so the final queued lifecycle batch is delivered
-    // before the host finishes unloading; shutdown failures stay best-effort.
-    if (posthogBridge) await posthogBridge.shutdown();
     if (scheduleUnsub) scheduleUnsub();
     unsubLimitNotices?.();
   });
@@ -624,7 +577,6 @@ export default async function (pi: ExtensionAPI) {
       setMaxEndHookRevisions,
       setDefaultJoinMode,
       setSchedulingEnabled,
-      setTracingEnabled,
       setAnimationStyle: (style) => {
         setAnimationStyle(style);
         setSpinnerStyle(style);

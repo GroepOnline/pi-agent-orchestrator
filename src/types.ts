@@ -112,9 +112,8 @@ export interface AgentConfig {
     /** Per-agent override for MAX_MEMORY_LINES. Falls back to global default (200). */
     maxMemoryLines?: number;
     /**
-     * Intended keep-turns for local tool-output pruning in `src/compaction.ts`.
-     * Not consumed by `runAgent` today — subagent compaction is Pi upstream
-     * auto-compaction only (#325). Kept for config/schema compatibility.
+     * Unused. Kept for config/schema compatibility. Subagent compaction is
+     * Pi upstream auto-compaction only (#325).
      */
     compactionKeepTurns?: number;
     /** Partitioned state: mapping partition name → allowed tool names for that partition. */
@@ -190,8 +189,7 @@ export interface AgentRecord {
     compactionCount: number;
     /**
      * Snapshot of the most recent upstream Pi `compaction_end` event
-     * (success or aborted). Local prune helpers in `src/compaction.ts` are
-     * not on the live subagent path (#325).
+     * (success or aborted).
      */
     lastCompaction?: CompactionSnapshot;
     /** Resolved spawn params, captured for UI display. Fixed at spawn time. */
@@ -211,10 +209,10 @@ export interface AgentRecord {
     /** Active partition for this agent (first partition from invocation.partitions). */
     activePartition?: string;
     /**
-     * Short (8-hex-char) correlation id shared across the agent's spans +
-     * log lines. Generated at spawn time and preserved across
-     * `resumeAgent`, so re-running an agent keeps the same id and traces
-     * line up in the OTel exporter and the `/agents health` report.
+     * Short (8-hex-char) correlation id shared across the agent's log lines.
+     * Generated at spawn time and preserved across `resumeAgent`, so
+     * re-running an agent keeps the same id and log lines line up in the
+     * `/agents health` report.
      */
     correlationId?: string;
 }

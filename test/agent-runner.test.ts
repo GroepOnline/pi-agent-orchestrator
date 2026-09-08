@@ -63,10 +63,6 @@ vi.mock("../src/agent-types.js", () => ({
   getToolNamesForType: vi.fn(() => ["read"]),
 }));
 
-vi.mock("../src/env.js", () => ({
-  detectEnv: vi.fn(async () => ({ isGitRepo: false, branch: "", platform: "linux" })),
-}));
-
 vi.mock("../src/prompts.js", () => ({
   buildAgentPrompt: vi.fn(() => "system prompt"),
 }));
@@ -969,7 +965,7 @@ describe("external AbortSignal (CHE-19)", () => {
   it("resolves with aborted=true instead of throwing when the caller aborts", async () => {
     // External abort (manager.abort / parent signal) used to call session.abort()
     // without setting the local aborted flag, so AbortError from prompt() was
-    // re-thrown as a subagent:error / OTel error span.
+    // re-thrown as a subagent:error.
     const controller = new AbortController();
     const { session } = createSession("");
     (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {

@@ -21,13 +21,10 @@ const FEATURE_MODULES = {
     "./dist/group-join.js",
     "./dist/swarm-join.js",
     "./dist/orchestration-dispatch.js",
-    "./dist/workflow-runner.js",
   ],
   scheduling: ["./dist/schedule.js", "./dist/schedule-store.js"],
   observability: [
     "./dist/telemetry.js",
-    "./dist/telemetry-otel.js",
-    "./dist/posthog-bridge.js",
     "./dist/debug-capture.js",
   ],
   tui: [
@@ -39,12 +36,8 @@ const FEATURE_MODULES = {
 };
 
 const FEATURE_DEPENDENCIES = {
-  "@opentelemetry/api": "observability",
   "@sinclair/typebox": "core",
   croner: "scheduling",
-  nanoid: "core",
-  "posthog-node": "observability",
-  "proper-lockfile": "worktrees",
 };
 
 function median(values) {
@@ -81,9 +74,9 @@ function featureForPath(path) {
   if (normalized.startsWith("showcase/") || normalized.startsWith("site/") || normalized.startsWith("docs/images/")) return "showcase";
   if (normalized.startsWith("dist/ui/") || normalized.startsWith("dist/commands/")) return "tui";
   if (/dist\/(?:schedule|schedule-store)\./.test(normalized)) return "scheduling";
-  if (/dist\/(?:telemetry|telemetry-otel|posthog-bridge|debug-capture|health-report)\./.test(normalized)) return "observability";
+  if (/dist\/(?:telemetry|debug-capture|health-report)\./.test(normalized)) return "observability";
   if (/dist\/worktree\./.test(normalized)) return "worktrees";
-  if (/dist\/(?:batch-orchestrator|group-join|swarm-join|orchestration-dispatch|workflow-runner|run-manager|run-types|orchestra-execution-contract)\./.test(normalized)) return "swarms-groups";
+  if (/dist\/(?:batch-orchestrator|group-join|swarm-join|orchestration-dispatch)\./.test(normalized)) return "swarms-groups";
   if (normalized.startsWith("dist/")) return "core";
   return "other";
 }
@@ -152,8 +145,7 @@ const report = {
     piHost: packageEngines("@earendil-works/pi-coding-agent"),
     piCore: packageEngines("@earendil-works/pi-agent-core"),
     piAi: packageEngines("@earendil-works/pi-ai"),
-    posthog: packageEngines("posthog-node"),
-    conclusion: "The Pi execution stack supports Node >=22.19.0; the stricter package floor is attributable to the opt-in PostHog telemetry path and release runtime policy, not core agent execution.",
+    conclusion: "The Pi execution stack supports Node >=22.19.0; the stricter package floor (>=22.22.3) follows release runtime policy aligned with Pi host engine requirements, not core agent execution overhead.",
   },
 };
 

@@ -3,7 +3,7 @@
  *
  * The function reads from three sources:
  *   1. `manager`            — maxConcurrent, session limits, session max spawns/turns
- *   2. `getters`            — default max turns, grace turns, join mode, scheduling, tracing
+ *   2. `getters`            — default max turns, grace turns, join mode, scheduling
  *   3. `agent-registry`     — animation/ui/orchestration/refresh/compression (direct imports)
  *
  * The agent-registry reads are mocked at the module boundary so we can assert
@@ -51,7 +51,7 @@ type SnapshotManager = Pick<
   "getMaxConcurrent" | "getPerAgentTokenLimit" | "getSessionLimits" | "getSessionMaxSpawns" | "getSessionMaxTurns"
 >;
 
-/** Build a SettingsGetters object with all 5 fields controllable per test. */
+/** Build a SettingsGetters object with all fields controllable per test. */
 function makeGetters(overrides: Partial<SettingsGetters> = {}): SettingsGetters {
   return {
     getDefaultMaxTurns: () => 25,
@@ -59,7 +59,6 @@ function makeGetters(overrides: Partial<SettingsGetters> = {}): SettingsGetters 
     getMaxEndHookRevisions: () => 0,
     getDefaultJoinMode: () => "smart",
     isSchedulingEnabled: () => true,
-    isTracingEnabled: () => true,
     ...overrides,
   };
 }
@@ -168,16 +167,14 @@ describe("buildSettingsSnapshot — getter-owned fields", () => {
     expect(snapshot.defaultJoinMode).toBe("group");
   });
 
-  it("pulls schedulingEnabled and tracingEnabled from the getters (false case)", () => {
+  it("pulls schedulingEnabled from the getters (false case)", () => {
     const snapshot = buildSettingsSnapshot(
       asManager(makeManager()),
       makeGetters({
         isSchedulingEnabled: () => false,
-        isTracingEnabled: () => false,
       }),
     );
     expect(snapshot.schedulingEnabled).toBe(false);
-    expect(snapshot.tracingEnabled).toBe(false);
   });
 
   it("maps defaultMaxTurns: undefined to 0 (the unlimited marker)", () => {
@@ -247,7 +244,6 @@ describe("buildSettingsSnapshot — call-count invariants", () => {
       getMaxEndHookRevisions: vi.fn(() => 0),
       getDefaultJoinMode: vi.fn(() => "smart"),
       isSchedulingEnabled: vi.fn(() => true),
-      isTracingEnabled: vi.fn(() => true),
     };
     buildSettingsSnapshot(asManager(makeManager()), spy);
     expect(spy.getDefaultMaxTurns).toHaveBeenCalledTimes(1);
@@ -255,7 +251,6 @@ describe("buildSettingsSnapshot — call-count invariants", () => {
     expect(spy.getMaxEndHookRevisions).toHaveBeenCalledTimes(1);
     expect(spy.getDefaultJoinMode).toHaveBeenCalledTimes(1);
     expect(spy.isSchedulingEnabled).toHaveBeenCalledTimes(1);
-    expect(spy.isTracingEnabled).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -274,7 +269,6 @@ describe("buildSettingsSnapshot — snapshot shape", () => {
       "maxEndHookRevisions",
       "defaultJoinMode",
       "schedulingEnabled",
-      "tracingEnabled",
       "animationStyle",
       "uiStyle",
       "orchestrationMode",

@@ -236,12 +236,6 @@ export function buildSettingEntries(submenus: {
       note: "Tool spec change takes effect on next pi session",
     }),
     toggleEntry({
-      id: "tracing",
-      name: "Tracing",
-      get: (deps) => deps.getters.isTracingEnabled(),
-      set: (deps, v) => deps.setters.setTracingEnabled(v),
-    }),
-    toggleEntry({
       id: "freeModelsOnly",
       name: "Free models only",
       get: () => isFreeModelsOnly(),

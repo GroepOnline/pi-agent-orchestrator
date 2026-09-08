@@ -68,14 +68,10 @@ The dominant cold-load cost is the Pi host itself. The full entry point adds rou
 
 The direct runtime graph is small:
 
-- core: `@sinclair/typebox`, `nanoid`
-- worktrees: `proper-lockfile` (+ `graceful-fs`, `retry`, `signal-exit`)
+- core: `@sinclair/typebox`
 - scheduling: `croner`
-- observability: `@opentelemetry/api`, `posthog-node` (+ `@posthog/core`, `@posthog/types`)
 
-The Pi execution peers (`pi-ai`, `pi-agent-core`, `pi-coding-agent`) declare Node `>=22.19.0`. `posthog-node@5.51.4` declares `^20.20.0 || >=22.22.0`. The package/release floor remains `>=22.22.3` because release-critical CI deliberately pins that operational runtime.
-
-Therefore the `22.22.3` floor is not required by core subagent execution. It is stricter than the Pi core floor and is currently justified by the opt-in PostHog path plus one release-runtime SSOT. Lowering it independently would make package metadata disagree with release-critical `.nvmrc` policy, so this evaluation does not introduce a split runtime floor.
+The Pi execution peers (`pi-ai`, `pi-agent-core`, `pi-coding-agent`) declare Node `>=22.19.0`. The package/release floor remains `>=22.22.3` because release-critical CI deliberately pins that operational runtime.
 
 ## Decision: profile first, no package split
 

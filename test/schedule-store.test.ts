@@ -2,10 +2,10 @@
  * schedule-store.test.ts — Persistence + concurrency for ScheduleStore.
  *
  * Mirrors the patterns from pi-chonky-tasks's task-store testing: round-trip
- * load/save, parse-error self-heal, stale-lock recovery.
+ * load/save, parse-error self-heal, owner-fenced locking.
  */
 
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -38,7 +38,7 @@ describe("ScheduleStore", () => {
 
   afterEach(() => {
     // maxRetries + retryDelay handles Windows file-locking races where the
-    // proper-lockfile lockfile directory is briefly held open after release.
+    // fs.mkdir lock directory is briefly held open after release.
     // EBUSY/EPERM triggers Node's built-in retry-with-linear-backoff.
     rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
@@ -231,7 +231,7 @@ describe("ScheduleStore", () => {
     expect(JSON.parse(readFileSync(target, "utf-8")).jobs[0].id).toBe("secret");
   });
 
-  it("recovers from a legacy plain-file .lock before using proper-lockfile", async () => {
+  it("recovers from a legacy plain-file .lock before acquiring an fs.mkdir lock dir", async () => {
     const file = join(tmp, "s.json");
     const lockPath = `${file}.lock`;
     writeFileSync(lockPath, "999999999");
@@ -239,6 +239,23 @@ describe("ScheduleStore", () => {
     const store = await ScheduleStore.create(file);
     await expect(store.add(makeJob())).resolves.toBeUndefined();
     expect(store.list()).toHaveLength(1);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it("releases only the lock instance owned by the caller", async () => {
+    const file = join(tmp, "s.json");
+    const lockPath = `${file}.lock`;
+    const ownerPath = join(lockPath, "owner");
+    mkdirSync(lockPath);
+    writeFileSync(ownerPath, "other-owner");
+    const store = await ScheduleStore.create(file);
+    const release = (token: string) => (store as unknown as { releaseDirLock(token: string): Promise<void> }).releaseDirLock(token);
+
+    await release("not-the-owner");
+    expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(ownerPath, "utf-8")).toBe("other-owner");
+
+    await release("other-owner");
     expect(existsSync(lockPath)).toBe(false);
   });
 

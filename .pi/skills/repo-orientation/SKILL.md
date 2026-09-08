@@ -37,7 +37,7 @@ Lint auto-fix: `node_modules/.bin/biome check --write --unsafe src/ test/ script
 - `agent-types.ts` — permission model · `agent-permissions.json` (root) — resource allow/deny for the docs site
 - `agent-runner.ts` / `agent-manager.ts` / `agent-registry.ts` / `default-agents.ts` / `custom-agents.ts` — agent lifecycle & config
 - `settings.ts` — persistent settings (`SubagentsSettings`)
-- `compaction.ts` / `context.ts` — context pruning / parent context
+- `compaction-snapshot.ts` / `context.ts` — upstream compaction observation / parent context
 - `handoff.ts` — handoff protocol · `hooks.ts` — lifecycle hooks
 - `memory.ts` / `prompts.ts` / `validators.ts`
 - `schedule*.ts` — scheduling engine · `swarm-join.ts` / `group-join.ts` / `batch-orchestrator.ts` / `orchestration-dispatch.ts` — multi-agent topologies
@@ -46,7 +46,7 @@ Lint auto-fix: `node_modules/.bin/biome check --write --unsafe src/ test/ script
 
 ## Project config (for pi / agents)
 
-- `.pi/subagents.json` — project subagent tuning (concurrency, thinking, tracing, UI style)
+- `.pi/subagents.json` — project subagent tuning (concurrency, thinking, UI style)
 - `agent-permissions.json` — resource permission model for the public docs site (read-only)
 - `scripts/setup-git-hooks.sh` — local pre-commit/pre-push hooks
 - `.github/workflows/` — CI / QA / publish / release (see `release` skill for the release flow)

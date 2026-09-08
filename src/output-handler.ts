@@ -54,7 +54,7 @@ export interface AgentsMenuDeps {
   swarmJoin?: SwarmCoordinator | null;
   /**
    * Read-side accessors for the settings that the /agents menu can change
-   * (default max turns, grace turns, join mode, scheduling, tracing).
+   * (default max turns, grace turns, join mode, scheduling).
    * Bundled to stop the 14-positional-arg spiral on `showSettings` — when
    * a new menu-editable setting is added, update `SettingsGetters` and
    * `SettingsSetters` in `settings.ts` and the call site in
@@ -149,7 +149,7 @@ const MENU_ENTRIES: ReadonlyArray<AgentsMenuEntry> = [
   },
   {
     id: "health",
-    label: () => "Health check (tracing, scheduler, swarm, agents, settings)",
+    label: () => "Health check (scheduler, swarm, agents, settings)",
     run: async (ctx, deps) => {
       await showHealth(ctx, {
         manager: deps.manager,

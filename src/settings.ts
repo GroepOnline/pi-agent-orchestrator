@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AnimationStyle, OrchestrationMode } from "./agent-registry.js";
 import { logger } from "./logger.js";
-import type { PostHogConfig } from "./posthog-bridge.js";
 import type { JoinMode, PromptCompressionLevel } from "./types.js";
 import type { DashboardKeybindingsOverride } from "./ui/dashboard-keybindings.js";
 import { sanitizeDashboardKeybindings } from "./ui/dashboard-keybindings.js";
@@ -34,14 +33,6 @@ export interface SubagentsSettings {
   maxEndHookRevisions?: number;
   defaultJoinMode?: JoinMode;
   schedulingEnabled?: boolean;
-  tracingEnabled?: boolean;
-  /**
-   * Optional PostHog product-analytics bridge. Inert unless `posthog.key`
-   * (or `POSTHOG_KEY`) is set, so a default install ships zero outbound
-   * analytics. When enabled, agent lifecycle events are captured to the
-   * configured project.
-   */
-  posthog?: PostHogConfig;
   /**
    * Override the model used by spawned subagents.
    * - `"inherit"`: use the session-default (parent) model — useful when a
@@ -79,7 +70,6 @@ export interface SettingsAppliers {
   setMaxEndHookRevisions: (value: number) => void;
   setDefaultJoinMode: (mode: JoinMode) => void;
   setSchedulingEnabled: (enabled: boolean) => void;
-  setTracingEnabled: (enabled: boolean) => void;
   setAnimationStyle: (style: AnimationStyle) => void;
   setUiStyle: (style: "premium" | "retro" | "plain") => void;
   setShowActivityStream: (enabled: boolean) => void;
@@ -101,7 +91,6 @@ export interface SettingsGetters {
   getMaxEndHookRevisions: () => number;
   getDefaultJoinMode: () => JoinMode;
   isSchedulingEnabled: () => boolean;
-  isTracingEnabled: () => boolean;
 }
 
 export interface SettingsSetters {
@@ -110,7 +99,6 @@ export interface SettingsSetters {
   setMaxEndHookRevisions: (value: number) => void;
   setDefaultJoinMode: (mode: JoinMode) => void;
   setSchedulingEnabled: (enabled: boolean) => void;
-  setTracingEnabled: (enabled: boolean) => void;
 }
 
 export type SettingsEmit = (event: string, payload: unknown) => void;
@@ -240,7 +228,6 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const booleanFields = [
     "schedulingEnabled",
-    "tracingEnabled",
     "showActivityStream",
     "showTokenUsage",
     "showTurnProgress",
@@ -265,22 +252,6 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const footerStatus = sanitizeFooterStatusConfig(source.footerStatus);
   if (footerStatus) settings.footerStatus = footerStatus;
-
-  // PostHog bridge config: preserve explicitly set string fields so a saved
-  // `posthog.key` survives sanitization and reaches the bridge at activation.
-  const rawPostHog = source.posthog;
-  if (rawPostHog && typeof rawPostHog === "object" && !Array.isArray(rawPostHog)) {
-    const phSource = rawPostHog as Record<string, unknown>;
-    const posthog: PostHogConfig = {};
-    if (typeof phSource.key === "string" && phSource.key) posthog.key = phSource.key;
-    if (typeof phSource.host === "string" && phSource.host) posthog.host = phSource.host;
-    if (typeof phSource.distinctId === "string" && phSource.distinctId) {
-      posthog.distinctId = phSource.distinctId;
-    }
-    if (posthog.key !== undefined || posthog.host !== undefined || posthog.distinctId !== undefined) {
-      settings.posthog = posthog;
-    }
-  }
 
   return settings;
 }
@@ -362,7 +333,6 @@ export function applySettings(settings: SubagentsSettings, appliers: SettingsApp
   }
   if (settings.defaultJoinMode) appliers.setDefaultJoinMode(settings.defaultJoinMode);
   if (typeof settings.schedulingEnabled === "boolean") appliers.setSchedulingEnabled(settings.schedulingEnabled);
-  if (typeof settings.tracingEnabled === "boolean") appliers.setTracingEnabled(settings.tracingEnabled);
   if (settings.animationStyle) appliers.setAnimationStyle(settings.animationStyle);
   if (settings.uiStyle) appliers.setUiStyle(settings.uiStyle);
   if (typeof settings.showActivityStream === "boolean") appliers.setShowActivityStream(settings.showActivityStream);
@@ -473,7 +443,7 @@ export function saveAndEmitChanged(
   emit: SettingsEmit,
   cwd: string = process.cwd(),
 ): { message: string; level: "info" | "warning" } {
-  // Preserve file-only/expert settings (e.g. `posthog`, `subagentModel`) that
+  // Preserve file-only/expert settings (e.g. `subagentModel`) that
   // are not surfaced through the in-memory snapshot. They are consumed via
   // loadSettings() at spawn time and must survive a menu save round-trip; a
   // bare saveSettings(snapshot) would overwrite the project file and silently

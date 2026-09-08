@@ -183,7 +183,7 @@ describe("Backward compat: default values for new fields", () => {
     expect(getAgentConfig("Plan")?.disallowedTools).toEqual(["write", "edit"]);
   });
 
-  it("compactionKeepTurns defaults to undefined (falls back to DEFAULT_KEEP_TURNS=5)", () => {
+  it("compactionKeepTurns defaults to undefined (unused schema field)", () => {
     registerAgents(new Map());
 
     for (const name of ["general-purpose", "Explore", "Plan"]) {

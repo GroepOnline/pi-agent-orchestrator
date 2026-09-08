@@ -11,14 +11,12 @@ import { AgentManager } from "../src/agent-manager.js";
 import {
   getDefaultJoinMode,
   isSchedulingEnabled,
-  isTracingEnabled,
   setAnimationStyle,
   setDashboardRefreshInterval,
   setDefaultJoinMode,
   setOrchestrationMode,
   setPromptCompressionLevel,
   setSchedulingEnabled,
-  setTracingEnabled,
   setUiStyle,
 } from "../src/agent-registry.js";
 import { getDefaultMaxTurns, getGraceTurns, getMaxEndHookRevisions, setDefaultMaxTurns, setGraceTurns, setMaxEndHookRevisions } from "../src/agent-runner.js";
@@ -57,7 +55,6 @@ const baseGetters: SettingsGetters = {
   getMaxEndHookRevisions,
   getDefaultJoinMode,
   isSchedulingEnabled,
-  isTracingEnabled,
 };
 
 function makeDeps(overrides: Partial<{
@@ -84,7 +81,7 @@ describe("buildHealthReport — basic shape", () => {
     const r = buildHealthReport(makeDeps());
     expect(Object.keys(r).sort()).toEqual([
       "agents", "circuitBreaker", "dispatchHistogram", "process", "recentErrors",
-      "schedule", "settings", "swarm", "timestamp", "tracing",
+      "schedule", "settings", "swarm", "timestamp",
     ]);
   });
 
@@ -103,22 +100,6 @@ describe("buildHealthReport — basic shape", () => {
   });
 });
 
-describe("buildHealthReport — tracing section", () => {
-  beforeEach(() => {
-    setTracingEnabled(true);
-  });
-  afterEach(() => {
-    setTracingEnabled(true);
-  });
-
-  it("reflects the current tracingEnabled setting", () => {
-    setTracingEnabled(true);
-    expect(buildHealthReport(makeDeps()).tracing.enabled).toBe(true);
-    setTracingEnabled(false);
-    expect(buildHealthReport(makeDeps()).tracing.enabled).toBe(false);
-  });
-});
-
 describe("buildHealthReport — circuit breaker section", () => {
   it("uses the provided circuitBreakerState override", () => {
     const r = buildHealthReport(makeDeps({
@@ -129,8 +110,7 @@ describe("buildHealthReport — circuit breaker section", () => {
 });
 
 describe("buildHealthReport — schedule section", () => {
-  // Reset the scheduling toggle so this describe block can't pollute
-  // sibling blocks (mirrors the tracing-section beforeEach pattern).
+  // Reset the scheduling toggle so this describe block can't pollute sibling blocks.
   beforeEach(() => {
     setSchedulingEnabled(true);
   });
@@ -329,7 +309,7 @@ describe("formatHealthReport", () => {
     const text = formatHealthReport(r);
     for (const header of [
       "# /agents health",
-      "## Process", "## Tracing", "## Circuit Breaker",
+      "## Process", "## Circuit Breaker",
       "## Schedule", "## Swarm", "## Agents",
       "## Settings", "## Recent Errors", "## Dispatch Decisions (recent)",
     ]) {

@@ -204,7 +204,7 @@ resolveModel() ──→ createSubagent() ──→ runAgent()
 | `src/agent-registry.ts` | Definition ingestion, memory lookup, in-memory settings state (incl. `getPromptCompressionLevel` / `setPromptCompressionLevel`) |
 | `src/custom-agents.ts` | Markdown frontmatter extraction and validation |
 | `src/default-agents.ts` | Built-in primitive definitions + lazy prompt regeneration via `READONLY_PROMPT_PARAMS` (compression levels) |
-| `src/compaction.ts` | Local prune helpers (not wired into `runAgent`; live compaction is Pi upstream auto-compaction — see #325) |
+| `src/compaction-snapshot.ts` | Upstream Pi `compaction_end` observation shape (#325) |
 | `src/context.ts` | Vector stack payload creation |
 | `src/context-mode-bridge.ts` | Sandbox execution primitives |
 | `src/handoff.ts` | Unstructured data to JSON state boundary; `buildHandoffPrompt(level)` selects one of 3 prompt variants (full/balanced/aggressive) matching the compression level |
@@ -221,17 +221,16 @@ resolveModel() ──→ createSubagent() ──→ runAgent()
 | `src/validators.ts` | Adversarial output logic checks |
 | `src/worktree.ts` | Disk partition handling |
 | `src/cross-extension-rpc.ts` | Inter-module bus interface |
-| `src/env.ts` | Target platform capability detection |
+| `src/env-context.ts` | Host `workspaceContext` → EnvInfo (no git exec) |
 | `src/group-join.ts` | Batch synchronization protocol |
 | `src/invocation-config.ts` | Override context definition |
 | `src/output-file.ts` | Physical report generation |
 | `src/prompts.ts` | Template block constants, prompt assembly with `compressionLevel` parameter (handoff variant + lazy read-only regen for default agents) |
 | `src/skill-loader.ts` | External module ingestion |
 | `src/telemetry.ts` | Activity datalogging pipeline |
-| `src/telemetry-otel.ts` | OpenTelemetry span export bridge (agent lifecycle spans, turn/tool/compaction sub-spans, `correlation.id` attribute) |
 | `src/orchestration-dispatch.ts` | Heuristic dispatch resolver — `single` / `swarm` / `crew` / `auto` with keyword-based prompt analysis and plan builders |
 | `src/dispatch-history.ts` | FIFO ring buffer recording every orchestration decision for the `/agents → Health check` histogram (by kind, by source, auto picks) |
-| `src/health-report.ts` | Structured runtime health snapshot builder for `/agents → Health check` (process, tracing, circuit breaker, schedule, swarm, agents, settings, recent errors, dispatch histogram) |
+| `src/health-report.ts` | Structured runtime health snapshot builder for `/agents → Health check` |
 | `src/agent-templates.ts` | Agent templates registry — list, install, update, remove versioned templates from `.agents/templates/` with installed manifest tracking |
 | `src/ctx-tool-names.ts` | Context-mode sandbox tool name constants (`ctx_read`, `ctx_write`, `ctx_list`) |
 | `src/batch-orchestrator.ts` | Manages smart/group/swarm batch finalization and update debouncing |

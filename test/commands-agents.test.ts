@@ -10,10 +10,8 @@ vi.mock("../src/agent-manager.js", () => ({}));
 vi.mock("../src/agent-registry.js", () => ({
   getDefaultJoinMode: vi.fn().mockReturnValue("smart"),
   isSchedulingEnabled: vi.fn().mockReturnValue(true),
-  isTracingEnabled: vi.fn().mockReturnValue(true),
   setDefaultJoinMode: vi.fn(),
   setSchedulingEnabled: vi.fn(),
-  setTracingEnabled: vi.fn(),
   getFooterStatusConfig: () => DEFAULT_FOOTER_STATUS_CONFIG,
   getDashboardKeybindings: () => DEFAULT_DASHBOARD_KEYBINDINGS,
 }));

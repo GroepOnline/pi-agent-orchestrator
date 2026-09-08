@@ -179,7 +179,7 @@ npm install --legacy-peer-deps
 **VALIDATION MATRIX:**
 1. `compactionCount` incrementing (upstream Pi auto-compaction fired)? Check `lastCompaction.tokensBefore` / `tokensAfter`.
 2. Parent payload injection excessive? Enforce `levelLimit`.
-3. Host compaction settings in `.pi/settings.json` (`compaction.enabled`, `reserveTokens`, `keepRecentTokens`) — not the inactive local prune helper / `DEFAULT_KEEP_TURNS`.
+3. Host compaction settings in `.pi/settings.json` (`compaction.enabled`, `reserveTokens`, `keepRecentTokens`).
 4. Concurrency limit saturated? Validate `maxConcurrent`.
 
 **MITIGATION DIRECTIVES:**
