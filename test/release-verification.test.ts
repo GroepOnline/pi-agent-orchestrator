@@ -364,8 +364,10 @@ describe("transactional release workflow", () => {
     expect(content).toContain("git log --first-parent --format='%H%x09%s' origin/main");
     expect(content).toContain('git merge-base --is-ancestor "$RELEASE_SHA" origin/main');
     expect(content).toContain("release_sha: $" + "{{ steps.release.outputs.release_sha }}");
-    expect(content).toContain("ref: $" + "{{ needs.detect.outputs.release_sha }}");
+    expect(content).not.toContain("ref: $" + "{{ needs.detect.outputs.release_sha }}");
+    expect(content).toContain('git worktree add --detach "$SOURCE_DIR" "$RELEASE_SHA"');
     expect(content).toContain('test "$(git rev-parse HEAD)" = "$RELEASE_SHA"');
+    expect(content).toContain("ref: main");
     expect(content).toContain('ensure-release-tag.mjs "v$RELEASE_VERSION" "$RELEASE_SHA"');
     expect(verifier).toContain('REQUIRED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"]');
     expect(verifier).toContain('path === "README.md"');

@@ -35,9 +35,10 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       release_sha: ${{ steps.release.outputs.release_sha }}
     steps:
-      - name: Checkout release candidate
+      - name: Checkout trusted main history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: false
 
@@ -69,9 +70,8 @@ jobs:
             exit 1
           }
 
-          git checkout --detach "$RELEASE_SHA"
-          VERSION="$(node -p "require('./package.json').version")"
-          SUBJECT="$(git log -1 --pretty=%s)"
+          VERSION="$(git show "$RELEASE_SHA:package.json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).version))')"
+          SUBJECT="$(git show -s --format=%s "$RELEASE_SHA")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
           if [ "$SUBJECT" != "chore(release): v$VERSION" ]; then
@@ -98,12 +98,21 @@ jobs:
       RELEASE_VERSION: ${{ needs.detect.outputs.version }}
       RELEASE_SHA: ${{ needs.detect.outputs.release_sha }}
     steps:
-      - name: Checkout exact merged release commit read-only
+      - name: Checkout trusted main history read-only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.detect.outputs.release_sha }}
+          ref: main
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Materialize exact release source read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DIR="$RUNNER_TEMP/release-source"
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          git worktree add --detach "$SOURCE_DIR" "$RELEASE_SHA"
+          test "$(git -C "$SOURCE_DIR" rev-parse HEAD)" = "$RELEASE_SHA"
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -116,16 +125,20 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
+          cd "$RUNNER_TEMP/release-source"
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
           test "$(git log -1 --pretty=%s)" = "chore(release): v$RELEASE_VERSION"
           npm run verify:release-policy:publish
           node scripts/verify-release-transaction.mjs "$RELEASE_SHA^" "$RELEASE_SHA" "$RELEASE_VERSION"
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          cd "$RUNNER_TEMP/release-source"
+          npm ci
 
       - name: Run complete immutable release gate once
         run: |
+          cd "$RUNNER_TEMP/release-source"
           npm run build
           npm run typecheck
           npm run lint
@@ -133,22 +146,23 @@ jobs:
           npm run verify:package # includes Pi package contract gate
 
       - name: Pack and describe the reviewed artifact
-        id: pack
         shell: bash
         run: |
           set -euo pipefail
+          cd "$RUNNER_TEMP/release-source"
           npm pack --ignore-scripts --json > release-pack.json
           node scripts/verify-npm-pack.mjs release-pack.json
           node scripts/write-release-manifest.mjs release-pack.json release-manifest.json
-          echo "filename=$(node -p "require('./release-manifest.json').tarballFile")" >> "$GITHUB_OUTPUT"
+          TARBALL="$(node -p "require('./release-manifest.json').tarballFile")"
+          mkdir -p "$GITHUB_WORKSPACE/release-artifact"
+          cp "$TARBALL" "$GITHUB_WORKSPACE/release-artifact/$TARBALL"
+          cp release-manifest.json "$GITHUB_WORKSPACE/release-artifact/release-manifest.json"
 
       - name: Upload immutable release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-release-${{ needs.detect.outputs.version }}
-          path: |
-            ${{ steps.pack.outputs.filename }}
-            release-manifest.json
+          path: release-artifact/
           if-no-files-found: error
           retention-days: 14
 
@@ -167,7 +181,7 @@ jobs:
       - name: Checkout release helpers read-only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.detect.outputs.release_sha }}
+          ref: main
           persist-credentials: false
           sparse-checkout: |
             .nvmrc
@@ -231,7 +245,7 @@ jobs:
       - name: Checkout exact release source with tag credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.detect.outputs.release_sha }}
+          ref: main
           fetch-depth: 0
           persist-credentials: true
 
@@ -239,7 +253,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
           node scripts/ensure-release-tag.mjs "v$RELEASE_VERSION" "$RELEASE_SHA"
 
       - name: Create or verify GitHub Release
