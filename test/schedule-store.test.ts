@@ -5,10 +5,10 @@
  * load/save, parse-error self-heal, owner-fenced locking.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, promises as fsPromises, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveStorePath, ScheduleStore } from "../src/schedule-store.js";
 import type { ScheduledSubagent } from "../src/types.js";
 
@@ -77,6 +77,32 @@ describe("ScheduleStore", () => {
 
     const fresh = await ScheduleStore.create(join(tmp, "s.json"));
     expect(fresh.list()[0]).toMatchObject({ name: "after", runCount: 3 });
+  });
+
+  it("keeps the last valid snapshot visible while a mutation reload awaits I/O", async () => {
+    const store = await ScheduleStore.create(join(tmp, "s.json"));
+    const job = makeJob({ name: "visible-before-reload" });
+    await store.add(job);
+
+    const realOpen = fsPromises.open.bind(fsPromises);
+    let unblockOpen!: () => void;
+    let openStarted!: () => void;
+    const openStartedPromise = new Promise<void>((resolve) => { openStarted = resolve; });
+    const openGate = new Promise<void>((resolve) => { unblockOpen = resolve; });
+    const openSpy = vi.spyOn(fsPromises, "open").mockImplementationOnce(async (...args: any[]) => {
+      const handle = await (realOpen as any)(...args);
+      openStarted();
+      await openGate;
+      return handle;
+    });
+
+    const updatePromise = store.update(job.id, { name: "visible-after-reload" });
+    await openStartedPromise;
+    expect(store.get(job.id)?.name).toBe("visible-before-reload");
+    unblockOpen();
+    await updatePromise;
+    expect(store.get(job.id)?.name).toBe("visible-after-reload");
+    openSpy.mockRestore();
   });
 
   it("does not allow update patches to change the stable job id", async () => {

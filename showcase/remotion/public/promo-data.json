@@ -2,67 +2,67 @@
   "version": "0.19.1",
   "name": "@groeponline/pi-agent-orchestrator",
   "displayName": "PI AGENT ORCHESTRATOR",
-  "tagline": "Observable multi-agent orchestration for Pi: autonomous subagents, isolated worktrees, swarms, schedules, handoffs, and a live operator dashboard.",
+  "tagline": "Multi-agent orchestration for Pi coding agents: autonomous subagents, parallel worktrees, swarms, schedules, handoffs, budgets, and a live terminal dashboard.",
   "repository": "https://github.com/GroepOnline/pi-agent-orchestrator",
-  "generatedAt": "2026-09-07T00:00:00.000Z",
+  "generatedAt": "2026-09-11T11:22:05.262Z",
   "coreCapabilities": [
     {
       "title": "Interactive TUI dashboard",
-      "description": "agent list, resource top, daemon schedules, performance metrics, help, and settings."
+      "description": "inspect agents, queues, schedules, resources, health and performance while work is live."
     },
     {
       "title": "Subagent lifecycle",
-      "description": "spawn, queue, steer, stop, inspect, and collect structured results."
+      "description": "spawn, queue, steer, stop, inspect and collect structured results."
     },
     {
       "title": "Permission inheritance",
-      "description": "children cannot silently regain tools or scopes removed by a parent."
+      "description": "child agents can only become more restricted than their parent."
     },
     {
       "title": "Worktree isolation",
-      "description": "optional branch and filesystem isolation for implementation agents."
-    },
-    {
-      "title": "Prompt compression profiles",
-      "description": "static system-prompt guidance with global defaults and per-agent overrides; this does not compact conversation history."
+      "description": "give implementation agents separate branches and filesystems when parallel writes would collide."
     },
     {
       "title": "Persistent scheduling",
-      "description": "cron, interval, and one-shot jobs with a daemon schedule view."
+      "description": "cron, interval and one-shot jobs with daemon visibility."
     },
     {
       "title": "Structured handoffs",
-      "description": "machine-readable transfer between agents and chained workflows."
+      "description": "pass machine-readable state between agents instead of relying on hidden chat context."
     },
     {
       "title": "Swarm coordination",
-      "description": "dynamic membership and coordinated completion."
+      "description": "coordinate dynamic membership and completion across several workers."
+    },
+    {
+      "title": "Prompt compression profiles",
+      "description": "reduce static system-prompt overhead with global and per-agent profiles."
     },
     {
       "title": "Cross-extension RPC",
-      "description": "per-process capability-token authentication for peer extensions, mutation rate limits, and a strict spawn-option allowlist. See [Cross-extension RPC](docs/api-reference.md#-cross-extension-rpc)."
+      "description": "authenticated peer-extension calls with a strict spawn allowlist and mutation rate limits."
     }
   ],
   "agentTypes": [
     {
       "Type": "Explore",
       "Mode": "read-only",
-      "Use when": "Parallel codebase discovery and evidence collection"
+      "Best for": "Fast parallel codebase discovery and evidence gathering"
     },
     {
       "Type": "Plan",
       "Mode": "read-only",
-      "Use when": "Architecture and implementation planning before edits"
+      "Best for": "Architecture and implementation planning before edits"
     },
     {
       "Type": "Analysis",
       "Mode": "read-only + `ctx_*`",
-      "Use when": "Sandboxed data or compute through optional `@groeponline/context-mode`"
+      "Best for": "Sandboxed data or compute with optional `@groeponline/context-mode`"
     },
     {
       "Type": "general-purpose",
       "Mode": "full tools",
-      "Use when": "Bounded implementation and multi-step execution"
+      "Best for": "Bounded implementation and multi-step execution"
     }
   ],
   "compressionLevels": [

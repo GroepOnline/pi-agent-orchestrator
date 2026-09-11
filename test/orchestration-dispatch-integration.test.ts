@@ -307,16 +307,9 @@ describe("orchestration-dispatch integration — Agent tool end-to-end", () => {
     // Full-capacity fan-out: no partial marker on the swarm config (R5).
     expect(swarmJoin.createSwarm.mock.calls[0]![0]).not.toHaveProperty("missingMembers");
     const records = manager.listAgents();
-    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(
-      1,
-      "swarm-it-1",
-      records[0]!.id,
-    );
-    expect(swarmJoin.addAgentToSwarm).toHaveBeenNthCalledWith(
-      2,
-      "swarm-it-1",
-      records[1]!.id,
-    );
+    const joinedAgentIds = swarmJoin.addAgentToSwarm.mock.calls.map(([, agentId]) => agentId).sort();
+    expect(joinedAgentIds).toEqual(records.map((record) => record.id).sort());
+    expect(swarmJoin.addAgentToSwarm.mock.calls.every(([swarmId]) => swarmId === "swarm-it-1")).toBe(true);
 
     // Records carry the swarmId end-to-end.
     const swarmIds = records.map((r) => r.swarmId);

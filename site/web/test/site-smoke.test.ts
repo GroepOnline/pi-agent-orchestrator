@@ -8,6 +8,7 @@ import { CANONICAL_BASE_URL, canonicalUrl } from "@/lib/site";
 
 const pageShell = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const headersContract = readFileSync(new URL("../public/_headers", import.meta.url), "utf8");
+const routeMetadataSource = readFileSync(new URL("../src/components/route-metadata.tsx", import.meta.url), "utf8");
 const agentPermissions = JSON.parse(
   readFileSync(new URL("../../../agent-permissions.json", import.meta.url), "utf8"),
 ) as {
@@ -48,6 +49,24 @@ describe("site constants", () => {
       pipeline: "remotion",
       featured: true,
     });
+  });
+
+  it("assigns route-specific canonical and social metadata", () => {
+    expect(pageShell).not.toContain('rel="canonical" href="https://orchestrator.chefgroep.online/"');
+    expect(routeMetadataSource).toContain('canonicalUrl(pathname)');
+    expect(routeMetadataSource).toContain('"/install"');
+    expect(routeMetadataSource).toContain('"/capabilities"');
+    expect(routeMetadataSource).toContain('"/showcase"');
+    expect(routeMetadataSource).toContain('pathname.startsWith("/docs/")');
+  });
+
+  it("publishes search and social metadata for the public product surface", () => {
+    expect(pageShell).toContain("Multi-Agent Coding Agent Orchestration");
+    expect(pageShell).toContain('name="robots" content="index,follow,max-image-preview:large');
+    expect(pageShell).toContain('property="og:image" content="https://orchestrator.chefgroep.online/assets/social_preview.png"');
+    expect(pageShell).toContain('name="twitter:image" content="https://orchestrator.chefgroep.online/assets/social_preview.png"');
+    expect(pageShell).toContain('"softwareVersion": "0.19.2"');
+    expect(headersContract).not.toContain("noimageindex");
   });
 
   it("advertises valid base-aware machine-readable discovery metadata", () => {
