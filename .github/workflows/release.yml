@@ -187,6 +187,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      actions: write
       contents: write
     env:
       RELEASE_VERSION: ${{ needs.detect.outputs.version }}
@@ -212,6 +213,14 @@ jobs:
           set -euo pipefail
           TAG="v$RELEASE_VERSION"
           node scripts/release-recovery.mjs ensure-github-release "$TAG" "$TAG"
+
+      - name: Re-evaluate deferred patch preparation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run auto-release.yml --ref main
 
       - name: Publish release summary
         run: |
