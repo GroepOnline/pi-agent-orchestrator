@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/orchestration_flow.svg" alt="Pi Agent Orchestrator execution flow" width="100%">
+  <img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/orchestration_flow.svg" alt="Pi Agent Orchestrator execution flow" width="100%">
 </p>
 
 <h1 align="center">@groeponline/pi-agent-orchestrator</h1>
@@ -51,7 +51,7 @@ pi install npm:@groeponline/pi-agent-orchestrator -l
 
 The extension runs inside the Pi host process and does not require a package-owned hosted control plane or data service. In-process telemetry stays local (`src/telemetry.ts`); there is no package-owned PostHog or OpenTelemetry backend.
 
-For installation, the first-run mental model and safe operating patterns, see [Getting started](docs/getting-started.md). (chore(release): v0.19.1)
+For installation, the first-run mental model and safe operating patterns, see [Getting started](docs/getting-started.md).
 
 ## First useful run
 
