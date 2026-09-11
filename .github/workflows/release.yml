@@ -16,6 +16,7 @@ on:
       - CHANGELOG.md
       - package.json
       - package-lock.json
+  workflow_dispatch:
 
 permissions: {}
 
@@ -32,11 +33,12 @@ jobs:
     outputs:
       should_release: ${{ steps.release.outputs.should_release }}
       version: ${{ steps.release.outputs.version }}
+      release_sha: ${{ steps.release.outputs.release_sha }}
     steps:
       - name: Checkout release candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Match the canonical release commit
@@ -44,10 +46,39 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+
+          CANDIDATE_SHA="$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            CANDIDATE_SHA=""
+            while IFS=$'\t' read -r SHA SUBJECT_LINE; do
+              if printf '%s' "$SUBJECT_LINE" | grep -Eq '^chore\(release\): v[0-9]+\.[0-9]+\.[0-9]+$'; then
+                CANDIDATE_SHA="$SHA"
+                break
+              fi
+            done < <(git log --first-parent --format='%H%x09%s' origin/main)
+            if [ -z "$CANDIDATE_SHA" ]; then
+              echo "No canonical release commit found on main for recovery." >&2
+              exit 1
+            fi
+          fi
+
+          RELEASE_SHA="$(git rev-parse --verify "${CANDIDATE_SHA}^{commit}")"
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || {
+            echo "Release commit is not reachable from main: $RELEASE_SHA" >&2
+            exit 1
+          }
+
+          git checkout --detach "$RELEASE_SHA"
           VERSION="$(node -p "require('./package.json').version")"
           SUBJECT="$(git log -1 --pretty=%s)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
           if [ "$SUBJECT" != "chore(release): v$VERSION" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "Recovery target is not the canonical release transaction: $SUBJECT" >&2
+              exit 1
+            fi
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             echo "No release: main commit is not the canonical release transaction."
             exit 0
@@ -65,10 +96,12 @@ jobs:
       contents: read
     env:
       RELEASE_VERSION: ${{ needs.detect.outputs.version }}
+      RELEASE_SHA: ${{ needs.detect.outputs.release_sha }}
     steps:
       - name: Checkout exact merged release commit read-only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.detect.outputs.release_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -83,9 +116,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
           test "$(git log -1 --pretty=%s)" = "chore(release): v$RELEASE_VERSION"
           npm run verify:release-policy:publish
-          node scripts/verify-release-transaction.mjs "$GITHUB_SHA^" "$GITHUB_SHA" "$RELEASE_VERSION"
+          node scripts/verify-release-transaction.mjs "$RELEASE_SHA^" "$RELEASE_SHA" "$RELEASE_VERSION"
 
       - name: Install dependencies
         run: npm ci
@@ -128,11 +162,12 @@ jobs:
       id-token: write
     env:
       RELEASE_VERSION: ${{ needs.detect.outputs.version }}
+      RELEASE_SHA: ${{ needs.detect.outputs.release_sha }}
     steps:
       - name: Checkout release helpers read-only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.detect.outputs.release_sha }}
           persist-credentials: false
           sparse-checkout: |
             .nvmrc
@@ -191,11 +226,12 @@ jobs:
       contents: write
     env:
       RELEASE_VERSION: ${{ needs.detect.outputs.version }}
+      RELEASE_SHA: ${{ needs.detect.outputs.release_sha }}
     steps:
       - name: Checkout exact release source with tag credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.detect.outputs.release_sha }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -203,7 +239,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/ensure-release-tag.mjs "v$RELEASE_VERSION" "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          node scripts/ensure-release-tag.mjs "v$RELEASE_VERSION" "$RELEASE_SHA"
 
       - name: Create or verify GitHub Release
         shell: bash
@@ -227,7 +264,7 @@ jobs:
           {
             echo "## Released v$RELEASE_VERSION"
             echo
-            echo "- Source commit: \`$GITHUB_SHA\`"
+            echo "- Source commit: \`$RELEASE_SHA\`"
             echo "- npm: \`@groeponline/pi-agent-orchestrator@$RELEASE_VERSION\`"
             echo "- Registry metadata and downloaded tarball: verified"
             echo "- Tag: \`v$RELEASE_VERSION\`"
