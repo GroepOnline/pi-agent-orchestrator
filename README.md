@@ -1,83 +1,72 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/orchestration_flow.svg" alt="Pi Agent Orchestrator execution flow" width="100%">
+  <img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/dashboard_preview.gif" alt="Pi Agent Orchestrator live agent dashboard" width="100%">
 </p>
 
-<h1 align="center">@groeponline/pi-agent-orchestrator</h1>
+<h1 align="center">Pi Agent Orchestrator</h1>
 
-<p align="center"><strong>Multi-agent orchestration for Pi coding agents.</strong><br>Run autonomous subagents, parallel worktrees, swarms, schedules and structured handoffs from one observable terminal control plane.</p>
+<p align="center"><strong>Turn one Pi session into a visible team of agents.</strong><br>Run parallel research, isolated implementation, swarms, schedules and handoffs without losing control of who is doing what.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator"><img src="https://img.shields.io/npm/v/@groeponline/pi-agent-orchestrator" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator"><img src="https://img.shields.io/npm/dm/@groeponline/pi-agent-orchestrator" alt="npm downloads"></a>
+  <a href="https://pi.dev/packages/@groeponline/pi-agent-orchestrator"><img src="https://img.shields.io/badge/Pi-package-9b59b6.svg" alt="Pi package"></a>
   <a href="https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml"><img src="https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="MIT License"></a>
 </p>
 
-## Why use it
-
-- **Parallelize real coding work** with bounded subagents and optional git worktree isolation.
-- **Keep execution observable** through the live `/agents` dashboard, resource views and schedules.
-- **Coordinate agent workflows** with crews, swarms, structured handoffs and dependency-aware orchestration.
-- **Control autonomy** with inherited permissions, depth limits, turn limits and token budgets.
-- **Stay local to Pi** without introducing a package-owned hosted control plane.
-
-## What it is
-
-Pi Agent Orchestrator is the execution layer for workflows that need more than one agent. It runs inside the Pi host process and adds lifecycle control, permission inheritance, optional worktree isolation, scheduling, handoffs, orchestration modes and an interactive operator surface.
-
-It does **not** require a package-owned backend. Optional telemetry is inert until an operator explicitly configures it.
-
-| Need | Orchestrator capability |
-| --- | --- |
-| Explore a codebase in parallel | Bounded read-only Explore agents |
-| Plan before changing code | Read-only Plan agents |
-| Implement without colliding with other work | General-purpose agents with optional git worktrees |
-| Coordinate several agents | Groups, crews, swarms and structured handoffs |
-| Keep recurring work visible | Persistent schedules plus daemon view |
-| Intervene while work is running | `/agents` dashboard, steering, selection and termination |
-| Carry evidence between agents | Machine-readable handoff payloads |
-
-## Install
-
-Global Pi install:
+## Start in 10 seconds
 
 ```bash
 pi install npm:@groeponline/pi-agent-orchestrator
 ```
 
-Try it for one session without changing your Pi settings:
+Then run:
+```text
+/orchestra-audit src
+/agents
+```
+
+That gives you a first useful run immediately: read-only agents fan out over the codebase, results come back into one synthesis, and `/agents` shows the live queue while it happens.
+
+Prefer a one-off session first?
 
 ```bash
 pi -e npm:@groeponline/pi-agent-orchestrator
 ```
 
-Project-local install:
+## Three things to try first
 
-```bash
-pi install npm:@groeponline/pi-agent-orchestrator -l
-```
-
-The extension runs inside the Pi host process and does not require a package-owned hosted control plane or data service. In-process telemetry stays local (`src/telemetry.ts`); there is no package-owned PostHog or OpenTelemetry backend.
-
-For installation, the first-run mental model and safe operating patterns, see [Getting started](docs/getting-started.md).
-
-## First useful run
-
-Start with the packaged audit workflow:
+### 1. Audit a codebase in parallel
 
 ```text
 /orchestra-audit src
 ```
 
-Then open the live control surface:
+Use this when one agent would otherwise spend several turns walking the tree serially. Explore agents stay read-only, work in parallel and return evidence to one parent.
 
+### 2. Implement without agents stepping on each other
 ```text
-/agents
+/orchestra-implement "Fix the scheduler race and verify it"
 ```
 
-The audit fans out read-only work, collects evidence and synthesizes the result. The dashboard lets you inspect running and queued agents while that work is active.
+The packaged workflow discovers first, plans the change, gives implementation to one bounded writer and verifies the result independently. Implementation agents can use git worktrees so parallel work does not share one mutable checkout.
 
-Common dashboard controls:
+### 3. Keep recurring agent work visible
+
+Open the daemon view from `/agents` with `z`, or schedule a bounded recurring job. Schedules persist, expose next-run state and stay inspectable from the same operator surface.
+
+## What you see while it runs
+
+`/agents` is the live operator view for the current Pi process:
+
+- running and queued agents;
+- current task and agent type;
+- resource usage and performance metrics;
+- schedules and daemon state;
+- multi-select, steering and termination;
+- structured results and handoff state.
+
+Common controls:
 
 | Key | Action |
 | --- | --- |
@@ -89,163 +78,122 @@ Common dashboard controls:
 | `?` | Help |
 | `/perf` | Performance metrics |
 
-For installation, the first-run mental model and safe operating patterns, see [Getting started](docs/getting-started.md).
+[Watch the full product film](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/product_film.mp4) · [Open the showcase](https://orchestrator.chefgroep.online/showcase)
 
-## How orchestration works
+## Why this exists
 
-```text
-operator / workflow
-       │
-       ▼
- orchestration dispatch
-       │
-       ├── Explore / Plan ───── read-only evidence
-       ├── Analysis ─────────── optional ctx_* sandbox
-       └── general-purpose ─── bounded implementation
-                   │
-                   ▼
-        permissions + budgets
-        + optional worktree
-                   │
-                   ▼
-          structured handoff
-                   │
-          ┌────────┴────────┐
-          ▼                 ▼
-      next agent       parent/operator
-          │                 │
-          └────────┬────────┘
-                   ▼
-            `/agents` view
-```
+Pi deliberately keeps the core small. That is useful until a job needs several independent lines of work at once.
 
-The default orchestration mode is `single`; multi-agent dispatch is opt-in. Internally the dispatcher supports `single`, `crew`, `swarm` and `auto` strategies. Child agents can only become more restricted than their parent: inherited tool restrictions, partition filters, explicit disallow rules, budgets and depth limits are resolved before execution.
+Pi Agent Orchestrator adds that execution layer without replacing Pi itself. The host still owns the session, tools and model path. The orchestrator adds bounded child agents, isolation, coordination, schedules and one place to watch the whole run.
 
-See [Architecture](docs/architecture.md), [Execution strategies](docs/execution-strategies.md) and [Tool calling](docs/tool-calling.md) for the detailed contracts.
+| When you need to… | Use |
+| --- | --- |
+| inspect several areas at once | parallel Explore agents |
+| plan before editing | read-only Plan agents |
+| make changes without checkout collisions | isolated implementation worktrees |
+| coordinate several workers | crew or swarm orchestration |
+| continue work on a cadence | persistent schedules |
+| pass explicit state between workers | structured handoffs |
+| stop or steer work mid-run | `/agents` controls |
 
 ## Core capabilities
 
-- **Interactive TUI dashboard** — agent list, resource top, daemon schedules, performance metrics, help, and settings.
-- **Subagent lifecycle** — spawn, queue, steer, stop, inspect, and collect structured results.
-- **Permission inheritance** — children cannot silently regain tools or scopes removed by a parent.
-- **Worktree isolation** — optional branch and filesystem isolation for implementation agents.
-- **Prompt compression profiles** — static system-prompt guidance with global defaults and per-agent overrides; this does not compact conversation history.
-- **Persistent scheduling** — cron, interval, and one-shot jobs with a daemon schedule view.
-- **Structured handoffs** — machine-readable transfer between agents and chained workflows.
-- **Swarm coordination** — dynamic membership and coordinated completion.
-- **Cross-extension RPC** — per-process capability-token authentication for peer extensions, mutation rate limits, and a strict spawn-option allowlist. See [Cross-extension RPC](docs/api-reference.md#-cross-extension-rpc).
+- **Interactive TUI dashboard** — inspect agents, queues, schedules, resources, health and performance while work is live.
+- **Subagent lifecycle** — spawn, queue, steer, stop, inspect and collect structured results.
+- **Permission inheritance** — child agents can only become more restricted than their parent.
+- **Worktree isolation** — give implementation agents separate branches and filesystems when parallel writes would collide.
+- **Persistent scheduling** — cron, interval and one-shot jobs with daemon visibility.
+- **Structured handoffs** — pass machine-readable state between agents instead of relying on hidden chat context.
+- **Swarm coordination** — coordinate dynamic membership and completion across several workers.
+- **Prompt compression profiles** — reduce static system-prompt overhead with global and per-agent profiles.
+- **Cross-extension RPC** — authenticated peer-extension calls with a strict spawn allowlist and mutation rate limits.
 
 ## Built-in agent types
 
-| Type | Mode | Use when |
+| Type | Mode | Best for |
 | --- | --- | --- |
-| Explore | read-only | Parallel codebase discovery and evidence collection |
+| Explore | read-only | Fast parallel codebase discovery and evidence gathering |
 | Plan | read-only | Architecture and implementation planning before edits |
-| Analysis | read-only + `ctx_*` | Sandboxed data or compute through optional `@groeponline/context-mode` |
+| Analysis | read-only + `ctx_*` | Sandboxed data or compute with optional `@groeponline/context-mode` |
 | general-purpose | full tools | Bounded implementation and multi-step execution |
 
-Project-specific agents live in `.pi/agents/*.md`. Their frontmatter can define tools, models, limits and behavior. See [Custom agents](docs/custom-agents.md).
+Project-specific agents can live in `.pi/agents/*.md` with their own tools, models and limits. See [Custom agents](docs/custom-agents.md).
 
-## Isolation and safety model
+## How a run is bounded
 
-The orchestrator treats execution boundaries as data, not prompt convention:
+Autonomy is explicit, not just a prompt convention. Before a child runs, the orchestrator resolves inherited tool restrictions, partition filters, explicit disallow rules, depth limits, turn limits, token budgets and optional worktree isolation.
 
-- parent tool restrictions are inherited by children;
-- partition filters and explicit disallow rules reduce the available toolset;
-- depth, turn and budget limits bound autonomous execution;
-- implementation agents can use git worktrees for filesystem and branch isolation;
-- structured handoffs keep transfer state explicit instead of relying on hidden conversation context;
-- interactive logging stays quiet by default so terminal UI is not corrupted;
-- cross-extension RPC uses capability-token authentication, a strict spawn-option allowlist and mutation rate limits.
+A child cannot silently regain a tool or scope removed by its parent.
 
-The package does not automatically merge, publish, tag or deploy unless such actions are explicitly part of the requested workflow.
+The package does not automatically merge, publish, tag or deploy unless the workflow you run explicitly asks for those actions.
+## How orchestration fits together
 
-## Operator surface
+<p align="center">
+  <img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/orchestration_flow.svg" alt="Pi Agent Orchestrator execution flow" width="100%">
+</p>
 
-`/agents` is the live control plane for the current Pi process. It exposes agent state, queue state, resource usage, schedules, health information and lifecycle actions. The footer status slot can also show running and queued counts without opening the full dashboard.
+The dispatcher supports `single`, `crew`, `swarm` and `auto` strategies. Multi-agent execution is opt-in; the default remains `single`.
 
-The visual showcase is rendered from real product renderers rather than a mock UI:
+Use the packaged workflows when you want a good default:
 
-[![Pi Agent Orchestrator terminal preview](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/dashboard_preview.svg)](https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4)
-
-- [Product film](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/product_film.mp4)
-- [Dashboard preview](https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4)
-- [Agent-readable project site](https://orchestrator.chefgroep.online/)
-- [Showcase media layout](docs/assets-layout.md)
-
-## Packaged skills and workflows
-
-The npm package includes progressive-disclosure skills and ready-made orchestration templates.
-
-| Entry point | Purpose |
+| Entry point | What it does |
 | --- | --- |
-| `/skill:pi-orchestra` | Evidence-first orchestration operating model |
-| `/skill:pi-typescript-extension-engineering` | Strict Pi extension engineering and review |
-| `/skill:real-product-showcase` | Real terminal/browser/app capture and media verification |
-| `/orchestra-audit [scope]` | Parallel read-only audit and ranked synthesis |
+| `/orchestra-audit [scope]` | Parallel read-only inspection followed by ranked synthesis |
 | `/orchestra-plan <goal>` | Evidence gathering followed by a mechanically verifiable plan |
-| `/orchestra-implement <goal>` | Discover, plan, implement in one isolated writer and independently verify |
+| `/orchestra-implement <goal>` | Discover, plan, implement with one writer and independently verify |
+| `/skill:pi-orchestra` | Operating model for evidence-first orchestration |
+| `/skill:pi-typescript-extension-engineering` | Pi extension engineering and review guidance |
+| `/skill:real-product-showcase` | Real terminal/browser/app capture and media verification |
 
-Install individual Agent Skills into another compatible client:
+You can also install the packaged Agent Skills into another compatible client:
 
 ```bash
 npx skills add https://github.com/GroepOnline/pi-agent-orchestrator --skill real-product-showcase
 npx skills add https://github.com/GroepOnline/pi-agent-orchestrator --skill pi-typescript-extension-engineering
 ```
 
-## Where it fits
-
-The GroepOnline Pi stack deliberately separates capture, durable state and execution:
-
+## Where it fits in the GroepOnline Pi stack
 | Stage | Package | Owns |
 | --- | --- | --- |
 | Capture | [`pi-wishcraft`](https://github.com/GroepOnline/pi-wishcraft) | Operator cockpit and lightweight ideas |
 | Persist | [`pi-missions`](https://github.com/GroepOnline/pi-missions) | Durable plan, queue, evidence, recovery and mission handoff state |
 | Execute | **pi-agent-orchestrator** | Agents, worktrees, swarms, schedules and execution handoffs |
 
-A common flow is `idea → mission → orchestration run`, but the Orchestrator also works standalone.
+A common path is `idea → mission → orchestration run`, but the orchestrator also works standalone.
 
 ## Documentation
 
-Start at the [documentation index](docs/index.md). The main paths are:
-
-- [Getting started](docs/getting-started.md) — installation, first run and operating model.
-- [Architecture](docs/architecture.md) — topology, permission flow, lifecycle and module map.
-- [Tool calling](docs/tool-calling.md) — execution lifecycle, cancellation, concurrency and result ownership.
-- [API reference](docs/api-reference.md) — tools, settings, handoffs and scheduler.
-- [Custom agents](docs/custom-agents.md) — agent frontmatter and examples.
-- [Execution strategies](docs/execution-strategies.md) — single, crew, swarm and auto dispatch.
-- [Prompt compression](docs/prompt-compression.md) — prompt profile scope and behavior.
-- [Performance](docs/PERFORMANCE.md) — budgets, benchmarks and profiling.
-- [Troubleshooting](docs/troubleshooting.md) — diagnostics and common operator fixes.
-- [v0.19.1 release notes](docs/releases/v0.19.1.md) — previous patch scope and demo hardening.
-
-Contributor and policy references: [AGENTS.md](AGENTS.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
-
-## v0.19.1
-
-v0.19.1 publishes the reviewed 0.19 runtime state and adds the bounded Explore handoff demo path, deterministic handoff parsing checks and hardened recording preflight. The demo verifies its live model route before capture and does not mutate global Pi trust. See the [full release note](docs/releases/v0.19.1.md).
+- [Getting started](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [Execution strategies](docs/execution-strategies.md)
+- [Tool calling](docs/tool-calling.md)
+- [API reference](docs/api-reference.md)
+- [Custom agents](docs/custom-agents.md)
+- [Prompt compression](docs/prompt-compression.md)
+- [Performance](docs/PERFORMANCE.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [v0.19.2 release notes](docs/releases/v0.19.2.md)
 
 ## Development
 
 ```bash
 npm ci
-npm run setup:hooks   # optional local hooks
 npm run typecheck
 npm run lint
 npm test
 npm run build
 npm run verify:package
 ```
-
-Cursor Cloud users can run the canonical repository gate:
+For the canonical repository gate in cloud environments:
 
 ```bash
 npm run verify:cloud
 npm run cloud:smoke
 ```
 
-The deterministic cloud environment pins the repository Node version and includes Chrome plus the Pi host CLI for smoke testing without a model API key.
+## Privacy
+
+The extension runs inside the Pi host process. There is no package-owned hosted control plane and no package-owned telemetry backend. Optional telemetry is inert until explicitly configured by the operator.
 
 ## License
 
