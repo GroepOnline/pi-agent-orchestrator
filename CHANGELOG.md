@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+No unreleased changes. The repository is now on the 0.19.x release train.
+
+---
+
+## v0.19.2 (2026-09-11)
+
+### Changes since v0.19.1
+
+- feat(marketing): harden 0.19.2 SEO and runtime
+- fix(release): harden auto-release trigger
+- fix(release): publish the next patch after main advances (#91)
+- fix(docs): make npm README media portable (#90)
+- chore(deps): bump @vitest/mocker (#89)
+
+### Additional changes since v0.19.1
+
 - Dropped unused local tool-output prune helpers (`src/compaction.ts`). Live compaction stays Pi upstream auto-compaction.
 - Replaced `nanoid` with `node:crypto` for schedule job ids.
 - Removed unused TUI spinner glyphs that no pack or role used.
