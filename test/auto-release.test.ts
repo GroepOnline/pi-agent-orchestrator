@@ -17,11 +17,15 @@ describe("automatic patch release", () => {
   it("dispatches guarded preparation after main advances", () => {
     const workflow = read(".github/workflows/auto-release.yml");
     expect(workflow).toContain("branches: [main]");
-    expect(workflow).toContain("workflows: [Release]");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).not.toContain("workflow_run:");
     expect(workflow).toContain("node scripts/plan-auto-release.mjs");
     expect(workflow).toContain("node scripts/release-recovery.mjs check-exact");
     expect(workflow).toContain("gh workflow run prepare-release.yml");
     expect(workflow).not.toContain("npm publish");
+
+    const releaseWorkflow = read(".github/workflows/release.yml");
+    expect(releaseWorkflow).toContain("gh workflow run auto-release.yml --ref main");
   });
 
   it("refreshes an existing release PR instead of duplicating it", () => {

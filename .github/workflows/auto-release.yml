@@ -3,9 +3,7 @@ name: Auto Release
 on:
   push:
     branches: [main]
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
+  workflow_dispatch:
 
 permissions:
   actions: write
@@ -17,9 +15,6 @@ concurrency:
 
 jobs:
   prepare-next-patch:
-    if: >-
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -43,19 +38,23 @@ jobs:
       - name: Check source version is already published
         if: steps.plan.outputs.should_prepare == 'true'
         id: source
+        env:
+          SOURCE_VERSION: ${{ steps.plan.outputs.source_version }}
         run: >-
           node scripts/release-recovery.mjs check-exact
           "@groeponline/pi-agent-orchestrator"
-          "${{ steps.plan.outputs.source_version }}"
+          "$SOURCE_VERSION"
 
       - name: Explain deferred preparation
         if: >-
           steps.plan.outputs.should_prepare == 'true' &&
           steps.source.outputs.exists != 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.plan.outputs.version }}
+          SOURCE_VERSION: ${{ steps.plan.outputs.source_version }}
         run: >-
-          echo "Deferring ${{ steps.plan.outputs.version }} until
-          ${{ steps.plan.outputs.source_version }} is present on npm.
-          A successful Release workflow will trigger this automation again."
+          echo "Deferring $RELEASE_VERSION until $SOURCE_VERSION is present on npm.
+          The trusted Release finalizer will dispatch this workflow again."
       - name: Dispatch guarded release preparation
         if: >-
           steps.plan.outputs.should_prepare == 'true' &&
@@ -73,5 +72,7 @@ jobs:
 
       - name: Record no-op release commit
         if: steps.plan.outputs.should_prepare != 'true'
+        env:
+          REASON: ${{ steps.plan.outputs.reason }}
         run: >-
-          echo "No patch preparation needed: ${{ steps.plan.outputs.reason }}."
+          echo "No patch preparation needed: $REASON."
