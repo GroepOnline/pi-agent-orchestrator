@@ -1,6 +1,6 @@
 {
   "name": "@groeponline/pi-agent-orchestrator",
-  "version": "0.19.1",
+  "version": "0.19.2",
   "description": "Multi-agent orchestration for Pi coding agents: autonomous subagents, parallel worktrees, swarms, schedules, handoffs, budgets, and a live terminal dashboard.",
   "author": "GroepOnline",
   "license": "MIT",
