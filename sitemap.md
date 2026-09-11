@@ -7,6 +7,8 @@
 - [Product overview](https://orchestrator.chefgroep.online/)
 - [Showcase gallery](https://orchestrator.chefgroep.online/showcase)
 - [Documentation index](https://orchestrator.chefgroep.online/docs)
+- [Install guide](https://orchestrator.chefgroep.online/install)
+- [Capabilities](https://orchestrator.chefgroep.online/capabilities)
 
 ## Technical documentation
 
@@ -14,6 +16,8 @@
 - [API reference](https://orchestrator.chefgroep.online/docs/api-reference)
 - [Custom agents](https://orchestrator.chefgroep.online/docs/custom-agents)
 - [Coding-agent guide](https://orchestrator.chefgroep.online/docs/agents)
+- [Performance](https://orchestrator.chefgroep.online/docs/performance)
+- [Troubleshooting](https://orchestrator.chefgroep.online/docs/troubleshooting)
 
 ## Agent-readable discovery
 

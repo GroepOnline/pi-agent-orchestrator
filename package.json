@@ -1,7 +1,7 @@
 {
   "name": "@groeponline/pi-agent-orchestrator",
   "version": "0.19.1",
-  "description": "Observable multi-agent orchestration for Pi: autonomous subagents, isolated worktrees, swarms, schedules, handoffs, and a live operator dashboard.",
+  "description": "Multi-agent orchestration for Pi coding agents: autonomous subagents, parallel worktrees, swarms, schedules, handoffs, budgets, and a live terminal dashboard.",
   "author": "GroepOnline",
   "license": "MIT",
   "repository": {
@@ -39,7 +39,14 @@
     "agent-swarm",
     "agent-dashboard",
     "terminal-ui",
-    "workflow-orchestration"
+    "workflow-orchestration",
+    "ai-agents",
+    "ai-agent-orchestration",
+    "agentic-workflows",
+    "coding-agents",
+    "developer-agent",
+    "terminal-agents",
+    "agent-workflows"
   ],
   "files": [
     "dist/",

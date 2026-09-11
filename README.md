@@ -4,7 +4,7 @@
 
 <h1 align="center">@groeponline/pi-agent-orchestrator</h1>
 
-<p align="center"><strong>Observable multi-agent orchestration inside Pi.</strong><br>Run bounded subagents, isolated implementation work, swarms, schedules and structured handoffs without introducing a hosted control plane.</p>
+<p align="center"><strong>Multi-agent orchestration for Pi coding agents.</strong><br>Run autonomous subagents, parallel worktrees, swarms, schedules and structured handoffs from one observable terminal control plane.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator"><img src="https://img.shields.io/npm/v/@groeponline/pi-agent-orchestrator" alt="npm version"></a>
@@ -12,6 +12,14 @@
   <a href="https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml"><img src="https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="MIT License"></a>
 </p>
+
+## Why use it
+
+- **Parallelize real coding work** with bounded subagents and optional git worktree isolation.
+- **Keep execution observable** through the live `/agents` dashboard, resource views and schedules.
+- **Coordinate agent workflows** with crews, swarms, structured handoffs and dependency-aware orchestration.
+- **Control autonomy** with inherited permissions, depth limits, turn limits and token budgets.
+- **Stay local to Pi** without introducing a package-owned hosted control plane.
 
 ## What it is
 
@@ -210,7 +218,7 @@ Start at the [documentation index](docs/index.md). The main paths are:
 - [Prompt compression](docs/prompt-compression.md) — prompt profile scope and behavior.
 - [Performance](docs/PERFORMANCE.md) — budgets, benchmarks and profiling.
 - [Troubleshooting](docs/troubleshooting.md) — diagnostics and common operator fixes.
-- [v0.19.1 release notes](docs/releases/v0.19.1.md) — exact patch scope and demo hardening.
+- [v0.19.1 release notes](docs/releases/v0.19.1.md) — previous patch scope and demo hardening.
 
 Contributor and policy references: [AGENTS.md](AGENTS.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
 
