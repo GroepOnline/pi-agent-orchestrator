@@ -228,3 +228,5 @@ This package is a **Pi host extension**, not a standalone app or server — ther
 - On `jan`, `~/.npmrc` may scope `@groeponline` to GitHub Packages (older caps); this package publishes to npmjs.org (`publishConfig.registry`), so `pi update` may need `--@groeponline:registry=https://registry.npmjs.org`.
 - Dependency CVE SSOT for merges is `dependency-review` inside `Required CI gate` plus Dependabot — not Super-Linter Trivy (`VALIDATE_TRIVY` must not be treated as a required merge signal).
 - Binary showcase media lives in sibling repo `GroepOnline/pi-agent-orchestrator-assets`; consume via `npm run assets:link` or `ORCHESTRATOR_MEDIA_DIR` (see `docs/assets-layout.md` when present).
+
+Compound Engineering overlay: `.compound-engineering/` (tracked `config.yaml`, gitignored `config.local.yaml`). Artifact root `.compound-engineering/artifacts/`. Portable skills `~/.agents/skills/ce-*` and `lfg`. The native Cursor plugin is Cursor-only fallback when this overlay is absent — Pi, Codex, and Claude never enable it, never spawn `cursor-agent`, and never copy Cursor Task slugs (`cursor-grok-*`). Each CLI implements in-session (`work_engine_mode: off`).

@@ -109,9 +109,10 @@ export class ScheduleStore {
 
   /** Reload from disk into the in-memory cache (async). */
   private async load(): Promise<void> {
-    // Always invalidate first. A failed parse must never leave stale jobs that a
-    // later mutation can write back as apparently valid state.
-    this.jobs.clear();
+    // Keep the last valid snapshot visible to synchronous readers while I/O is
+    // in flight. Swap the cache only after the complete file validates; on a
+    // failed parse we still clear before returning so a later mutation cannot
+    // persist stale state as apparently valid data.
     try {
       // Open once with O_NOFOLLOW so a symlink swap between lstat and read cannot win.
       const handle = await fs.open(this.filePath, OPEN_READ_FLAGS);

@@ -111,7 +111,15 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
     // Wait for the spawn to occur (real timer fires) and the finalize promise
     // chain to settle. Polling, no fake timers.
     await waitFor(() => manager.spawn.mock.calls.length === 1);
-    await waitFor(() => scheduler.list().find(j => j.id === job.id)?.lastStatus === "success");
+    try {
+      await waitFor(() => scheduler.list().find(j => j.id === job.id)?.lastStatus === "success");
+    } catch (error) {
+      console.error("ONE_SHOT_DEBUG", JSON.stringify({
+        job: scheduler.list().find(j => j.id === job.id),
+        events: pi.events.emit.mock.calls.filter((c: any[]) => c[0] === "subagents:scheduled"),
+      }));
+      throw error;
+    }
 
     const final = scheduler.list().find(j => j.id === job.id)!;
     expect(final.lastStatus).toBe("success");
@@ -135,7 +143,10 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
     });
 
     await waitFor(() => manager.spawn.mock.calls.length === 1);
-    await waitFor(() => scheduler.list().find(j => j.id === job.id)?.lastStatus !== "running");
+    await waitFor(() => {
+      const status = scheduler.list().find(j => j.id === job.id)?.lastStatus;
+      return status === "success" || status === "error";
+    });
 
     expect(scheduler.list().find(j => j.id === job.id)?.lastStatus).toBe("error");
     expect(scheduler.list().find(j => j.id === job.id)?.runCount).toBe(1);
@@ -228,10 +239,9 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
 
     await waitFor(() => manager.spawn.mock.calls.length === 1);
     // Let the one-shot's finalize settle before removing. removeJob reads the
-    // in-memory cache synchronously (store.get), and the concurrent
-    // lock-protected finalize reload transiently clears that cache mid-read on
-    // slower Windows I/O — which otherwise makes removeJob miss the job and skip
-    // the "removed" event. Mirrors the settle-wait in the one-shot success test.
+    // in-memory cache synchronously, so wait for the terminal state rather than
+    // racing the lock-protected finalize. The store keeps its last valid cache
+    // snapshot visible while a reload is in flight.
     await waitFor(() => scheduler.list().find(j => j.id === job.id)?.lastStatus === "success");
 
     const eventTypes = pi.events.emit.mock.calls
