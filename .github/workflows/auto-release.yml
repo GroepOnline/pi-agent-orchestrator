@@ -1,0 +1,77 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
+jobs:
+  prepare-next-patch:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ".nvmrc"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Plan next patch from current main
+        id: plan
+        run: node scripts/plan-auto-release.mjs
+
+      - name: Check source version is already published
+        if: steps.plan.outputs.should_prepare == 'true'
+        id: source
+        run: >-
+          node scripts/release-recovery.mjs check-exact
+          "@groeponline/pi-agent-orchestrator"
+          "${{ steps.plan.outputs.source_version }}"
+
+      - name: Explain deferred preparation
+        if: >-
+          steps.plan.outputs.should_prepare == 'true' &&
+          steps.source.outputs.exists != 'true'
+        run: >-
+          echo "Deferring ${{ steps.plan.outputs.version }} until
+          ${{ steps.plan.outputs.source_version }} is present on npm.
+          A successful Release workflow will trigger this automation again."
+      - name: Dispatch guarded release preparation
+        if: >-
+          steps.plan.outputs.should_prepare == 'true' &&
+          steps.source.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run prepare-release.yml \
+            --ref main \
+            -f version="$VERSION" \
+            -f confirmation="RELEASE $VERSION"
+
+      - name: Record no-op release commit
+        if: steps.plan.outputs.should_prepare != 'true'
+        run: >-
+          echo "No patch preparation needed: ${{ steps.plan.outputs.reason }}."

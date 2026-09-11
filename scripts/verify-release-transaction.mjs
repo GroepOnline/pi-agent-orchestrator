@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs";
+import { assertNextPatchTransition, assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs";
 import { decideNpmPublish, npmViewVersion } from "./release-recovery.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -110,8 +110,10 @@ async function verify(parentRef, releaseRef, expectedVersion) {
 
   const parentPackage = JSON.parse(readAt(parentRef, "package.json"));
   const releasePackage = JSON.parse(readAt(releaseRef, "package.json"));
-  if (!policy.sourceBaselines.includes(parentPackage.version)) {
-    fail(`parent package version ${parentPackage.version} is not an approved source baseline`);
+  try {
+    assertNextPatchTransition(parentPackage.version, expectedVersion, policy);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
   if (releasePackage.version !== expectedVersion) {
     fail(`release package version ${releasePackage.version} does not equal ${expectedVersion}`);
