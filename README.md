@@ -28,6 +28,17 @@ Then run:
 
 That gives you a first useful run immediately: read-only agents fan out over the codebase, results come back into one synthesis, and `/agents` shows the live queue while it happens.
 
+## See the operator surface
+
+This is the actual terminal UI, not a mockup. The dashboard stays in the same Pi process as the agents it is supervising.
+
+<table>
+<tr>
+<td width="50%"><img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/showcase_dashboard.gif" alt="Pi Agent Orchestrator live dashboard with agent queue and status" width="100%"><br><sub>Live agent queue, state and results.</sub></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/showcase_top_view.gif" alt="Pi Agent Orchestrator resource top view" width="100%"><br><sub>Resource and performance view while work is running.</sub></td>
+</tr>
+</table>
+
 Prefer a one-off session first?
 
 ```bash
