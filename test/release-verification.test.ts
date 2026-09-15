@@ -353,7 +353,11 @@ describe("transactional release workflow", () => {
     const content = readRoot(".github/workflows/release.yml");
     const verifier = readRoot("scripts/verify-release-transaction.mjs");
     expect(content).toMatch(/branches:\s*\[main\]/);
-    expect(content).not.toMatch(/tags:\s*\n/);
+    expect(content).toMatch(/tags:\s*\n\s+- "v\*"/);
+    expect(content).toContain("if: github.ref == 'refs/heads/main'");
+    expect(content).toContain("if: startsWith(github.ref, 'refs/tags/v')");
+    expect(content).toContain("node scripts/verify-release-tag.mjs");
+    expect(content).toContain("SHA256SUMS");
     expect(content).toContain("chore(release): v$VERSION");
     expect(content).toContain("npm run verify:release-policy:publish");
     expect(content).toContain("node scripts/verify-release-transaction.mjs");
@@ -388,7 +392,7 @@ describe("transactional release workflow", () => {
     const detect = content.match(/\n {2}detect:[\s\S]*?\n {2}verify:/)?.[0] ?? "";
     const verify = content.match(/\n {2}verify:[\s\S]*?\n {2}publish:/)?.[0] ?? "";
     const publish = content.match(/\n {2}publish:[\s\S]*?\n {2}finalize:/)?.[0] ?? "";
-    const finalize = content.match(/\n {2}finalize:[\s\S]*$/)?.[0] ?? "";
+    const finalize = content.match(/\n {2}finalize:[\s\S]*?\n {2}github-release-from-tag:/)?.[0] ?? "";
     expect(detect).toContain("contents: read");
     expect(verify).toContain("contents: read");
     expect(verify).not.toContain("id-token: write");
@@ -460,6 +464,15 @@ describe("transactional release workflow", () => {
     expect(videoCheck).toContain('test "$size" -gt 100000');
     expect(JSON.parse(readRoot("package.json")).pi?.video).toBe(
       "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
+    );
+  });
+
+  it("PRs that touch package.json refuse an already released version", () => {
+    const ci = readRoot(".github/workflows/ci.yml");
+    expect(ci).toContain("node scripts/check-version-reuse.mjs");
+    expect(ci).toContain("git diff --name-only \"$BASE_SHA\" HEAD | grep -qx package.json");
+    expect(readRoot("CONTRIBUTING.md")).toContain(
+      "A version bump merged to main must be tagged `v<version>` by the release step.",
     );
   });
 

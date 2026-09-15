@@ -48,6 +48,19 @@ jobs:
       - name: Verify frozen release policy
         run: npm run verify:release-policy
 
+      - name: Refuse package version reuse
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BASE_SHA:-}" ] && git diff --name-only "$BASE_SHA" HEAD | grep -qx package.json; then
+            node scripts/check-version-reuse.mjs
+          else
+            echo "package.json unchanged; skip version-reuse gate"
+          fi
+
       - name: Verify package version transition
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
