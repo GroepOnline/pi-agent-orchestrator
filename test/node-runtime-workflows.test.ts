@@ -4,7 +4,7 @@
  * intentionally separate because it tests supported Node majors by design.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -46,6 +46,18 @@ describe("Node runtime workflow contract", () => {
     }
 
     expect(readWorkflow("ci.yml")).toContain("node-version: $" + "{{ matrix.node }}");
+  });
+});
+
+describe("fleet runner workflow contract", () => {
+  it("forbids GitHub-hosted runner labels under .github/workflows", () => {
+    const dir = resolve(root, ".github/workflows");
+    const files = readdirSync(dir).filter(name => name.endsWith(".yml") || name.endsWith(".yaml"));
+    expect(files.length).toBeGreaterThan(0);
+    const forbidden = /\b(ubuntu-latest|macos-latest|windows-latest)\b/;
+    for (const name of files) {
+      expect(readRoot(`.github/workflows/${name}`), name).not.toMatch(forbidden);
+    }
   });
 });
 

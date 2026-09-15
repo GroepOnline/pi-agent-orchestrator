@@ -137,10 +137,15 @@ tests on Windows related to temp directory races. These are
 ## Release flow
 
 - Conventional Commits drive changelog groups.
-- The maintainer (currently the only member of `@GroepOnline/admins`)
-  updates `CHANGELOG.md` (CI sets `package.json` version from the tag).
-- Tag `vX.Y.Z` and push it; `release.yml` builds, gates, publishes to npm,
-  and creates the GitHub Release. Don't publish manually.
+- A version bump merged to main must be tagged `v<version>` by the release step.
+- Declared version source is root `package.json`. Tag `vX.Y.Z` must equal that
+  version and the tag commit must be on `origin/main`.
+- `release.yml` on `v*` packs the npm tarball, writes `SHA256SUMS`, and creates
+  or updates the GitHub Release with those assets. The npm publish job and
+  registry stay unchanged.
+- PRs that touch `package.json` fail when that version already has a tag or
+  GitHub Release.
+- Don't publish manually.
 
 ## Need help?
 

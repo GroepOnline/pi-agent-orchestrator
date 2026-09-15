@@ -26,6 +26,7 @@ import {
   computeDispatchHistogram,
   type DispatchHistogram,
 } from "./dispatch-history.js";
+import { readPackageVersion, readSourceSha } from "./runtime-identity.js";
 import type { SubagentScheduler } from "./schedule.js";
 import type { SettingsGetters } from "./settings.js";
 import type { SwarmCoordinator } from "./swarm-join.js";
@@ -57,6 +58,8 @@ export interface HealthReport {
     uptimeMs: number;
     memoryRssMB: number;
     memoryHeapUsedMB: number;
+    packageVersion: string;
+    sourceSha: string | null;
   };
   circuitBreaker: {
     state: string;
@@ -207,6 +210,8 @@ export function buildHealthReport(deps: HealthReportDeps): HealthReport {
       uptimeMs: Math.round(process.uptime() * 1000),
       memoryRssMB: Math.round((mem.rss / 1024 / 1024) * 10) / 10,
       memoryHeapUsedMB: Math.round((mem.heapUsed / 1024 / 1024) * 10) / 10,
+      packageVersion: readPackageVersion(),
+      sourceSha: readSourceSha(),
     },
     circuitBreaker: {
       state: circuitBreakerState.state,
@@ -272,6 +277,8 @@ export function formatHealthReport(r: HealthReport): string {
   push("## Process");
   push(`  node      : ${r.process.nodeVersion}`);
   push(`  platform  : ${r.process.platform}`);
+  push(`  package   : ${r.process.packageVersion}`);
+  push(`  sourceSha : ${r.process.sourceSha ?? "null"}`);
   push(`  uptime    : ${formatDuration(r.process.uptimeMs)}`);
   push(`  rss       : ${r.process.memoryRssMB} MB`);
   push(`  heapUsed  : ${r.process.memoryHeapUsedMB} MB`);

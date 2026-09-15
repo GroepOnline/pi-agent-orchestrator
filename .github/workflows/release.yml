@@ -12,10 +12,8 @@ name: Release
 on:
   push:
     branches: [main]
-    paths:
-      - CHANGELOG.md
-      - package.json
-      - package-lock.json
+    tags:
+      - "v*"
 
 permissions: {}
 
@@ -26,7 +24,8 @@ concurrency:
 jobs:
   detect:
     name: Detect reviewed release commit
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, heavy]
     permissions:
       contents: read
     outputs:
@@ -59,7 +58,7 @@ jobs:
     name: Verify and build immutable npm artifact
     needs: detect
     if: needs.detect.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, heavy]
     timeout-minutes: 35
     permissions:
       contents: read
@@ -103,6 +102,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          printf '{"sha":"%s"}\n' "$GITHUB_SHA" > dist/build-stamp.json
           npm pack --ignore-scripts --json > release-pack.json
           node scripts/verify-npm-pack.mjs release-pack.json
           node scripts/write-release-manifest.mjs release-pack.json release-manifest.json
@@ -121,7 +121,7 @@ jobs:
   publish:
     name: Publish and verify npm registry artifact
     needs: [detect, verify]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, heavy]
     timeout-minutes: 20
     permissions:
       contents: read
@@ -184,7 +184,7 @@ jobs:
   finalize:
     name: Tag exact source and create GitHub Release
     needs: [detect, publish]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, heavy]
     timeout-minutes: 10
     permissions:
       actions: write
@@ -236,3 +236,66 @@ jobs:
             echo "- Confirm pi.dev shows \`@groeponline/pi-agent-orchestrator\`, not \`@onlinechefgroep\`."
             echo "- Release train remains locked to \`0.19.x\`; \`0.20.0\` is blocked by policy."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  github-release-from-tag:
+    name: Attach immutable GitHub Release artifact
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, Linux, X64, heavy]
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ".nvmrc"
+          package-manager-cache: false
+
+      - name: Verify tag equals package version on origin/main
+        run: node scripts/verify-release-tag.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and pack release artifact
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          printf '{"sha":"%s"}\n' "$GITHUB_SHA" > dist/build-stamp.json
+          npm pack --ignore-scripts --json > release-pack.json
+          node scripts/verify-npm-pack.mjs release-pack.json
+          node scripts/write-release-manifest.mjs release-pack.json release-manifest.json
+          TARBALL="$(node -p "require('./release-manifest.json').tarballFile")"
+          sha256sum "$TARBALL" > SHA256SUMS
+          echo "filename=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub Release with artifact evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          TARBALL="${{ steps.pack.outputs.filename }}"
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${TARBALL}" SHA256SUMS \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "${TAG}" \
+              "${TARBALL}" \
+              SHA256SUMS \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${TAG}" \
+              --generate-notes \
+              --verify-tag
+          fi
+
