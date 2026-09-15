@@ -138,7 +138,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # BILLING_QUARANTINE 2026-08-12: windows-latest/macos-latest matrix legs removed until GroepOnline Actions spending restored.
+          # BILLING_QUARANTINE 2026-08-12: GitHub-hosted macOS/Windows matrix legs removed until GroepOnline Actions spending restored.
           - label: Linux (fleet)
             runs-on: [self-hosted, Linux, X64, heavy]
             node: 24

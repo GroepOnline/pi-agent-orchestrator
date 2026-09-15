@@ -456,8 +456,8 @@ describe("transactional release workflow", () => {
     expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'package\.json'/);
     expect(buildJob).toContain("if: github.ref == 'refs/heads/main'");
     expect(buildJob).toContain("actions/setup-node@");
-    expect(buildJob).toMatch(/^\s+runs-on:\s+ubuntu-latest$/m);
-    expect(buildJob).not.toContain("self-hosted");
+    expect(buildJob).toMatch(/^\s+runs-on:\s+\[self-hosted, Linux, X64, heavy\]$/m);
+    expect(buildJob).toContain("self-hosted");
     expect(videoCheck).toContain("dashboard_preview.mp4");
     expect(videoCheck).toContain("product_film.mp4");
     expect(videoCheck).toContain("dashboard_preview.gif");
