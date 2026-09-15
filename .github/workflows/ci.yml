@@ -22,7 +22,7 @@ jobs:
   quality:
     name: Quality gate
     # PR → pr-isolated (no docker/secrets). Push to main → trusted-heavy.
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -140,10 +140,10 @@ jobs:
         include:
           # BILLING_QUARANTINE 2026-08-12: windows-latest/macos-latest matrix legs removed until GroepOnline Actions spending restored.
           - label: Linux (fleet)
-            runs-on: ubuntu-latest
+            runs-on: [self-hosted, Linux, X64, heavy]
             node: 24
           - label: Linux (fleet)
-            runs-on: ubuntu-latest
+            runs-on: [self-hosted, Linux, X64, heavy]
             node: 22
     steps:
       - name: Checkout
@@ -177,7 +177,7 @@ jobs:
 
   lowest-peer-dependencies:
     name: Lowest supported peer dependencies
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -244,7 +244,7 @@ jobs:
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 10
     # GroepOnline transfer: Dependency graph / GHAS is often still off. Probe
     # first and skip the action when unsupported so the check is green (not a
@@ -293,7 +293,7 @@ jobs:
     name: Render benchmarks
     # This job has an independent checkout, install, and threshold check. Start
     # it with the other gates; required-gate still waits for both jobs.
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -328,7 +328,7 @@ jobs:
       - lowest-peer-dependencies
       - dependency-review
       - benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     steps:
       - name: Verify required jobs
@@ -355,7 +355,7 @@ jobs:
       - lowest-peer-dependencies
       - dependency-review
       - benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 5
     steps:
       - name: Create Linear issue
