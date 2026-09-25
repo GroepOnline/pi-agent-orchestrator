@@ -25,6 +25,7 @@ import {
   resetDispatchHistory,
 } from "../src/dispatch-history.js";
 import { buildHealthReport, formatDuration, formatHealthReport } from "../src/health-report.js";
+import { readPackageVersion } from "../src/runtime-identity.js";
 import type { SubagentScheduler } from "../src/schedule.js";
 import type { SettingsGetters } from "../src/settings.js";
 import type { SwarmCoordinator } from "../src/swarm-join.js";
@@ -97,6 +98,8 @@ describe("buildHealthReport — basic shape", () => {
     expect(r.process.uptimeMs).toBeGreaterThanOrEqual(0);
     expect(r.process.memoryRssMB).toBeGreaterThan(0);
     expect(r.process.memoryHeapUsedMB).toBeGreaterThan(0);
+    expect(r.process.packageVersion).toBe(readPackageVersion());
+    expect(r.process.sourceSha).toBeNull();
   });
 });
 

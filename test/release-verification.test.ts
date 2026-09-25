@@ -353,7 +353,21 @@ describe("transactional release workflow", () => {
     const content = readRoot(".github/workflows/release.yml");
     const verifier = readRoot("scripts/verify-release-transaction.mjs");
     expect(content).toMatch(/branches:\s*\[main\]/);
+    // A push filter that sets both branches and tags never runs. Tag artifacts
+    // live in the tags-only workflow instead.
     expect(content).not.toMatch(/tags:\s*\n/);
+    expect(content).toMatch(/workflow_dispatch:/);
+    expect(content).toContain("release_sha:");
+    expect(content).not.toContain("inputs.release_sha");
+    expect(content).toContain("git log --first-parent --format='%H%x09%s' origin/main");
+    expect(content).toContain('git merge-base --is-ancestor "$RELEASE_SHA" origin/main');
+    expect(content).toContain("release_sha: $" + "{{ steps.release.outputs.release_sha }}");
+    expect(content).not.toContain("ref: $" + "{{ needs.detect.outputs.release_sha }}");
+    expect(content).toContain('git worktree add --detach "$SOURCE_DIR" "$RELEASE_SHA"');
+    expect(content).toContain('test "$(git rev-parse HEAD)" = "$RELEASE_SHA"');
+    expect(content).toContain("ref: main");
+    expect(content).toContain('ensure-release-tag.mjs "v$RELEASE_VERSION" "$RELEASE_SHA"');
+    expect(content).toContain("if: github.ref == 'refs/heads/main'");
     expect(content).toContain("chore(release): v$VERSION");
     expect(content).toContain("npm run verify:release-policy:publish");
     expect(content).toContain("node scripts/verify-release-transaction.mjs");
@@ -461,6 +475,28 @@ describe("transactional release workflow", () => {
     expect(JSON.parse(readRoot("package.json")).pi?.video).toBe(
       "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
     );
+  });
+
+  it("PRs that touch package.json refuse an already released version", () => {
+    const ci = readRoot(".github/workflows/ci.yml");
+    expect(ci).toContain("node scripts/check-version-reuse.mjs");
+    expect(ci).toContain('git diff --name-only "$BASE_SHA" HEAD | grep -qx package.json');
+    expect(readRoot("CONTRIBUTING.md")).toContain(
+      "A version bump merged to main must be tagged `v<version>` by the release step.",
+    );
+  });
+
+  it("attaches tag artifacts from a tags-only workflow", () => {
+    const release = readRoot(".github/workflows/release.yml");
+    const tags = readRoot(".github/workflows/release-tag-artifacts.yml");
+    expect(release).not.toMatch(/tags:\s*\n/);
+    expect(tags).toMatch(/tags:\s*\n\s+- "v\*"/);
+    expect(tags).not.toMatch(/branches:\s*\[main\]/);
+    expect(tags).toContain("if: startsWith(github.ref, 'refs/tags/v')");
+    expect(tags).toContain("node scripts/verify-release-tag.mjs");
+    expect(tags).toContain("SHA256SUMS");
+    expect(tags).toMatch(/^\s+runs-on:\s+ubuntu-latest$/m);
+    expect(tags).not.toContain("self-hosted");
   });
 
   it("legacy publish workflows remain removed", () => {

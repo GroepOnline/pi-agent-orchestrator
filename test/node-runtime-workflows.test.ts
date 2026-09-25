@@ -17,6 +17,7 @@ const runtimeManagedWorkflows = [
   "publish-baseline.yml",
   "qa.yml",
   "release.yml",
+  "release-tag-artifacts.yml",
   "remotion-showcase.yml",
 ] as const;
 
