@@ -117,6 +117,8 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
     expect(final.lastStatus).toBe("success");
     expect(final.runCount).toBe(1);
     expect(final.enabled).toBe(false);  // one-shot auto-disabled
+    expect(final.nextRun).toBeUndefined();
+    expect(scheduler.getNextRun(job.id)).toBeUndefined();
     expect(final.lastRun).toBeDefined();
   }, 20_000);
 
@@ -139,6 +141,9 @@ describe("SubagentScheduler — end-to-end with real timers", () => {
 
     expect(scheduler.list().find(j => j.id === job.id)?.lastStatus).toBe("error");
     expect(scheduler.list().find(j => j.id === job.id)?.runCount).toBe(1);
+    expect(scheduler.list().find(j => j.id === job.id)?.enabled).toBe(false);
+    expect(scheduler.list().find(j => j.id === job.id)?.nextRun).toBeUndefined();
+    expect(scheduler.getNextRun(job.id)).toBeUndefined();
   }, 20_000);
 
   it("interval job: fires repeatedly, runCount grows", async () => {
