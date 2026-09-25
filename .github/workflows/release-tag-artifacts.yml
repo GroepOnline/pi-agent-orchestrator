@@ -46,7 +46,6 @@ jobs:
         run: npm ci
 
       - name: Build and pack release artifact
-        id: pack
         shell: bash
         run: |
           set -euo pipefail
@@ -57,7 +56,6 @@ jobs:
           node scripts/write-release-manifest.mjs release-pack.json release-manifest.json
           TARBALL="$(node -p "require('./release-manifest.json').tarballFile")"
           sha256sum "$TARBALL" > SHA256SUMS
-          echo "filename=$TARBALL" >> "$GITHUB_OUTPUT"
 
       - name: Create or update GitHub Release with artifact evidence
         env:
@@ -66,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          TARBALL="${{ steps.pack.outputs.filename }}"
+          TARBALL="$(node -p "require('./release-manifest.json').tarballFile")"
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${TARBALL}" SHA256SUMS \
               --repo "${GITHUB_REPOSITORY}" \
