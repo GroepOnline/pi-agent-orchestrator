@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { classifyNpmViewResult } from "./npm-version-state.mjs";
 import { assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,12 +35,23 @@ function readAt(ref, path) {
   return git(["show", `${ref}:${path}`]);
 }
 
+// npm is the authority on "published". Only a definitive registry answer may be
+// treated as "version absent": a missing version (E404) or a clean query that
+// returns something else. A transient failure (network, auth, missing npm,
+// registry outage) is NOT evidence of absence — treating it as such would flip
+// `reRelease` true and skip the exact-file-set and baseline gates, letting
+// arbitrary changes pass as a legitimate re-release. Fail closed instead.
 function npmHasVersion(version) {
   const result = spawnSync("npm", ["view", `@groeponline/pi-agent-orchestrator@${version}`, "version"], {
     encoding: "utf8",
+    timeout: 30_000,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  return result.status === 0 && result.stdout.trim() === version;
+  const outcome = classifyNpmViewResult(result, version);
+  if (outcome.state === "unknown") {
+    fail(`could not determine npm state for ${version} (${outcome.reason})`);
+  }
+  return outcome.state === "present";
 }
 
 function existsAt(ref, path) {
