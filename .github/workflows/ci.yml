@@ -193,6 +193,7 @@ jobs:
           cache: npm
 
       - name: Install lowest supported peer dependencies
+        # zizmor: ignore[adhoc-packages]
         run: |
           set -euo pipefail
           npm ci
