@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { classifyNpmViewResult } from "./npm-version-state.mjs";
 import { assertNextPatchTransition, assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs";
-import { decideNpmPublish, npmViewVersion } from "./release-recovery.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REQUIRED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"];
@@ -40,6 +40,28 @@ function git(args) {
 
 function readAt(ref, path) {
   return git(["show", `${ref}:${path}`]);
+}
+
+// npm is the authority on "published". Only a definitive registry answer may be
+// treated as "version absent": a missing version (E404). A transient failure
+// (network, auth, missing npm, registry outage) or output the classifier cannot
+// explain (JSON-quoted, empty, or a different version) is NOT evidence of
+// absence — treating it as such would flip `reRelease` true and skip the
+// exact-file-set and baseline gates, letting arbitrary changes pass as a
+// legitimate re-release. Fail closed instead. `npm_config_json=false` pins the
+// output format so an inherited `--json` cannot reshape stdout.
+function npmHasVersion(version) {
+  const result = spawnSync("npm", ["view", `@groeponline/pi-agent-orchestrator@${version}`, "version"], {
+    encoding: "utf8",
+    timeout: 30_000,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, npm_config_json: "false" },
+  });
+  const outcome = classifyNpmViewResult(result, version);
+  if (outcome.state === "unknown") {
+    fail(`could not determine npm state for ${version} (${outcome.reason})`);
+  }
+  return outcome.state === "present";
 }
 
 function existsAt(ref, path) {
@@ -91,13 +113,24 @@ async function verify(parentRef, releaseRef, expectedVersion) {
     .split("\n")
     .filter(Boolean)
     .sort();
+  // Re-release: a previous attempt failed at a later gate, so the parent
+  // changelog already carries the target heading while npm never received
+  // the version. npm is the authority on "published" — if the exact version
+  // is absent, a partial re-finalization (e.g. CHANGELOG-only) is allowed
+  // as long as every changed file is within the required/docs set. The npm
+  // query only runs when the parent changelog already carries the heading:
+  // it is the sole scenario where a re-release can be legitimate, and it
+  // keeps ordinary commits offline so local gates fail fast.
+  const parentChangelog = readAt(parentRef, "CHANGELOG.md");
+  const parentHasHeading = parentChangelog.includes(`## v${expectedVersion} (`);
+  const reRelease = parentHasHeading && !npmHasVersion(expectedVersion);
   const missingRequired = requiredFiles.filter((path) => !changed.includes(path));
   const disallowed = changed.filter(
     (path) => !requiredFiles.includes(path) && !isAllowedDocumentationPath(path),
   );
-  if (missingRequired.length > 0 || disallowed.length > 0) {
+  if (disallowed.length > 0 || (!reRelease && missingRequired.length > 0)) {
     const problems = [];
-    if (missingRequired.length > 0) {
+    if (!reRelease && missingRequired.length > 0) {
       problems.push(`missing required files: ${missingRequired.join(", ")}`);
     }
     if (disallowed.length > 0) {
@@ -110,10 +143,17 @@ async function verify(parentRef, releaseRef, expectedVersion) {
 
   const parentPackage = JSON.parse(readAt(parentRef, "package.json"));
   const releasePackage = JSON.parse(readAt(releaseRef, "package.json"));
-  try {
-    assertNextPatchTransition(parentPackage.version, expectedVersion, policy);
-  } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+  // The next-patch transition check runs whenever the version changes —
+  // including re-releases — so a pre-existing changelog heading cannot be
+  // used to jump past the policy (e.g. parent 0.19.2 straight to 0.19.9).
+  // A re-release where the parent package already carries the target
+  // version changes nothing and skips it legitimately.
+  if (parentPackage.version !== expectedVersion) {
+    try {
+      assertNextPatchTransition(parentPackage.version, expectedVersion, policy);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
   }
   if (releasePackage.version !== expectedVersion) {
     fail(`release package version ${releasePackage.version} does not equal ${expectedVersion}`);
@@ -146,19 +186,11 @@ async function verify(parentRef, releaseRef, expectedVersion) {
     fail("package-lock changed outside top-level version and packages[''] root metadata");
   }
 
-  const parentChangelog = readAt(parentRef, "CHANGELOG.md");
   const releaseChangelog = readAt(releaseRef, "CHANGELOG.md");
-  if (parentChangelog.includes(`## v${expectedVersion} (`)) {
-    // A gate failure (e.g. release-verification test) between the first
-    // release attempt and the fixed push makes the changelog already
-    // contain the target heading. Allow the re-release as long as npm does
-    // not yet carry the exact version (decideNpmPublish is the authority
-    // on "published").
-    const exact = npmViewVersion(`@groeponline/pi-agent-orchestrator@${expectedVersion}`);
-    const decision = decideNpmPublish({ releaseVersion: expectedVersion, exactVersion: exact, latestVersion: null });
-    if (decision.reason !== "exact-version-exists") {
-      fail(`parent CHANGELOG already contains v${expectedVersion} (and npm does not have it either)`);
-    }
+  if (parentHasHeading && !reRelease) {
+    // Parent changelog carries the heading but npm already published the
+    // version — this is a second release, not a re-finalization.
+    fail(`parent CHANGELOG already contains v${expectedVersion}`);
   }
   const historyMarker = "## v0.17.1 ";
   const parentHistory = parentChangelog.indexOf(historyMarker);

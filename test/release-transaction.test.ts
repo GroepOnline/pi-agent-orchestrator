@@ -74,6 +74,7 @@ function createReleaseSandbox(): string {
     "scripts/prepare-release.mjs",
     "scripts/release-policy.mjs",
     "scripts/release-recovery.mjs",
+    "scripts/npm-version-state.mjs",
     "scripts/verify-release-transaction.mjs",
     "scripts/verify-version-transition.mjs",
   ]) {
