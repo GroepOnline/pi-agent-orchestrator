@@ -13,7 +13,7 @@ import { buildAgentEstimate } from "../estimate.js";
 import { resolveAgentInvocationConfig, resolveJoinMode } from "../invocation-config.js";
 import { logger } from "../logger.js";
 import { resolveModel } from "../model-resolver.js";
-import { type OrchestrationDecision, resolveOrchestrationMode } from "../orchestration-dispatch.js";
+import { formatMidFanoutFailureReport, type OrchestrationDecision, resolveOrchestrationMode } from "../orchestration-dispatch.js";
 import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "../output-file.js";
 import {
   buildDetails, createActivityTracker, formatLifetimeTokens,
@@ -35,6 +35,7 @@ type CommonSpawnOptions = {
   description: string;
   model: Model<any> | undefined;
   maxTurns: number | undefined;
+  maxSpendTokens?: number;
   isolated: boolean;
   inheritContext: boolean;
   thinking: ThinkingLevel | undefined;
@@ -165,6 +166,7 @@ export function buildSpawnOptions(input: CommonSpawnOptions): {
   description: string;
   model?: Model<any>;
   maxTurns?: number;
+  maxSpendTokens?: number;
   isolated: boolean;
   inheritContext: boolean;
   thinkingLevel?: ThinkingLevel;
@@ -175,6 +177,7 @@ export function buildSpawnOptions(input: CommonSpawnOptions): {
     description: input.description,
     model: input.model,
     maxTurns: input.maxTurns,
+    ...(input.maxSpendTokens ? { maxSpendTokens: input.maxSpendTokens } : {}),
     isolated: input.isolated,
     inheritContext: input.inheritContext,
     thinkingLevel: input.thinking,
@@ -216,6 +219,7 @@ interface OrchestratedDispatchArgs {
   fellBack: boolean;
   runInBackground: boolean;
   effectiveMaxTurns: number | undefined;
+  maxSpendTokens?: number;
   model: Model<any> | undefined;
   isolated: boolean;
   inheritContext: boolean;
@@ -253,6 +257,22 @@ interface OrchestratedDispatchArgs {
  * Pure orchestration glue — no I/O, no LLM calls of its own. The dispatcher
  * itself is in `orchestration-dispatch.ts` and is unit-tested independently.
  */
+/**
+ * Best-effort stop of already-spawned fan-out members after a mid-fanout
+ * spawn failure. They must not keep running or report Done after the caller
+ * has been told the dispatch failed. A failed cancel must never mask the
+ * spawn error itself, so each abort is individually guarded.
+ */
+function cancelSpawnedMembers(manager: AgentManager, spawned: ReadonlyArray<{ id: string }>): void {
+  for (const member of spawned) {
+    try {
+      manager.abort(member.id);
+    } catch {
+      // Best-effort: cancellation failures are non-fatal here.
+    }
+  }
+}
+
 async function runOrchestratedDispatch(
   dispatch: Extract<OrchestrationDecision, { kind: "swarm" | "crew" }>,
   args: OrchestratedDispatchArgs,
@@ -270,6 +290,7 @@ async function runOrchestratedDispatch(
         description: member.description,
         model: args.model,
         maxTurns: args.effectiveMaxTurns,
+        maxSpendTokens: args.maxSpendTokens,
         isolated: args.isolated,
         inheritContext: args.inheritContext,
         thinking: args.thinking,
@@ -287,10 +308,24 @@ async function runOrchestratedDispatch(
     try {
       id = args.manager.spawn(args.pi, args.piCtx, args.subagentType, member.prompt, spawnOptions);
     } catch (err) {
-      // Partial-failure surface: list the IDs we DID spawn, then the error.
+      // Combined mid-fanout failure path (R5) — one behavior, not three
+      // disconnected surfaces: a synchronous partial report to the caller,
+      // best-effort cancellation of the members that DID spawn, and a partial
+      // finalization of the surviving batch group (it must never finalize as
+      // unqualified success while a member is missing). The batch mark rides
+      // the preserved debounce window: the cancelled members stay suppressed
+      // from individual nudges via isPendingBatchFinalization until the batch
+      // finalizes and delivers the group with its missing-member count.
+      cancelSpawnedMembers(args.manager, spawned);
+      if (spawned.length > 0) {
+        args.batchOrchestrator.markBatchPartial(members.length - spawned.length);
+      }
       return textResult(
-        `Orchestration dispatch failed mid-fanout: ${err instanceof Error ? err.message : String(err)}\n` +
-          `Spawned ${spawned.length}/${members.length} before failure: ${spawned.map((s) => s.id).join(", ")}`,
+        formatMidFanoutFailureReport({
+          error: err,
+          spawnedIds: spawned.map((s) => s.id),
+          totalMembers: members.length,
+        }),
       );
     }
     const record = args.manager.getRecord(id);
@@ -435,6 +470,8 @@ export type AgentToolParams = {
   model?: string;
   thinking?: string;
   max_turns?: number;
+  /** Per-run token cap (input + output); the runner aborts the agent when exceeded. */
+  max_spend_tokens?: number;
   run_in_background?: boolean;
   resume?: string;
   isolated?: boolean;
@@ -541,6 +578,12 @@ Guidelines:
         Type.Number({
           description: "Maximum number of agentic turns before stopping. Omit for unlimited (default).",
           minimum: 1,
+        }),
+      ),
+      max_spend_tokens: Type.Optional(
+        Type.Number({
+          description: "Per-run token cap (input + output). The agent is aborted gracefully when it exceeds this. Omit for no cap.",
+          minimum: 1000,
         }),
       ),
       run_in_background: Type.Optional(
@@ -766,6 +809,7 @@ Guidelines:
           fellBack,
           runInBackground,
           effectiveMaxTurns,
+          maxSpendTokens: params.max_spend_tokens as number | undefined,
           model,
           isolated,
           inheritContext,
@@ -794,6 +838,7 @@ Guidelines:
             description: params.description as string,
             model,
             maxTurns: effectiveMaxTurns,
+            maxSpendTokens: params.max_spend_tokens as number | undefined,
             isolated,
             inheritContext,
             thinking,
@@ -919,6 +964,7 @@ Guidelines:
             description: params.description as string,
             model,
             maxTurns: effectiveMaxTurns,
+            maxSpendTokens: params.max_spend_tokens as number | undefined,
             isolated,
             inheritContext,
             thinking,

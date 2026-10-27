@@ -1,6 +1,6 @@
 # Pi Agent Orchestrator
 
-> Multi-agent orchestration extension for the Pi coding-agent host, including sub-agents, structured handoffs, swarms, scheduling, prompt compression, and a responsive TUI.
+> Multi-agent orchestration for Pi coding agents: autonomous subagents, parallel git worktrees, swarms, schedules, structured handoffs, token budgets, and a live terminal dashboard.
 
 ## Primary documentation (installed package)
 
@@ -15,11 +15,23 @@ After `pi install npm:@groeponline/pi-agent-orchestrator`, read raw markdown fro
 
 ## Human-readable web UI
 
+Canonical product site and high-intent entry points:
+
+- https://orchestrator.chefgroep.online/
+- https://orchestrator.chefgroep.online/install
+- https://orchestrator.chefgroep.online/capabilities
+
 - https://orchestrator.chefgroep.online/docs/api-reference
 - https://orchestrator.chefgroep.online/docs/architecture
 - https://orchestrator.chefgroep.online/docs/custom-agents
 - https://orchestrator.chefgroep.online/showcase
 
+GitHub Pages mirror (pi.dev `pi.video` host after Deploy Pages runs on `main`):
+
+- https://groeponline.github.io/pi-agent-orchestrator/
+- https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4
+
 ## Media
 
 - https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4
+- https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/product_film.mp4

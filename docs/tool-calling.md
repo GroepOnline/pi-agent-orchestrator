@@ -63,7 +63,7 @@ The distinction matters operationally:
 
 - `toolCallId` identifies one model-requested execution;
 - `agentId` identifies one orchestrated subagent record;
-- `correlationId` joins spans and events across that agent's lifetime, including resume operations.
+- `correlationId` joins logs and telemetry events across that agent's lifetime, including resume operations.
 
 ---
 
@@ -568,7 +568,7 @@ Every long-lived execution must clean up in `finally`:
 - abort listeners;
 - session subscriptions;
 - intervals and timeouts;
-- OTel spans;
+- session subscriptions;
 - file streams;
 - polling loops;
 - temporary ownership state;
@@ -825,7 +825,6 @@ The nested runner tracks or emits:
 - token input/output/cache write;
 - time to first token;
 - compaction count;
-- agent, turn, and tool spans;
 - one stable correlation ID per agent record.
 
 ### 13.1 Counting caveat
@@ -844,7 +843,7 @@ Use:
 
 ### 13.3 Verbose result export
 
-`get_subagent_result(verbose:true)` is an operator-oriented summary containing user/assistant text, tool names, and bounded tool-result content. It is not a lossless event log. Use debug capture or OTel for complete forensics.
+`get_subagent_result(verbose:true)` is an operator-oriented summary containing user/assistant text, tool names, and bounded tool-result content. It is not a lossless event log. Use debug capture or `emitTelemetry` subscribers for complete forensics.
 
 ---
 
@@ -912,7 +911,7 @@ Tool output may contain untrusted repository text, command output, remote conten
 
 ### Lifecycle
 
-- **21.** Subscriptions, timers, spans, streams, and worktrees are cleaned up.
+- **21.** Subscriptions, timers, streams, and worktrees are cleaned up.
 - **22.** Every foreground child follows parent abort, including crew/swarm fan-out.
 - **23.** Background child lifetime is independent after the spawning tool returns.
 - **24.** Steering is queued until the active tool batch finishes.
@@ -994,7 +993,7 @@ Review questions:
 | Ownership | explicit consumption, notification suppression, all waiters cancelled, mixed abort/completion |
 | Lifecycle | queued, starting, running, completed, error, stopped, resumed |
 | Rendering | partial, final, expanded, absent details, non-TUI mode |
-| Telemetry | balanced start/end, span cleanup, stable correlation ID |
+| Telemetry | balanced start/end, subscription cleanup, stable correlation ID |
 
 ### 17.1 Concurrent result-wait regression
 

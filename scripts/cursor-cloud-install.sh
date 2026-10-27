@@ -15,6 +15,9 @@ cc_ensure_node
 cc_assert_node
 cc_print_versions
 
+echo "== apt refresh =="
+cc_refresh_system_packages
+
 echo "== npm ci =="
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
@@ -31,5 +34,12 @@ if grep -q "EBADENGINE" "$log"; then
   echo "ERROR: npm reported EBADENGINE; the active Node does not satisfy engines." >&2
   exit 1
 fi
+
+echo "== pi CLI =="
+cc_ensure_pi_cli || echo "WARNING: pi CLI alignment failed; continuing install." >&2
+
+echo "== pi host smoke =="
+# Prove the built extension loads in the real Pi host (no API key required).
+bash "$CC_ROOT/scripts/cursor-cloud-smoke.sh" || echo "WARNING: pi host smoke test failed; continuing install." >&2
 
 echo "== install complete =="

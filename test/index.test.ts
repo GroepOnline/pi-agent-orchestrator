@@ -20,7 +20,6 @@ vi.mock("../src/agent-runner.js", () => ({
 // Mock agent-registry
 vi.mock("../src/agent-registry.js", () => ({
   isSchedulingEnabled: vi.fn(() => false),
-  isTracingEnabled: vi.fn(() => true),
   isDebugCaptureEnabled: vi.fn(() => false),
   getDebugCapturePaths: vi.fn(() => ({ project: undefined, personal: undefined })),
   reloadCustomAgents: vi.fn(async () => {}),
@@ -35,7 +34,6 @@ vi.mock("../src/agent-registry.js", () => ({
   setShowTokenUsage: vi.fn(),
   setShowTurnProgress: vi.fn(),
   isShowAgentTopWidget: vi.fn(() => true),
-  setTracingEnabled: vi.fn(),
   setUiStyle: vi.fn(),
   setDebugCapture: vi.fn(),
   setDebugCapturePaths: vi.fn(),
@@ -139,7 +137,12 @@ vi.mock("../src/telemetry.js", () => ({
 }));
 
 // Mock settings
-vi.mock("../src/settings.js", () => ({ applyAndEmitLoaded: vi.fn(), loadSettings: vi.fn(() => ({})) }));
+vi.mock("../src/settings.js", () => ({
+  applyAndEmitLoaded: vi.fn(),
+  loadSettings: vi.fn(() => ({})),
+  extractCapturedDispatchLimits: vi.fn(() => ({})),
+  capturedDispatchNotices: vi.fn(() => []),
+}));
 
 // Mock output-file
 vi.mock("../src/output-file.js", () => ({}));

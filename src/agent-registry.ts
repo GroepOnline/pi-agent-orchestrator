@@ -91,26 +91,24 @@ export function setSchedulingEnabled(enabled: boolean): void {
   schedulingEnabled = enabled;
 }
 
-// ---- Tracing switch ----
+// ---- Free-models-only switch (session-only, not persisted) ----
 
 /**
- * Master switch for OpenTelemetry span emission in agent-runner. Defaults to
- * enabled. When false, every public telemetry helper short-circuits to a shared
- * no-op span. Runtime toggles affect subsequent spans immediately.
+ * Session-only flag: when true, subagents only use free (zero-cost) models.
+ * Never persisted to disk — resets on process restart. Lets a session ride
+ * out rate-limit/paid-model hiccups on free models without touching settings files.
  */
-let tracingEnabled = true;
+let freeModelsOnly = false;
 
-/** Check if OpenTelemetry tracing is enabled. */
-export function isTracingEnabled(): boolean {
-  return tracingEnabled;
+/** Check if only free models should be used (session-only). */
+export function isFreeModelsOnly(): boolean {
+  return freeModelsOnly;
 }
 
-/** Enable or disable OpenTelemetry tracing. */
-export function setTracingEnabled(enabled: boolean): void {
-  tracingEnabled = enabled;
+/** Enable or disable free-models-only mode (session-only). */
+export function setFreeModelsOnly(enabled: boolean): void {
+  freeModelsOnly = enabled;
 }
-
-// ---- Animation & UI/UX style configuration ----
 
 /**
  * Motion profiles are backwards compatible with the original single-spinner

@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertReleaseCandidate, loadReleasePolicy, sameJson } from "./release-policy.mjs";
+import { assertNextPatchTransition, loadReleasePolicy, sameJson } from "./release-policy.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PROMO_DATA_PATH = "showcase/remotion/public/promo-data.json";
@@ -26,6 +26,10 @@ function formatJson(value) {
 
 function normalizeLineEndings(value) {
   return value.replace(/\r\n?/g, "\n");
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function cloneJson(value) {
@@ -54,11 +58,6 @@ async function readOptionalJson(path) {
 
 async function prepareRelease(version, releaseDate) {
   const policy = await loadReleasePolicy(ROOT);
-  assertReleaseCandidate(version, policy);
-  if (version !== policy.initialRelease) {
-    fail(`the release button is intentionally pinned to ${policy.initialRelease}; patch releases require a separate reviewed workflow change`);
-  }
-
   const packagePath = resolve(ROOT, "package.json");
   const lockPath = resolve(ROOT, "package-lock.json");
   const changelogPath = resolve(ROOT, "CHANGELOG.md");
@@ -68,9 +67,7 @@ async function prepareRelease(version, releaseDate) {
   const pkg = JSON.parse(await readFile(packagePath, "utf8"));
   const lock = JSON.parse(await readFile(lockPath, "utf8"));
   const promoData = await readOptionalJson(promoPath);
-  if (!policy.sourceBaselines.includes(pkg.version)) {
-    fail(`expected a source baseline (${policy.sourceBaselines.join(", ")}), found ${pkg.version}`);
-  }
+  assertNextPatchTransition(pkg.version, version, policy);
   if (lock.version !== pkg.version || lock.packages?.[""]?.version !== pkg.version) {
     fail("package-lock versions are not synchronized before release preparation");
   }
@@ -80,7 +77,7 @@ async function prepareRelease(version, releaseDate) {
   }
 
   const changelog = normalizeLineEndings(await readFile(changelogPath, "utf8"));
-  if (new RegExp(`^## v${version.replaceAll(".", "\\.")} \\(`, "m").test(changelog)) {
+  if (new RegExp(`^## v${escapeRegExp(version)} \\(`, "m").test(changelog)) {
     fail(`CHANGELOG already contains v${version}`);
   }
   const unreleasedHeading = "## [Unreleased]";
@@ -91,25 +88,25 @@ async function prepareRelease(version, releaseDate) {
   if (separatorStart < 0) fail("CHANGELOG [Unreleased] section has no terminating separator");
 
   const prefix = changelog.slice(0, unreleasedStart);
-  const unreleasedBody = changelog
-    .slice(unreleasedStart + unreleasedHeading.length, separatorStart)
-    .trim();
+  const unreleasedBody = changelog.slice(unreleasedStart + unreleasedHeading.length, separatorStart).trim();
   const history = changelog.slice(separatorStart + separator.length).replace(/^\s+/, "");
   const releaseNotes = normalizeLineEndings(await readFile(notesPath, "utf8")).trim();
   if (!releaseNotes) fail(`release notes template ${notesPath} is empty`);
 
+  const sourceVersion = pkg.version;
+  const [releaseMajor, releaseMinor] = version.split(".");
+  const releaseTrain = `${releaseMajor}.${releaseMinor}.x`;
   const additionalChanges = unreleasedBody
-    ? `\n\n### Additional changes since v0.17.1\n\n${unreleasedBody}`
+    ? `\n\n### Additional changes since v${sourceVersion}\n\n${unreleasedBody}`
     : "";
-  const nextChangelog = `${prefix}${unreleasedHeading}\n\nNo unreleased changes. The repository remains locked to the 0.18.x stabilization train.\n\n---\n\n## v${version} (${releaseDate})\n\n${releaseNotes}${additionalChanges}\n\n---\n\n${history}`;
+  const nextChangelog = `${prefix}${unreleasedHeading}\n\nNo unreleased changes. The repository is now on the ${releaseTrain} release train.\n\n---\n\n## v${version} (${releaseDate})\n\n${releaseNotes}${additionalChanges}\n\n---\n\n${history}`;
 
   pkg.version = version;
   lock.version = version;
   for (const field of ROOT_LOCK_FIELDS) {
     const value = field === "version" ? version : pkg[field];
-    if (value === undefined) {
-      delete lock.packages[""][field];
-    } else if (field === "version" || !sameJson(lock.packages[""][field], value)) {
+    if (value === undefined) delete lock.packages[""][field];
+    else if (field === "version" || !sameJson(lock.packages[""][field], value)) {
       lock.packages[""][field] = cloneJson(value);
     }
   }
@@ -122,9 +119,7 @@ async function prepareRelease(version, releaseDate) {
   await writeFile(lockPath, formatJson(lock));
   await writeFile(changelogPath, nextChangelog);
   if (promoData) await writeFile(promoPath, formatJson(promoData));
-  console.log(
-    `Prepared v${version} for ${releaseDate} with synchronized package-lock root metadata${promoData ? " and promo data" : ""}`,
-  );
+  console.log(`Prepared v${version} for ${releaseDate} with synchronized package-lock root metadata${promoData ? " and promo data" : ""}`);
 }
 
 const version = process.argv[2];

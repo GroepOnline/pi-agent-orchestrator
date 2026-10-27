@@ -5,12 +5,11 @@
   "maxEndHookRevisions": 0,
   "defaultJoinMode": "smart",
   "schedulingEnabled": true,
-  "tracingEnabled": true,
   "animationStyle": "orchestrator",
   "uiStyle": "premium",
   "orchestrationMode": "single",
   "dashboardRefreshInterval": 750,
-  "sessionMaxSpawns": 100,
-  "sessionMaxTurns": 1000,
+  "maxAgentsPerSession": 100,
+  "maxTotalTurnsPerSession": 1000,
   "promptCompressionLevel": "balanced"
 }

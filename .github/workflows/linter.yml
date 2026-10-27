@@ -14,6 +14,8 @@ concurrency:
 jobs:
   super-lint:
     name: Lint Code Base
+    # Super-Linter is a Docker action. GitHub pulls its image while preparing
+    # actions, before any workflow step could repair self-hosted socket access.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -28,7 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Lint Code Base
-        uses: super-linter/super-linter@4ce20838b8ab83717e78138c5b3a1407148e0918 # v8.7.0
+        uses: super-linter/super-linter@2da136927bd4a73596db63044b504547c62cb854 # v9.0.0
         env:
           # Bot-created release PRs explicitly dispatch this workflow because
           # GitHub suppresses pull_request events created with GITHUB_TOKEN.
@@ -60,9 +62,11 @@ jobs:
 
       - name: Upload Super-Linter diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: super-linter-diagnostics-${{ github.run_id }}
           path: super-linter-output
-          if-no-files-found: error
+          # Preserve the primary Super-Linter error when action setup fails
+          # before it can create the diagnostics directory.
+          if-no-files-found: warn
           retention-days: 14

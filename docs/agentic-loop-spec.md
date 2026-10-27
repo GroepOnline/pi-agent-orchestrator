@@ -50,8 +50,8 @@ This document formalizes the loop architecture, its phases, the decision heurist
 │  │   ├─ Token budget (default 500k)                           │
 │  │   ├─ Duration budget (default 10min)                       │
 │  │   └─ Tool call budget (default 100)                        │
-│  ├─ Compaction (Pi upstream AgentSession auto-compaction; local prune helpers unwired — #325) │
-│  ├─ OTel tracing (spans: agent → turn → tool)                 │
+│  ├─ Compaction (Pi upstream AgentSession auto-compaction)     │
+│  ├─ In-process telemetry (`emitTelemetry`, `correlationId`)   │
 │  ├─ Swarm heartbeat + inter-agent messaging                   │
 │  └─ Mid-run steering (steer_subagent queue injection)         │
 │         │                                                     │
@@ -195,7 +195,7 @@ This invariant is critical for autonomous safety: a handoff-chain agent cannot a
 
 ### 5.2 Compaction (autonomous context management)
 
-Live compaction is **Pi upstream `AgentSession` auto-compaction only** (#325). Local prune helpers in `src/compaction.ts` exist but are **not wired** into `runAgent` / `resumeAgent`.
+Live compaction is **Pi upstream `AgentSession` auto-compaction only** (#325).
 
 When the upstream session compacts, the runner forwards:
 
@@ -205,19 +205,21 @@ When the upstream session compacts, the runner forwards:
 
 No human intervention needed. The agent continues after compaction seamlessly.
 
-### 5.3 Turn lifecycle with OTel tracing
+### 5.3 Turn lifecycle
+
+The runner subscribes to Pi session events (`turn_start`, `turn_end`, `tool_execution_start`, …). Turn count drives the soft/hard budget; hooks fire `turn:start` / `turn:end`.
 
 ```
-agent.run:Explore
-├── agent.turn:1
-│   ├── tool.call:read
-│   └── tool.call:search
-├── agent.turn:2
-│   └── tool.call:write
-└── agent.compaction
+Explore run
+├── turn 1
+│   ├── read
+│   └── search
+├── turn 2
+│   └── write
+└── compaction (when upstream triggers)
 ```
 
-The `correlation.id` attribute (8 hex chars, generated at spawn via v4 UUID) ties all spans together and survives `resumeAgent`.
+Each agent record gets a stable `correlationId` (8 hex chars from the spawn UUID) for logs and `/agents → Health check` recent errors. It survives `resumeAgent`.
 
 ### 5.4 Swarm integration (autonomous)
 
@@ -345,18 +347,15 @@ Four autonomous daemons ship as reference implementations:
 | `aborted` | External abort signal | Clean shutdown |
 | `timeout` | Duration quota exceeded | Hard abort |
 
-### 9.3 Span cleanup invariant
+### 9.3 Run cleanup invariant
 
-Even on error paths, all OTel spans are ended in `finally` blocks:
+Even on error paths, the run loop always tears down subscriptions and abort wiring in `finally`:
 
 ```typescript
 finally {
   unsubTurns();
   collector.unsubscribe();
   cleanupAbort();
-  if (currentTurnSpan) { endTurnSpan(currentTurnSpan); }
-  for (const ts of activeToolSpans.values()) { endToolSpan(ts); }
-  activeToolSpans.clear();
 }
 ```
 
@@ -368,7 +367,6 @@ finally {
 
 Snapshots the full runtime state:
 - Process (node version, memory, uptime)
-- Tracing (enabled, tracer name)
 - Circuit breaker (state, failures)
 - Scheduler (active, job count)
 - Swarm (coordinator, agents, deliveries)
@@ -385,9 +383,9 @@ Snapshots the full runtime state:
 - Hook lifecycle events
 - Budget warnings at 90%
 
-### 10.3 Tracing
+### 10.3 Correlation ID
 
-OpenTelemetry spans with `correlation.id` attribute. The `tracingEnabled` master switch short-circuits all span creation to a shared no-op when disabled (one flag check per span lifecycle call).
+Each spawned agent stores a stable `correlationId` on its record. Recent errors on `/agents → Health check` include it for cross-log lookup. This is not OpenTelemetry export.
 
 ---
 
@@ -404,9 +402,8 @@ These must hold for the autonomous loop to be safe:
 | 5 | Handoff chain depth bounded | `levelLimit` (default 5) |
 | 6 | Max 2 validation retries | `VALIDATION_MAX_RETRIES = 2` |
 | 7 | Circuit breaker prevents model thrashing | 5 failures → OPEN, 30s cooldown |
-| 8 | All OTel spans ended (even on error) | `finally` blocks |
-| 9 | Handoff JSON size/depth/count bounded | `safeJsonParse` limits |
-| 10 | Scheduling enabled via settings toggle | `schedulingEnabled` switch |
+| 8 | Handoff JSON size/depth/count bounded | `safeJsonParse` limits |
+| 9 | Scheduling enabled via settings toggle | `schedulingEnabled` switch |
 
 ---
 
@@ -1242,7 +1239,7 @@ These are the ONLY dashboard interactions that modify loop state:
 
 **Mistake:** Expecting an agent to remember tool outputs from 10 turns ago.
 
-**Reality:** Upstream Pi auto-compaction may summarize or drop older context when the session window fills (#325). Local tool-output prune helpers are unwired — do not assume a fixed “last 5 turns” retention policy. The agent must either re-read files or preserve key findings in its assistant messages.
+**Reality:** Upstream Pi auto-compaction may summarize or drop older context when the session window fills (#325). Do not assume a fixed “last 5 turns” retention policy. The agent must either re-read files or preserve key findings in its assistant messages.
 
 ### 22.7 Steering during compaction
 
@@ -1299,14 +1296,14 @@ This lets tests verify the entire orchestration pipeline without making actual L
 | `test/agent-runner.test.ts` | Turn lifecycle, quotas, compaction triggers |
 | `test/agent-manager.test.ts` | Spawn lifecycle, concurrency queuing, resume |
 | `test/validators.test.ts` | Validator prompt building, result parsing |
-| `test/compaction.test.ts` | Tool output pruning, token estimation |
+| `test/compaction-snapshot.test.ts` | Upstream compaction snapshot shape |
 
 ### 23.4 Invariant tests
 
 | Invariant | Test file |
 |-----------|----------|
 | Permission inheritance (child ⊆ parent) | `test/backward-compat.test.ts`, `test/e2e-chain.test.ts` |
-| Span cleanup (finally blocks) | `test/agent-runner-otel.test.ts` |
+| Run cleanup (finally blocks) | `test/agent-runner.test.ts` |
 | Batch fallback (no deadlock) | `test/batch-orchestrator.test.ts` |
 | Validator sandbox (isolated/levelLimit=0) | `test/e2e-chain.test.ts` |
 | Handoff parse bounds (safeJsonParse) | `test/handoff.test.ts`, `test/error-chaos-handoff.test.ts` |
@@ -1333,7 +1330,7 @@ All benchmarks emit structured `[BENCHMARK]` lines via `test/helpers/benchmark-l
 |------|-------------|
 | `src/orchestration-dispatch.ts` | Heuristic dispatch (single/swarm/crew/auto) |
 | `src/agent-manager.ts` | Spawn + record lifecycle + concurrency queuing |
-| `src/agent-runner.ts` | Execute + validate + handoff + OTel tracing |
+| `src/agent-runner.ts` | Execute + validate + handoff |
 | `src/agent-types.ts` | Permission inheritance model + CTX tool names |
 | `src/batch-orchestrator.ts` | Debounced batch finalizer (groups parallel spawns) |
 | `src/swarm-join.ts` | Dynamic swarm coordinator (live/quorum/vote/merge/batch) |
@@ -1341,13 +1338,12 @@ All benchmarks emit structured `[BENCHMARK]` lines via `test/helpers/benchmark-l
 | `src/handoff.ts` | Structured handoff parse/render + legacy coercion |
 | `src/validators.ts` | Adversarial validator prompt/parse |
 | `src/schedule.ts` | Autonomous cron/interval scheduler |
-| `src/compaction.ts` | Local prune helpers (unwired; live compaction is Pi upstream auto-compaction — #325) |
+| `src/compaction-snapshot.ts` | Upstream Pi compaction observation (#325) |
 | `src/worktree.ts` | Git worktree isolation (safe parallel file edits) |
 | `src/tools/steer.ts` | Mid-run agent steering (steer_subagent tool) |
 | `src/agent-tree.ts` | Execution tree visualization (Mermaid/text/JSON) |
 | `src/dispatch-history.ts` | Dispatch decision audit trail (FIFO ring buffer) |
 | `src/health-report.ts` | Runtime health snapshot |
-| `src/telemetry-otel.ts` | OTel span lifecycle + no-op short-circuit |
 | `src/agent-templates.ts` | Agent template install/update/remove registry |
 | `src/ctx-tool-names.ts` | Canonical CTX tool name definitions |
 
@@ -1360,7 +1356,6 @@ interface SubagentsSettings {
   graceTurns?: number;               // Wrap-up turns before hard kill (5)
   defaultJoinMode?: JoinMode;        // Agent join topology (smart)
   schedulingEnabled?: boolean;       // Master switch for cron (true)
-  tracingEnabled?: boolean;          // Master switch for OTel spans (true)
   orchestrationMode?: OrchestrationMode; // default: "single" (auto/swarm/crew are opt-in)
   promptCompressionLevel?: "minimal" | "balanced" | "aggressive"; // balanced
   maxAgentsPerSession?: number;      // Session spawn limit

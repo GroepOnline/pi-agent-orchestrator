@@ -92,6 +92,118 @@ cc_print_versions() {
   fi
 }
 
+# Refresh Debian packages and ensure Google Chrome stable is installed/updated.
+# Runs only when passwordless sudo is available (Cursor Cloud image). Safe to
+# skip on developer laptops without sudo so local installs stay fast.
+cc_refresh_system_packages() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "apt refresh: skipped (sudo not available)"
+    return 0
+  fi
+  if ! sudo -n true 2>/dev/null; then
+    echo "apt refresh: skipped (passwordless sudo not available)"
+    return 0
+  fi
+
+  echo "apt refresh: updating package indexes"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+
+  echo "apt refresh: upgrading installed packages"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends
+
+  if apt-cache show google-chrome-stable >/dev/null 2>&1; then
+    echo "apt refresh: ensuring google-chrome-stable"
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends google-chrome-stable
+  else
+    echo "apt refresh: google-chrome-stable not in apt sources (skipped)"
+  fi
+
+  if command -v google-chrome-stable >/dev/null 2>&1; then
+    echo "chrome      : $(google-chrome-stable --version 2>/dev/null || echo unknown)"
+  elif command -v google-chrome >/dev/null 2>&1; then
+    echo "chrome      : $(google-chrome --version 2>/dev/null || echo unknown)"
+  else
+    echo "chrome      : not installed"
+  fi
+}
+
+# Ensure the Pi.dev host CLI (`pi`) is on PATH and matches the repo's locked
+# @earendil-works/pi-coding-agent version after npm ci. Prefers an already-correct
+# PATH binary (Dockerfile install). Reinstalls with sudo when available, otherwise
+# into ~/.local (user-writable) so Cloud install never hits EACCES on /usr/local.
+cc_ensure_pi_cli() {
+  local wanted wanted_pkg active npm_bin user_prefix pi_bin
+  if [ ! -f "$CC_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json" ]; then
+    echo "ERROR: local @earendil-works/pi-coding-agent missing; run npm ci first." >&2
+    exit 1
+  fi
+  wanted="$(node -p "require('$CC_ROOT/node_modules/@earendil-works/pi-coding-agent/package.json').version")"
+  wanted_pkg="@earendil-works/pi-coding-agent@$wanted"
+  user_prefix="${HOME}/.local"
+  npm_bin="$(npm prefix -g)/bin"
+
+  # User-local npm bin first so a prior user install wins over a stale root one.
+  if [ -d "$user_prefix/bin" ]; then
+    case ":$PATH:" in
+      *":$user_prefix/bin:"*) ;;
+      *)
+        PATH="$user_prefix/bin:$PATH"
+        export PATH
+        ;;
+    esac
+  fi
+  case ":$PATH:" in
+    *":$npm_bin:"*) ;;
+    *)
+      PATH="$npm_bin:$PATH"
+      export PATH
+      ;;
+  esac
+  hash -r 2>/dev/null || true
+
+  active=""
+  if command -v pi >/dev/null 2>&1; then
+    active="$(pi --version 2>/dev/null | head -n1 | tr -d ' \t\r\n' || true)"
+  fi
+  if [ "$active" = "$wanted" ]; then
+    echo "pi         : $(command -v pi) ($active)"
+    return 0
+  fi
+
+  echo "pi ensure  : installing $wanted_pkg (have: ${active:-none})"
+  if [ -d "$user_prefix/bin" ]; then
+    # Refresh an existing user-local install rather than leaving it stale.
+    npm install -g --prefix "$user_prefix" --ignore-scripts "$wanted_pkg"
+    pi_bin="$user_prefix/bin/pi"
+    PATH="$user_prefix/bin:$PATH"
+    export PATH
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo npm install -g --ignore-scripts "$wanted_pkg"
+    pi_bin="$(sudo npm prefix -g)/bin/pi"
+    PATH="$(dirname "$pi_bin"):$PATH"
+    export PATH
+  else
+    mkdir -p "$user_prefix"
+    npm install -g --prefix "$user_prefix" --ignore-scripts "$wanted_pkg"
+    pi_bin="$user_prefix/bin/pi"
+    PATH="$user_prefix/bin:$PATH"
+    export PATH
+  fi
+  hash -r 2>/dev/null || true
+
+  if [ ! -x "$pi_bin" ]; then
+    echo "ERROR: pi CLI still not on PATH after install (npm bin: $npm_bin, user: $user_prefix/bin)." >&2
+    exit 1
+  fi
+
+  active="$(pi --version 2>/dev/null | head -n1 | tr -d ' \t\r\n' || true)"
+  if [ "$active" != "$wanted" ]; then
+    echo "ERROR: pi version mismatch (active=$active wanted=$wanted path=$(command -v pi))." >&2
+    exit 1
+  fi
+  echo "pi         : $(command -v pi) ($active)"
+}
+
 # Resolve a writable artifact directory. Prefers Cursor's artifact dir, falls
 # back to a git-ignored local directory for non-Cursor environments.
 cc_artifact_dir() {

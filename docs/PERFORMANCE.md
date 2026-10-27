@@ -591,8 +591,6 @@ npm test -- test/dashboard-components.test.ts
 # Render metrics + widget + benchmark tests
 npx vitest run test/render-metrics.test.ts test/agent-widget.test.ts test/widget-render-perf.test.ts
 
-# Compaction benchmarks
-node --experimental-specifier-resolution=node test/compaction.benchmark.ts
 ```
 
 ### Critical metrics

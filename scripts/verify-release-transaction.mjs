@@ -3,10 +3,10 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyNpmViewResult } from "./npm-version-state.mjs";
-import { assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs";
+import { assertNextPatchTransition, assertReleaseCandidate, loadReleasePolicy } from "./release-policy.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ALLOWED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"];
+const REQUIRED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"];
 const PROMO_DATA_PATH = "showcase/remotion/public/promo-data.json";
 const ROOT_LOCK_FIELDS = [
   "name",
@@ -18,6 +18,13 @@ const ROOT_LOCK_FIELDS = [
   "peerDependenciesMeta",
   "engines",
 ];
+
+function isAllowedDocumentationPath(path) {
+  return (
+    path === "README.md" ||
+    (path.startsWith("docs/") && (path.endsWith(".md") || path.endsWith(".svg")))
+  );
+}
 
 function fail(message) {
   throw new Error(`Release transaction violation: ${message}`);
@@ -93,8 +100,8 @@ async function verify(parentRef, releaseRef, expectedVersion) {
   const parentHasPromoData = existsAt(parentRef, PROMO_DATA_PATH);
   const releaseNotesPath = `docs/releases/v${expectedVersion}.md`;
   const releaseAddsNotes = !existsAt(parentRef, releaseNotesPath) && existsAt(releaseRef, releaseNotesPath);
-  const expectedFiles = [
-    ...ALLOWED_FILES,
+  const requiredFiles = [
+    ...REQUIRED_FILES,
     ...(parentHasPromoData ? [PROMO_DATA_PATH] : []),
     ...(releaseAddsNotes ? [releaseNotesPath] : []),
   ];
@@ -107,27 +114,36 @@ async function verify(parentRef, releaseRef, expectedVersion) {
   // changelog already carries the target heading while npm never received
   // the version. npm is the authority on "published" — if the exact version
   // is absent, a partial re-finalization (e.g. CHANGELOG-only) is allowed
-  // as long as every changed file is within the expected set.
+  // as long as every changed file is within the required/docs set.
   const parentChangelogForFlag = readAt(parentRef, "CHANGELOG.md");
   const reRelease =
     parentChangelogForFlag.includes(`## v${expectedVersion} (`) &&
     !npmHasVersion(expectedVersion);
-  if (!reRelease && !sameJson(changed, [...expectedFiles].sort())) {
-    const additionalRequirement = parentHasPromoData
-      ? `; required additional file ${PROMO_DATA_PATH}`
-      : "";
+  const missingRequired = requiredFiles.filter((path) => !changed.includes(path));
+  const disallowed = changed.filter(
+    (path) => !requiredFiles.includes(path) && !isAllowedDocumentationPath(path),
+  );
+  if (disallowed.length > 0 || (!reRelease && missingRequired.length > 0)) {
+    const problems = [];
+    if (!reRelease && missingRequired.length > 0) {
+      problems.push(`missing required files: ${missingRequired.join(", ")}`);
+    }
+    if (disallowed.length > 0) {
+      problems.push(`disallowed files: ${disallowed.join(", ")}`);
+    }
     fail(
-      `changed files must be exactly ${ALLOWED_FILES.join(", ")}; received ${changed.join(", ")}${additionalRequirement}`,
+      `${problems.join("; ")}. Documentation companions are limited to README.md, docs/**/*.md, and docs/**/*.svg`,
     );
-  }
-  if (reRelease && !changed.every((f) => [...expectedFiles].includes(f))) {
-    fail(`re-release changed unexpected files; received ${changed.join(", ")}`);
   }
 
   const parentPackage = JSON.parse(readAt(parentRef, "package.json"));
   const releasePackage = JSON.parse(readAt(releaseRef, "package.json"));
-  if (!policy.sourceBaselines.includes(parentPackage.version) && !reRelease) {
-    fail(`parent package version ${parentPackage.version} is not an approved source baseline`);
+  if (!reRelease) {
+    try {
+      assertNextPatchTransition(parentPackage.version, expectedVersion, policy);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
   }
   if (releasePackage.version !== expectedVersion) {
     fail(`release package version ${releasePackage.version} does not equal ${expectedVersion}`);

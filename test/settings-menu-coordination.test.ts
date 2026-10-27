@@ -36,6 +36,16 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(async () => ""),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
   normalizeMaxTurns: (n: number | undefined) => (n === 0 ? undefined : n),
   getDefaultMaxTurns: () => undefined,
 }));
@@ -52,13 +62,14 @@ import { showCoordinationMenu } from "../src/ui/settings-menu.js";
 
 /**
  * Minimal AgentManager stub. `buildSettingsSnapshot` touches
- * getMaxConcurrent / getSessionLimits / getSessionMaxSpawns / getSessionMaxTurns
- * so we stub the full quartet with neutral constants. Everything else the menu
+ * getMaxConcurrent / getPerAgentTokenLimit / getSessionLimits / getSessionMaxSpawns / getSessionMaxTurns
+ * so we stub the full snapshot-facing surface with neutral constants. Everything else the menu
  * reads from the manager is irrelevant to the coordination submenu.
  */
 function fakeManager(): AgentManager {
   return {
     getMaxConcurrent: () => 8,
+    getPerAgentTokenLimit: () => 0,
     getSessionLimits: () => ({ maxAgentsPerSession: undefined, maxTotalTurnsPerSession: undefined }),
     getSessionMaxSpawns: () => 100,
     getSessionMaxTurns: () => 1000,
@@ -85,7 +96,6 @@ function fakeAccessors(): {
       getMaxEndHookRevisions: () => 0,
       getDefaultJoinMode: () => getDefaultJoinMode(),
       isSchedulingEnabled: () => true,
-      isTracingEnabled: () => true,
     },
     setters: {
       setDefaultMaxTurns: vi.fn(),
@@ -93,7 +103,6 @@ function fakeAccessors(): {
       setMaxEndHookRevisions: vi.fn(),
       setDefaultJoinMode: vi.fn((m) => setDefaultJoinMode(m)),
       setSchedulingEnabled: vi.fn(),
-      setTracingEnabled: vi.fn(),
     },
   };
 }

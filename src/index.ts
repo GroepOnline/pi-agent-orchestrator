@@ -35,7 +35,6 @@ import {
   setShowAgentTopWidget,
   setShowTokenUsage,
   setShowTurnProgress,
-  setTracingEnabled,
   setUiStyle,
 } from "./agent-registry.js";
 import { setDefaultMaxTurns, setGraceTurns, setMaxEndHookRevisions } from "./agent-runner.js";
@@ -59,17 +58,27 @@ import {
 } from "./debug-capture.js";
 import { GroupJoinManager } from "./group-join.js";
 import { HookRegistry } from "./hooks.js";
-import { createPostHogBridge, postHogConfigToMigrate } from "./posthog-bridge.js";
+import { NotificationHub } from "./notification-hub.js";
+import { formatPartialFinalizationLabel } from "./orchestration-dispatch.js";
 import { clearSubagentsApi, registerSubagentsApi } from "./public-api.js";
 import type { ScheduleChangeEvent } from "./schedule.js";
 import { SubagentScheduler } from "./schedule.js";
 import { resolveStorePath, ScheduleStore } from "./schedule-store.js";
-import { applyAndEmitLoaded, loadSettings, saveSettings } from "./settings.js";
+import {
+  applyAndEmitLoaded,
+  capturedDispatchNotices,
+  extractCapturedDispatchLimits,
+  type SubagentsSettings,
+} from "./settings.js";
+import {
+  sessionBudgetWarningMessage,
+  spendBudgetWarningMessage,
+  utilization,
+  utilizationLabel,
+} from "./spend.js";
 import { SwarmCoordinator, setActiveSwarmCoordinator } from "./swarm-join.js";
 import { onTelemetry } from "./telemetry.js";
-import {
-  buildNotificationDetails, formatTaskNotification,
-} from "./tool-result-helpers.js";
+import { buildNotificationDetails, formatTaskNotification } from "./tool-result-helpers.js";
 import { createAgentTool } from "./tools/agent.js";
 import { createGetResultTool } from "./tools/get-result.js";
 import { createSteerTool } from "./tools/steer.js";
@@ -81,7 +90,6 @@ import { setSpinnerStyle } from "./ui/animation.js";
 import { clearWidgetMetrics, setWidgetMetrics } from "./ui/global-registry.js";
 import { LiveWidgets } from "./ui/live-widgets.js";
 import { createNotificationRenderer } from "./ui/notification-renderer.js";
-import { getLifetimeTotal } from "./usage.js";
 
 export default async function (pi: ExtensionAPI) {
   // ---- Register custom notification renderer ----
@@ -99,68 +107,34 @@ export default async function (pi: ExtensionAPI) {
   // Closures below capture the binding; they only run after init completes.
   let liveWidgets!: LiveWidgets;
 
-  // ---- Cancellable pending notifications ----
-  // Holds notifications briefly so get_subagent_result can cancel them
-  // before they reach pi.sendMessage (fire-and-forget).
-  const pendingNudges = new Map<string, ReturnType<typeof setTimeout>>();
-  const NUDGE_HOLD_MS = 200;
-
-  function scheduleNudge(key: string, send: () => void, delay = NUDGE_HOLD_MS) {
-    cancelNudge(key);
-    pendingNudges.set(key, setTimeout(() => {
-      pendingNudges.delete(key);
-      try { send(); } catch (err) { logger.debug(`Swallowed error: ${err instanceof Error ? err.message : String(err)}`); }
-    }, delay));
-  }
-
-  function cancelNudge(key: string) {
-    const timer = pendingNudges.get(key);
-    if (timer != null) {
-      clearTimeout(timer);
-      pendingNudges.delete(key);
-    }
-  }
-
-  // ---- Individual nudge helper (async join mode) ----
-  function emitIndividualNudge(record: AgentRecord) {
-    if (record.resultConsumed) return;  // re-check at send time
-
-    const notification = formatTaskNotification(record, 500);
-    const footer = record.outputFile ? `\nFull transcript available at: ${record.outputFile}` : '';
-
-    pi.sendMessage<NotificationDetails>({
-      customType: "subagent-notification",
-      content: notification + footer,
-      display: true,
-      details: buildNotificationDetails(record, 500, agentActivity.get(record.id)),
-    }, { deliverAs: "followUp", triggerTurn: true });
-  }
-
-  function sendIndividualNudge(record: AgentRecord) {
-    agentActivity.delete(record.id);
-    liveWidgets.markFinished(record.id);
-    scheduleNudge(record.id, () => emitIndividualNudge(record));
-    liveWidgets.update();
-  }
+  // ---- Completion notifications (debounced, cancellable) ----
+  // Extracted to notification-hub.ts: pending-nudge hold, individual nudge
+  // emission, and lifetime usage → event payload mapping.
+  const notifications = new NotificationHub({ pi, agentActivity, getWidgets: () => liveWidgets });
 
   // ---- Group join manager ----
   const groupJoin = new GroupJoinManager(
-    (records, partial) => {
+    (records, partial, meta) => {
       for (const r of records) {
         agentActivity.delete(r.id);
         liveWidgets.markFinished(r.id);
       }
 
       const groupKey = `group:${records.map(r => r.id).join(",")}`;
-      scheduleNudge(groupKey, () => {
+      notifications.schedule(groupKey, () => {
         // Re-check at send time
         const unconsumed = records.filter(r => !r.resultConsumed);
         if (unconsumed.length === 0) { liveWidgets.update(); return; }
 
         const notifications = unconsumed.map(r => formatTaskNotification(r, 300)).join('\n\n');
-        const label = partial
-          ? `${unconsumed.length} agent(s) finished (partial — others still running)`
-          : `${unconsumed.length} agent(s) finished`;
+        // R5: a group whose fan-out failed mid-spawn finalizes with an
+        // explicit partial status naming spawned/missing counts — never as
+        // an unqualified success while a member is missing.
+        const label = meta?.missingMembers
+          ? formatPartialFinalizationLabel(unconsumed.length, meta.completedAgents, meta.missingMembers)
+          : partial
+            ? `${unconsumed.length} agent(s) finished (partial — others still running)`
+            : `${unconsumed.length} agent(s) finished`;
 
         const [first, ...rest] = unconsumed;
         const details = buildNotificationDetails(first, 300, agentActivity.get(first.id));
@@ -184,21 +158,25 @@ export default async function (pi: ExtensionAPI) {
   // Supports runtime join (the "swarm mode" feature) and provides query APIs
   // for the rich AgentDashboard.
   const swarmJoin = new SwarmCoordinator(
-    (records, partial, swarmId) => {
+    (records, partial, swarmId, meta) => {
       for (const r of records) {
         agentActivity.delete(r.id);
         liveWidgets.markFinished(r.id);
       }
 
       const swarmKey = `swarm:${swarmId}`;
-      scheduleNudge(swarmKey, () => {
+      notifications.schedule(swarmKey, () => {
         const unconsumed = records.filter(r => !r.resultConsumed);
         if (unconsumed.length === 0) { liveWidgets.update(); return; }
 
         const notifications = unconsumed.map(r => formatTaskNotification(r, 300)).join('\n\n');
-        const label = partial
-          ? `${unconsumed.length} swarm agent(s) finished (partial — swarm still active)`
-          : `Swarm ${swarmId} wave completed`;
+        // R5: same explicit partial status as groups — a swarm whose fan-out
+        // failed mid-spawn names spawned/missing counts instead of success.
+        const label = meta?.missingMembers
+          ? formatPartialFinalizationLabel(unconsumed.length, meta.contributorCount, meta.missingMembers, "swarm agent(s)")
+          : partial
+            ? `${unconsumed.length} swarm agent(s) finished (partial — swarm still active)`
+            : `Swarm ${swarmId} wave completed`;
 
         const [first, ...rest] = unconsumed;
         const details = buildNotificationDetails(first, 300, agentActivity.get(first.id));
@@ -222,47 +200,25 @@ export default async function (pi: ExtensionAPI) {
   // so 'w' hotkey actions can actually create and join swarms at runtime.
   setActiveSwarmCoordinator(swarmJoin);
 
-  /** Helper: build event data for lifecycle events from an AgentRecord. */
-  function buildEventData(record: AgentRecord) {
-    const durationMs = record.completedAt ? record.completedAt - (record.startedAt ?? 0) : Date.now() - (record.startedAt ?? 0);
-    // All three fields are lifetime-accumulated (Σ over every assistant message_end),
-    // so they survive compaction together — input + output ≤ total always.
-    // tokens is omitted when nothing was ever produced (e.g. agent errored before
-    // any message_end fired), preserving prior payload shape.
-    const u = record.lifetimeUsage;
-    const total = getLifetimeTotal(u);
-    const tokens = total > 0
-      ? { input: u.input, output: u.output, total }
-      : undefined;
-    return {
-      id: record.id,
-      type: record.type,
-      description: record.description,
-      result: record.result,
-      error: record.error,
-      status: record.status,
-      toolUses: record.toolUses,
-      durationMs,
-      tokens,
-    };
-  }
-
   // Background completion: route through group join or send individual nudge
   const hookRegistry = new HookRegistry();
   const manager = new AgentManager((record) => {
     // Emit lifecycle event based on terminal status
     const isError = record.status === "error" || record.status === "stopped" || record.status === "aborted";
-    const eventData = buildEventData(record);
+    const eventData = notifications.buildEventData(record);
     if (isError) {
       pi.events.emit("subagents:failed", eventData);
     } else {
       pi.events.emit("subagents:completed", eventData);
     }
 
-    // Persist final record for cross-extension history reconstruction
+    // Persist final record for cross-extension history reconstruction.
+    // outcome/outcomeReason carry the R4 outcome contract so history readers
+    // can tell a budget cut or a silent run from a successful completion.
     pi.appendEntry("subagents:record", {
       id: record.id, type: record.type, description: record.description,
       status: record.status, result: record.result, error: record.error,
+      outcome: record.outcome, outcomeReason: record.outcomeReason,
       startedAt: record.startedAt, completedAt: record.completedAt,
     });
 
@@ -285,7 +241,7 @@ export default async function (pi: ExtensionAPI) {
     const swarmResult = swarmJoin.onAgentComplete(record);
 
     if (groupResult === 'pass' && swarmResult === 'pass') {
-      sendIndividualNudge(record);
+      notifications.sendIndividual(record);
     }
     // 'held' or 'delivered' for either → notification handled by the respective coordinator
     liveWidgets.update();
@@ -380,45 +336,6 @@ export default async function (pi: ExtensionAPI) {
     }),
   );
 
-  // ---- PostHog product-analytics bridge (opt-in, inert without a key) ----
-  // No project key is hardcoded: the bridge stays null unless the user persists
-  // a `posthog.key` in `.pi/subagents.json`, so a default install ships zero
-  // outbound analytics. When enabled, agent lifecycle events flow to the user's
-  // own PostHog project.
-  //
-  // First-run migration: seed persisted posthog config from ambient env vars,
-  // once. Thereafter the bridge resolves only the persisted PostHogConfig (no
-  // runtime env reads), so telemetry egress always requires a stored opt-in.
-  const postHogMigrationBase = loadSettings();
-  const envPostHogConfig = postHogConfigToMigrate(postHogMigrationBase.posthog);
-  if (envPostHogConfig) {
-    saveSettings({ ...postHogMigrationBase, posthog: envPostHogConfig });
-  }
-  const posthogBridge = await createPostHogBridge(loadSettings().posthog ?? {});
-  const posthogUnsubs: Array<() => void> = [];
-  if (posthogBridge) {
-    posthogUnsubs.push(
-      onTelemetry("agent:spawned", (p) => posthogBridge.capture("agent_spawned", p)),
-      onTelemetry("agent:completed", (p) => posthogBridge.capture("agent_completed", p)),
-      onTelemetry("subagent:dispatch_decision", (p) =>
-        // Redact task text — only lengths/enums leave the host when PostHog is opted in.
-        posthogBridge.capture("subagent_dispatch", {
-          kind: p.kind,
-          configuredMode: p.configuredMode,
-          source: p.source,
-          promptLength: p.promptLength,
-          descriptionLength: typeof p.description === "string" ? p.description.length : 0,
-        }),
-      ),
-      onTelemetry("agent:validation-failed", (p) =>
-        posthogBridge.capture("agent_validation_failed", p),
-      ),
-      onTelemetry("agent:unknown-tools", (p) =>
-        posthogBridge.capture("agent_unknown_tools", p),
-      ),
-    );
-  }
-
   // Schedule firings + errors arrive on the cross-extension event bus.
   const scheduleUnsub = pi.events.on("subagents:scheduled", (payload) => {
     if (!isDebugCaptureSinkOn()) return;
@@ -445,25 +362,47 @@ export default async function (pi: ExtensionAPI) {
     appendScheduleEvent(jobId, jobName, evt.type, evt);
   });
 
-  // Session budget warning at 80% — emit a pi.events notification so the
-  // user sees it as a non-blocking alert even if the dashboard isn't open.
+  // Budget warnings: session-limit thresholds (once per threshold) + per-subagent
+  // spend (50/80/100% of the token cap). Emitted as pi.events so the dashboard
+  // can show them, and as a single non-blocking notification message. Message
+  // text (R1 utilization SSOT + R3 operator-action hint) is built by the pure
+  // helpers in spend.ts so every warning names a concrete action.
   manager.setBudgetWarningHandler((type, usage, limits) => {
+    if (type.startsWith("spend_")) {
+      // The crossed threshold is a utilization level of the per-agent cap; the
+      // builder routes it through the shared helper so every warning percentage
+      // comes from the same math SSOT (R1 — never computed independently of
+      // the counter).
+      const spendPct = type === "spend_50" ? 50 : type === "spend_80" ? 80 : 100;
+      const message = spendBudgetWarningMessage({
+        thresholdPct: spendPct,
+        perAgentTokenLimit: manager.getPerAgentTokenLimit(),
+        agentCount: usage.spawnedAgents,
+      });
+      const pct = utilization(spendPct, 100);
+      pi.events.emit("subagents:budget_warning", { type, usage, limits, threshold: `spend_${pct}`, message });
+      pi.sendMessage({ customType: "subagent-notification", content: message, display: true });
+      return;
+    }
     const isCritical = type === "agents_at_90" || type === "turns_at_90";
-    const threshold = type === "agents_at_80" || type === "agents_at_90"
-      ? `agent budget ${isCritical ? "90" : "80"}% used (${usage.spawnedAgents}/${limits.maxAgents})`
-      : `turn budget ${isCritical ? "90" : "80"}% used (${usage.totalTurns}/${limits.maxTurns})`;
-    const prefix = isCritical ? "🚨" : "⚠️";
-    const advice = isCritical
-      ? "Session budget nearly exhausted — spawns will stop soon!"
-      : "Consider /agents → Settings to increase limits.";
-    pi.events.emit("subagents:budget_warning", {
-      type,
-      usage,
-      limits,
-      threshold,
-      message: `${prefix} Session ${threshold}. ${advice}`,
+    const isAgents = type === "agents_at_80" || type === "agents_at_90";
+    // R1/AE1: percentage and counter render from the SAME used/cap pair —
+    // above the cap the true ratio shows (e.g. "120% used (30/25)"), never a
+    // threshold label detached from the counter.
+    const used = isAgents ? usage.spawnedAgents : usage.totalTurns;
+    const cap = isAgents ? limits.maxAgents : limits.maxTurns;
+    const threshold = `${isAgents ? "agent" : "turn"} budget ${utilizationLabel(used, cap)}`;
+    // R3: the message names the operator actions (raise the limit, restart,
+    // or deny further work); raising a limit re-arms the threshold in the
+    // manager so a later crossing warns again.
+    const message = sessionBudgetWarningMessage({
+      kind: isAgents ? "agents" : "turns",
+      used,
+      cap,
+      critical: isCritical,
     });
-    pi.sendMessage({ customType: "subagent-notification", content: `${prefix} Session ${threshold}. ${advice}`, display: true });
+    pi.events.emit("subagents:budget_warning", { type, usage, limits, threshold, message });
+    pi.sendMessage({ customType: "subagent-notification", content: message, display: true });
   });
 
   // Host-issued RPC capability token. Peers must present this via
@@ -566,20 +505,15 @@ export default async function (pi: ExtensionAPI) {
     liveWidgets.dispose();
     scheduler.stop();
     manager.abortAll();
-    for (const timer of pendingNudges.values()) clearTimeout(timer);
-    pendingNudges.clear();
-    await batchOrchestrator.dispose();
+    notifications.dispose();    await batchOrchestrator.dispose();
     manager.dispose();
     // Tear down debug-capture last so any final events from the dispose
     // chain above still land in the sink. Best-effort: enable() failures
     // already swallow errors, and disable() is idempotent.
     disableDebugCapture(true);
     for (const unsub of debugTelemetryUnsubs) unsub();
-    for (const unsub of posthogUnsubs) unsub();
-    // Await the SDK flush so the final queued lifecycle batch is delivered
-    // before the host finishes unloading; shutdown failures stay best-effort.
-    if (posthogBridge) await posthogBridge.shutdown();
     if (scheduleUnsub) scheduleUnsub();
+    unsubLimitNotices?.();
   });
 
   // Live widgets above the editor: agent tree + persistent AGENT TOP strip
@@ -607,7 +541,7 @@ export default async function (pi: ExtensionAPI) {
     manager,
     groupJoin,
     swarmJoin,
-    onAgentHandled: sendIndividualNudge,
+    onAgentHandled: (r) => notifications.sendIndividual(r),
     onWidgetUpdate: () => liveWidgets.update(),
   });
 
@@ -633,16 +567,16 @@ export default async function (pi: ExtensionAPI) {
   // Apply persisted settings on startup and emit `subagents:settings_loaded`.
   // Global + project merged; missing → defaults; corrupt file emits a warning
   // to stderr and falls back to defaults.
-  applyAndEmitLoaded(
+  const loadedSettings = applyAndEmitLoaded(
     {
       setMaxConcurrent: (n) => manager.setMaxConcurrent(n),
+      setPerAgentTokenLimit: (n) => manager.setPerAgentTokenLimit(n),
       setSessionLimits: (limits) => manager.setSessionLimits(limits),
       setDefaultMaxTurns,
       setGraceTurns,
       setMaxEndHookRevisions,
       setDefaultJoinMode,
       setSchedulingEnabled,
-      setTracingEnabled,
       setAnimationStyle: (style) => {
         setAnimationStyle(style);
         setSpinnerStyle(style);
@@ -657,8 +591,6 @@ export default async function (pi: ExtensionAPI) {
       },
       setOrchestrationMode,
       setDashboardRefreshInterval,
-      setSessionMaxSpawns: (n) => manager.setSessionMaxSpawns(n),
-      setSessionMaxTurns: (n) => manager.setSessionMaxTurns(n),
       setPromptCompressionLevel,
       setDebugCapture,
       setDebugCapturePaths,
@@ -668,10 +600,29 @@ export default async function (pi: ExtensionAPI) {
     (event, payload) => pi.events.emit(event, payload),
   );
 
+  // R2 captured-value notices: dispatch-captured limits (the effective
+  // per-agent max turns baked into every spawn by tools/agent.ts) reach only
+  // the NEXT dispatch when changed mid-session. `subagents:settings_changed`
+  // fires exactly once per accepted settings change (saveAndEmitChanged), so
+  // diffing the captured limits here emits at most one notice per change —
+  // never per turn. Live-enforced limits (session agent/turn gates, the
+  // per-agent spend cap) are not part of the diff and never notify.
+  let capturedLimits = extractCapturedDispatchLimits(loadedSettings);
+  const unsubLimitNotices = pi.events.on("subagents:settings_changed", (payload) => {
+    const next = extractCapturedDispatchLimits((payload as { settings?: SubagentsSettings }).settings);
+    for (const notice of capturedDispatchNotices(capturedLimits, next)) {
+      pi.events.emit("subagents:limit_change_notice", notice);
+      pi.sendMessage({ customType: "subagent-notification", content: notice.message, display: true });
+    }
+    capturedLimits = next;
+  });
+
   // ---- Tool context — shared dependency bag for extracted tool modules ----
   const toolCtx = {
     pi, manager, liveWidgets, agentActivity, batchOrchestrator, scheduler, swarmJoin, hookRegistry,
-    sendIndividualNudge, cancelNudge, scheduleNudge,
+    sendIndividualNudge: (r: AgentRecord) => notifications.sendIndividual(r),
+    cancelNudge: (k: string) => notifications.cancel(k),
+    scheduleNudge: (k: string, s: () => void, d?: number) => notifications.schedule(k, s, d),
   };
 
   // ---- Tools ----

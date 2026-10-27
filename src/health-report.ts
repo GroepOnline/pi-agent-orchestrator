@@ -19,16 +19,17 @@ import {
   getOrchestrationMode,
   getPromptCompressionLevel,
   getUiStyle,
+  isFreeModelsOnly,
 } from "./agent-registry.js";
 import { globalCircuitBreaker } from "./agent-runner.js";
 import {
   computeDispatchHistogram,
   type DispatchHistogram,
 } from "./dispatch-history.js";
+import { readPackageVersion, readSourceSha } from "./runtime-identity.js";
 import type { SubagentScheduler } from "./schedule.js";
 import type { SettingsGetters } from "./settings.js";
 import type { SwarmCoordinator } from "./swarm-join.js";
-import { TRACER_NAME, TRACER_VERSION } from "./telemetry-otel.js";
 import type { AgentStatus } from "./types.js";
 
 /** Number of recent errors to surface in the health report. */
@@ -57,11 +58,8 @@ export interface HealthReport {
     uptimeMs: number;
     memoryRssMB: number;
     memoryHeapUsedMB: number;
-  };
-  tracing: {
-    enabled: boolean;
-    tracerName: string;
-    tracerVersion: string;
+    packageVersion: string;
+    sourceSha: string | null;
   };
   circuitBreaker: {
     state: string;
@@ -93,13 +91,13 @@ export interface HealthReport {
     maxEndHookRevisions: number;
     defaultJoinMode: string;
     schedulingEnabled: boolean;
-    tracingEnabled: boolean;
     animationStyle: string;
     uiStyle: string;
     orchestrationMode: string;
     dashboardRefreshInterval: number;
     maxConcurrent: number;
     promptCompressionLevel: string;
+    freeModelsOnly: boolean;
   };
   recentErrors: Array<{
     id: string;
@@ -135,9 +133,7 @@ const EMPTY_STATUS_COUNTS: Record<AgentStatus, number> = {
  *
  * Atomicity: every registry-derived field is read into a local at the
  * top of the function, so a hook firing between sections cannot produce
- * a torn read (e.g. `tracing.enabled: true` paired with
- * `settings.tracingEnabled: false`). The locals are the source of
- * truth for the returned object.
+ * a torn read. The locals are the source of truth for the returned object.
  */
 export function buildHealthReport(deps: HealthReportDeps): HealthReport {
   const {
@@ -151,7 +147,6 @@ export function buildHealthReport(deps: HealthReportDeps): HealthReport {
 
   // Capture the registry snapshot once at the top so the report is
   // atomic — see the JSDoc above for the rationale.
-  const tracingEnabled = getters.isTracingEnabled();
   const schedulingEnabled = getters.isSchedulingEnabled();
   const defaultMaxTurns = getters.getDefaultMaxTurns();
   const graceTurns = getters.getGraceTurns();
@@ -162,6 +157,7 @@ export function buildHealthReport(deps: HealthReportDeps): HealthReport {
   const orchestrationMode = getOrchestrationMode();
   const dashboardRefreshInterval = getDashboardRefreshInterval();
   const promptCompressionLevel = getPromptCompressionLevel();
+  const freeModelsOnly = isFreeModelsOnly();
   const mem = process.memoryUsage();
 
   const records = manager.listAgents();
@@ -214,17 +210,8 @@ export function buildHealthReport(deps: HealthReportDeps): HealthReport {
       uptimeMs: Math.round(process.uptime() * 1000),
       memoryRssMB: Math.round((mem.rss / 1024 / 1024) * 10) / 10,
       memoryHeapUsedMB: Math.round((mem.heapUsed / 1024 / 1024) * 10) / 10,
-    },
-    tracing: {
-      enabled: tracingEnabled,
-      // The tracer name + version come from the single source of truth
-      // in `telemetry-otel.ts`. We can't reliably detect "no provider
-      // configured" from the OTel API surface (the `Tracer` interface
-      // has no introspection beyond name/version), so we surface the
-      // library name as-is and let the host's exporter decide what
-      // happens to the spans.
-      tracerName: TRACER_NAME,
-      tracerVersion: TRACER_VERSION,
+      packageVersion: readPackageVersion(),
+      sourceSha: readSourceSha(),
     },
     circuitBreaker: {
       state: circuitBreakerState.state,
@@ -258,13 +245,13 @@ export function buildHealthReport(deps: HealthReportDeps): HealthReport {
       maxEndHookRevisions,
       defaultJoinMode,
       schedulingEnabled,
-      tracingEnabled,
       animationStyle,
       uiStyle,
       orchestrationMode,
       dashboardRefreshInterval,
       maxConcurrent: manager.getMaxConcurrent(),
       promptCompressionLevel,
+      freeModelsOnly,
     },
     recentErrors,
     // Snapshot the dispatch histogram now (single read) rather than letting
@@ -290,15 +277,11 @@ export function formatHealthReport(r: HealthReport): string {
   push("## Process");
   push(`  node      : ${r.process.nodeVersion}`);
   push(`  platform  : ${r.process.platform}`);
+  push(`  package   : ${r.process.packageVersion}`);
+  push(`  sourceSha : ${r.process.sourceSha ?? "null"}`);
   push(`  uptime    : ${formatDuration(r.process.uptimeMs)}`);
   push(`  rss       : ${r.process.memoryRssMB} MB`);
   push(`  heapUsed  : ${r.process.memoryHeapUsedMB} MB`);
-  push("");
-
-  push("## Tracing");
-  push(`  enabled       : ${r.tracing.enabled ? "yes" : "no"}`);
-  push(`  tracer        : ${r.tracing.tracerName}`);
-  push(`  tracerVersion : ${r.tracing.tracerVersion}`);
   push("");
 
   push("## Circuit Breaker");
@@ -351,12 +334,12 @@ export function formatHealthReport(r: HealthReport): string {
   push(`  maxEndHookRevisions        : ${r.settings.maxEndHookRevisions}`);
   push(`  defaultJoinMode            : ${r.settings.defaultJoinMode}`);
   push(`  schedulingEnabled          : ${r.settings.schedulingEnabled}`);
-  push(`  tracingEnabled             : ${r.settings.tracingEnabled}`);
   push(`  animationStyle             : ${r.settings.animationStyle}`);
   push(`  uiStyle                    : ${r.settings.uiStyle}`);
   push(`  orchestrationMode          : ${r.settings.orchestrationMode}`);
   push(`  dashboardRefreshInterval   : ${r.settings.dashboardRefreshInterval}ms`);
   push(`  promptCompressionLevel     : ${r.settings.promptCompressionLevel}`);
+  push(`  freeModelsOnly             : ${r.settings.freeModelsOnly ? "yes (session-only)" : "no"}`);
   push("");
 
   push("## Recent Errors");

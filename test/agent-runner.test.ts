@@ -63,10 +63,6 @@ vi.mock("../src/agent-types.js", () => ({
   getToolNamesForType: vi.fn(() => ["read"]),
 }));
 
-vi.mock("../src/env.js", () => ({
-  detectEnv: vi.fn(async () => ({ isGitRepo: false, branch: "", platform: "linux" })),
-}));
-
 vi.mock("../src/prompts.js", () => ({
   buildAgentPrompt: vi.fn(() => "system prompt"),
 }));
@@ -81,7 +77,6 @@ vi.mock("../src/skill-loader.js", () => ({
 }));
 
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { getAgentConfig } from "../src/agent-types.js";
 import {
   AgentRunnerError,
   getGraceTurns,
@@ -94,6 +89,7 @@ import {
   setGraceTurns,
   setMaxEndHookRevisions,
 } from "../src/agent-runner.js";
+import { getAgentConfig } from "../src/agent-types.js";
 import { HookRegistry } from "../src/hooks.js";
 
 function createSession(finalText: string): {
@@ -382,14 +378,31 @@ describe("pinned-model auth fallback to session-default (CHE-15)", () => {
     expect(result.error).toContain("401");
   });
 
-  it("does not fallback on non-auth model failures (e.g. 429)", async () => {
+  it("exhausts an in-flight fallback chain even after the breaker opens", async () => {
+    const errorMessage = '401: {"message":"User not found.","code":401}';
+    const fallbackModels = Array.from({ length: 5 }, (_, i) => ({ provider: "fallback", id: `m${i + 1}` }));
+    (ctx.modelRegistry.getAvailable as ReturnType<typeof vi.fn>).mockReturnValue([pinned, ctx.model, ...fallbackModels]);
+    const { session } = createSessionWithError(errorMessage);
+    (session as any).setModel = vi.fn(async () => {});
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx as any, "Explore", "scan", { pi });
+
+    expect(session.prompt).toHaveBeenCalledTimes(6);
+    expect(result.error).toContain("401");
+    expect(globalCircuitBreaker.getState().state).toBe("open");
+  });
+
+  it("fallbacks on rate-limit / 429 failures (not only auth)", async () => {
     const { session } = createSessionWithError("429 rate limit exceeded");
     (session as any).setModel = vi.fn(async () => {});
     createAgentSession.mockResolvedValue({ session });
 
     const result = await runAgent(ctx as any, "Explore", "scan", { pi });
 
-    expect(session.setModel).not.toHaveBeenCalled();
+    // 429 / rate-limit now transparently retries on a different model (parent)
+    expect(session.setModel).toHaveBeenCalledWith(ctx.model);
+    expect(session.prompt).toHaveBeenCalledTimes(2);
     expect(result.error).toContain("429");
   });
 });
@@ -909,11 +922,50 @@ describe("duration quota (regression: must not crash the host)", () => {
   });
 });
 
+describe("silent-run diagnostics", () => {
+  const expectDiagnostic = (text: string, status: "completed" | "aborted" | "steered") => {
+    expect(text).toContain("Type: Explore");
+    expect(text).toMatch(/Turns: \d+/);
+    expect(text).toMatch(/Tool calls: \d+/);
+    expect(text).toContain(`Status: ${status}`);
+  };
+
+  it("reports a normal empty completion", async () => {
+    const { session } = createSession("");
+    createAgentSession.mockResolvedValue({ session });
+    const result = await runAgent(ctx, "Explore", "do work", { pi });
+    expectDiagnostic(result.responseText, "completed");
+  });
+
+  it("reports an aborted empty completion", async () => {
+    const controller = new AbortController();
+    const { session } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      controller.abort();
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+    createAgentSession.mockResolvedValue({ session });
+    const result = await runAgent(ctx, "Explore", "do work", { pi, signal: controller.signal });
+    expectDiagnostic(result.responseText, "aborted");
+  });
+
+  it("reports an empty completion after a soft-limit steer", async () => {
+    const { session, listeners } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      for (const listener of listeners) listener({ type: "turn_end" } as AgentSessionEvent);
+    });
+    createAgentSession.mockResolvedValue({ session });
+    const result = await runAgent(ctx, "Explore", "do work", { pi, maxTurns: 1 });
+    expect(session.steer).toHaveBeenCalledOnce();
+    expectDiagnostic(result.responseText, "steered");
+  });
+});
+
 describe("external AbortSignal (CHE-19)", () => {
   it("resolves with aborted=true instead of throwing when the caller aborts", async () => {
     // External abort (manager.abort / parent signal) used to call session.abort()
     // without setting the local aborted flag, so AbortError from prompt() was
-    // re-thrown as a subagent:error / OTel error span.
+    // re-thrown as a subagent:error.
     const controller = new AbortController();
     const { session } = createSession("");
     (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
@@ -1176,5 +1228,118 @@ describe("subagent:end revision gate", () => {
     setMaxEndHookRevisions(2);
     expect(getMaxEndHookRevisions()).toBe(2);
     setMaxEndHookRevisions(0);
+  });
+});
+
+// ─── Explicit outcome contract (R4 / AE2) ──────────────────────────────
+// Every run ending reports `executed` | `blocked_budget` | `not_executed`
+// with a reason. Budget cuts carry a structured abort reason set at the
+// abort site instead of surfacing only a bare `aborted` flag, and a silent
+// normal completion (issue #40) reports not_executed.
+describe("explicit outcome contract (R4)", () => {
+  const emit = (listeners: Array<(e: AgentSessionEvent) => void>, event: AgentSessionEvent) => {
+    for (const listener of listeners) listener(event);
+  };
+
+  it("token-quota abort before tool use reports blocked_budget with a structured reason (AE2)", async () => {
+    const { session, listeners } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      emit(listeners, {
+        type: "message_end",
+        message: { role: "assistant", usage: { input: 600, output: 0, cacheWrite: 0 } },
+      } as AgentSessionEvent);
+      // The next event's quota check observes 600/500 tokens and aborts.
+      emit(listeners, { type: "turn_start" } as AgentSessionEvent);
+    });
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", {
+      pi,
+      quotas: { maxTokens: 500 },
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(result.abortReason?.kind).toBe("token_quota");
+    expect(result.abortReason?.message).toContain("Token quota exceeded");
+    expect(result.outcome).toBe("blocked_budget");
+    expect(result.outcomeReason).toContain("Token quota exceeded");
+  });
+
+  it("token-quota abort after real tool work reports executed with a partial-progress note", async () => {
+    const { session, listeners } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      emit(listeners, { type: "tool_execution_start", toolName: "read" } as AgentSessionEvent);
+      emit(listeners, {
+        type: "message_end",
+        message: { role: "assistant", usage: { input: 600, output: 0, cacheWrite: 0 } },
+      } as AgentSessionEvent);
+      emit(listeners, { type: "turn_start" } as AgentSessionEvent);
+    });
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", {
+      pi,
+      quotas: { maxTokens: 500 },
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(result.outcome).toBe("executed");
+    expect(result.outcomeReason).toContain("Token quota exceeded");
+    expect(result.outcomeReason).toMatch(/incomplete/);
+    // Never an empty result: the fail-loud end report carries the diagnostics.
+    expect(result.responseText.trim()).not.toBe("");
+  });
+
+  it("a normal empty completion reports not_executed (issue #40 shape)", async () => {
+    const { session } = createSession("");
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", { pi });
+
+    expect(result.aborted).toBe(false);
+    expect(result.outcome).toBe("not_executed");
+    expect(result.outcomeReason).toBeTruthy();
+  });
+
+  it("a normal completion with output reports executed", async () => {
+    const { session } = createSession("all done");
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", { pi });
+
+    expect(result.outcome).toBe("executed");
+  });
+
+  it("a duration-quota abort with no output reports blocked_budget", async () => {
+    const { session, listeners } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      emit(listeners, { type: "turn_start" } as AgentSessionEvent);
+    });
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", {
+      pi,
+      quotas: { maxDurationMs: -1 },
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(result.abortReason?.kind).toBe("duration_quota");
+    expect(result.outcome).toBe("blocked_budget");
+  });
+
+  it("an external stop before any work reports not_executed without a budget reason", async () => {
+    const controller = new AbortController();
+    const { session } = createSession("");
+    (session.prompt as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      controller.abort();
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+    createAgentSession.mockResolvedValue({ session });
+
+    const result = await runAgent(ctx, "Explore", "do work", { pi, signal: controller.signal });
+
+    expect(result.aborted).toBe(true);
+    expect(result.abortReason).toBeUndefined();
+    expect(result.outcome).toBe("not_executed");
   });
 });

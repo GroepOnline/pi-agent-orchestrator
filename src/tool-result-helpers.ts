@@ -104,12 +104,19 @@ export function formatTaskNotification(record: AgentRecord, resultMaxLen: number
   const contextPercent = getSessionContextPercent(record.session);
   const ctxXml = contextPercent === null ? "" : `<context_percent>${Math.round(contextPercent)}</context_percent>`;
   const compactXml = record.compactionCount ? `<compactions>${record.compactionCount}</compactions>` : "";
+  // Explicit outcome contract (R4): budget cuts and silent runs name their
+  // outcome and structured reason, and an empty result previews the reason
+  // instead of a bare "No output.".
+  const outcomeXml = record.outcome ? `<outcome>${escapeXml(record.outcome)}</outcome>` : null;
+  const outcomeReasonXml = record.outcomeReason
+    ? `<outcome_reason>${escapeXml(record.outcomeReason)}</outcome_reason>`
+    : null;
 
   const resultPreview = record.result
     ? record.result.length > resultMaxLen
       ? `${record.result.slice(0, resultMaxLen)}\n...(truncated, use get_subagent_result for full output)`
       : record.result
-    : "No output.";
+    : record.outcomeReason ?? "No output.";
 
   return [
     `<task-notification>`,
@@ -117,6 +124,8 @@ export function formatTaskNotification(record: AgentRecord, resultMaxLen: number
     record.toolCallId ? `<tool-use-id>${escapeXml(record.toolCallId)}</tool-use-id>` : null,
     record.outputFile ? `<output-file>${escapeXml(record.outputFile)}</output-file>` : null,
     `<status>${escapeXml(status)}</status>`,
+    outcomeXml,
+    outcomeReasonXml,
     `<summary>Agent "${escapeXml(record.description)}" ${record.status}</summary>`,
     `<result>${escapeXml(resultPreview)}</result>`,
     `<usage><total_tokens>${totalTokens}</total_tokens><tool_uses>${record.toolUses}</tool_uses>${ctxXml}${compactXml}<duration_ms>${durationMs}</duration_ms></usage>`,

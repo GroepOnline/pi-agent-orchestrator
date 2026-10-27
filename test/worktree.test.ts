@@ -43,9 +43,9 @@ describe("worktree", () => {
     repoDir = initGitRepo();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     try {
-      pruneWorktrees(repoDir);
+      await pruneWorktrees(repoDir);
     } catch {
       // Best-effort test cleanup.
     }
@@ -154,7 +154,7 @@ describe("worktree", () => {
   describe("cleanupWorktree", () => {
     it("removes a clean worktree", async () => {
       const worktree = (await createWorktree(repoDir, "clean-1"))!;
-      const result = cleanupWorktree(repoDir, worktree, "test cleanup");
+      const result = await cleanupWorktree(repoDir, worktree, "test cleanup");
       expect(result).toEqual({ hasChanges: false });
       expect(existsSync(worktree.path)).toBe(false);
     });
@@ -163,7 +163,7 @@ describe("worktree", () => {
       const worktree = (await createWorktree(repoDir, "dirty-1"))!;
       writeFileSync(join(worktree.path, "new-file.txt"), "agent wrote this");
 
-      const result = cleanupWorktree(repoDir, worktree, "added new file");
+      const result = await cleanupWorktree(repoDir, worktree, "added new file");
       expect(result).toEqual({ hasChanges: true, branch: "pi-agent-dirty-1" });
       expect(existsSync(worktree.path)).toBe(false);
 
@@ -191,7 +191,7 @@ describe("worktree", () => {
       }).toString().trim();
       writeFileSync(indexLock, "held by test");
 
-      const result = cleanupWorktree(repoDir, worktree, "should be recoverable");
+      const result = await cleanupWorktree(repoDir, worktree, "should be recoverable");
       expect(result).toMatchObject({ hasChanges: true, path: worktree.path });
       expect(result.branch).toBeUndefined();
       expect(result.error).toContain("preserved for recovery");
@@ -204,12 +204,12 @@ describe("worktree", () => {
     it("does not overwrite an existing branch", async () => {
       const first = (await createWorktree(repoDir, "conflict-1"))!;
       writeFileSync(join(first.path, "first.txt"), "first");
-      const firstResult = cleanupWorktree(repoDir, first, "first");
+      const firstResult = await cleanupWorktree(repoDir, first, "first");
       expect(firstResult.branch).toBe("pi-agent-conflict-1");
 
       const second = (await createWorktree(repoDir, "conflict-1"))!;
       writeFileSync(join(second.path, "second.txt"), "second");
-      const secondResult = cleanupWorktree(repoDir, second, "second");
+      const secondResult = await cleanupWorktree(repoDir, second, "second");
       expect(secondResult.branch).toMatch(/^pi-agent-conflict-1-\d+$/);
 
       removeBranch(repoDir, firstResult.branch);
@@ -219,13 +219,13 @@ describe("worktree", () => {
     it("handles an already deleted worktree", async () => {
       const worktree = (await createWorktree(repoDir, "gone-1"))!;
       rmSync(worktree.path, { recursive: true, force: true });
-      expect(cleanupWorktree(repoDir, worktree, "already gone")).toEqual({ hasChanges: false });
+      expect(await cleanupWorktree(repoDir, worktree, "already gone")).toEqual({ hasChanges: false });
     });
 
     it("sanitizes control and shell characters in commit descriptions", async () => {
       const worktree = (await createWorktree(repoDir, "sanitize-1"))!;
       writeFileSync(join(worktree.path, "change.txt"), "something");
-      const result = cleanupWorktree(repoDir, worktree, 'test\n`malicious`\r\n$(echo foo)\x00"quote"');
+      const result = await cleanupWorktree(repoDir, worktree, 'test\n`malicious`\r\n$(echo foo)\x00"quote"');
       const log = execFileSync("git", ["log", "--format=%s", "-1", result.branch!], {
         cwd: repoDir,
         stdio: "pipe",
@@ -237,7 +237,7 @@ describe("worktree", () => {
     it("truncates descriptions without splitting surrogate pairs", async () => {
       const worktree = (await createWorktree(repoDir, "surrogate-msg"))!;
       writeFileSync(join(worktree.path, "change.txt"), "something");
-      const result = cleanupWorktree(repoDir, worktree, `${"a".repeat(199)}😀`);
+      const result = await cleanupWorktree(repoDir, worktree, `${"a".repeat(199)}😀`);
       const log = execFileSync("git", ["log", "--format=%s", "-1", result.branch!], {
         cwd: repoDir,
         stdio: "pipe",
@@ -250,7 +250,7 @@ describe("worktree", () => {
     it("converts non-string descriptions defensively", async () => {
       const worktree = (await createWorktree(repoDir, "non-string-msg"))!;
       writeFileSync(join(worktree.path, "change.txt"), "something");
-      const result = cleanupWorktree(repoDir, worktree, ["hello", "world"] as unknown as string);
+      const result = await cleanupWorktree(repoDir, worktree, ["hello", "world"] as unknown as string);
       const log = execFileSync("git", ["log", "--format=%s", "-1", result.branch!], {
         cwd: repoDir,
         stdio: "pipe",
@@ -262,7 +262,7 @@ describe("worktree", () => {
     it("caps long descriptions at 200 characters plus prefix", async () => {
       const worktree = (await createWorktree(repoDir, "long-msg"))!;
       writeFileSync(join(worktree.path, "change.txt"), "something");
-      const result = cleanupWorktree(repoDir, worktree, "x".repeat(300));
+      const result = await cleanupWorktree(repoDir, worktree, "x".repeat(300));
       const log = execFileSync("git", ["log", "--format=%s", "-1", result.branch!], {
         cwd: repoDir,
         stdio: "pipe",
@@ -275,7 +275,7 @@ describe("worktree", () => {
       const worktree = (await createWorktree(repoDir, "manual-branch"))!;
       worktree.branch = "pi-agent-feature..escape/$bad";
       writeFileSync(join(worktree.path, "change.txt"), "something");
-      const result = cleanupWorktree(repoDir, worktree, "defensive branch normalization");
+      const result = await cleanupWorktree(repoDir, worktree, "defensive branch normalization");
       expect(result.branch).toBe("pi-agent-feature-escape-bad");
       execFileSync("git", ["check-ref-format", "--branch", result.branch!], {
         cwd: repoDir,
@@ -286,14 +286,14 @@ describe("worktree", () => {
   });
 
   describe("pruneWorktrees", () => {
-    it("does not throw for a clean repository", () => {
-      expect(() => pruneWorktrees(repoDir)).not.toThrow();
+    it("does not reject for a clean repository", async () => {
+      await expect(pruneWorktrees(repoDir)).resolves.toBeUndefined();
     });
 
-    it("does not throw outside a repository", () => {
+    it("does not reject outside a repository", async () => {
       const nonGit = mkdtempSync(join(tmpdir(), "pi-wt-prune-nongit-"));
       try {
-        expect(() => pruneWorktrees(nonGit)).not.toThrow();
+        await expect(pruneWorktrees(nonGit)).resolves.toBeUndefined();
       } finally {
         rmSync(nonGit, { recursive: true, force: true });
       }

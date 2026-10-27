@@ -545,7 +545,7 @@ describe("write-release-manifest and published verification helpers", () => {
         name: "@groeponline/pi-agent-orchestrator",
         version: "0.18.0",
         license: "MIT",
-        engines: { node: ">=22.19.0" },
+        engines: { node: ">=22.22.3" },
         peerDependencies: { "@earendil-works/pi-ai": ">=0.80.6" },
         pi: { extensions: ["./dist/index.js"] },
       },

@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentManager } from "../agent-manager.js";
-import { getDefaultJoinMode, isSchedulingEnabled, isTracingEnabled, setDefaultJoinMode, setSchedulingEnabled, setTracingEnabled } from "../agent-registry.js";
+import { getDefaultJoinMode, isSchedulingEnabled, setDefaultJoinMode, setSchedulingEnabled } from "../agent-registry.js";
 import { getDefaultMaxTurns, getGraceTurns, getMaxEndHookRevisions, setDefaultMaxTurns, setGraceTurns, setMaxEndHookRevisions } from "../agent-runner.js";
 import { showAgentsMenu } from "../output-handler.js";
 import type { SubagentScheduler } from "../schedule.js";
@@ -19,7 +19,6 @@ const settingsGetters: SettingsGetters = {
   getMaxEndHookRevisions,
   getDefaultJoinMode,
   isSchedulingEnabled,
-  isTracingEnabled,
 };
 
 /** Write-side counterpart of `settingsGetters`. */
@@ -29,7 +28,6 @@ const settingsSetters: SettingsSetters = {
   setMaxEndHookRevisions,
   setDefaultJoinMode,
   setSchedulingEnabled,
-  setTracingEnabled,
 };
 
 export function registerAgentsCommand(

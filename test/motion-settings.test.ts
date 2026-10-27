@@ -15,13 +15,13 @@ const noop = () => {};
 function appliers(setAnimationStyle: (style: Parameters<SettingsAppliers["setAnimationStyle"]>[0]) => void): SettingsAppliers {
   return {
     setMaxConcurrent: noop,
+    setPerAgentTokenLimit: noop,
     setSessionLimits: noop,
     setDefaultMaxTurns: noop,
     setGraceTurns: noop,
     setMaxEndHookRevisions: noop,
     setDefaultJoinMode: noop,
     setSchedulingEnabled: noop,
-    setTracingEnabled: noop,
     setAnimationStyle,
     setUiStyle: noop,
     setShowActivityStream: noop,
@@ -29,8 +29,6 @@ function appliers(setAnimationStyle: (style: Parameters<SettingsAppliers["setAni
     setShowTurnProgress: noop,
     setOrchestrationMode: noop,
     setDashboardRefreshInterval: noop,
-    setSessionMaxSpawns: noop,
-    setSessionMaxTurns: noop,
     setPromptCompressionLevel: noop,
     setDebugCapture: noop,
     setDebugCapturePaths: noop,

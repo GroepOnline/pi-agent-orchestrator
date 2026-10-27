@@ -3,6 +3,8 @@ import {
   analyzePrompt,
   buildCrewPlan,
   buildSwarmPlan,
+  formatMidFanoutFailureReport,
+  formatPartialFinalizationLabel,
   heuristicPickMode,
   resolveOrchestrationMode,
 } from "../src/orchestration-dispatch.js";
@@ -345,5 +347,48 @@ describe("resolveOrchestrationMode", () => {
     if (d.kind === "swarm") {
       expect(d.agents).toHaveLength(5);
     }
+  });
+});
+
+describe("formatMidFanoutFailureReport", () => {
+  it("names the error, the spawned IDs, the spawned/total count and the missing count", () => {
+    const report = formatMidFanoutFailureReport({
+      error: new Error("Session agent limit reached (2/2)"),
+      spawnedIds: ["agent-aaa", "agent-bbb"],
+      totalMembers: 3,
+    });
+    // Pre-existing report shape (characterization): error first, then the
+    // spawned/total line listing the IDs that DID spawn.
+    expect(report).toContain("Orchestration dispatch failed mid-fanout: Session agent limit reached (2/2)");
+    expect(report).toContain("Spawned 2/3 before failure: agent-aaa, agent-bbb");
+    // R5: the report names the missing count explicitly, not just spawned/total.
+    expect(report).toContain("Missing 1 member(s)");
+    expect(report).toContain("cancelled");
+  });
+
+  it("keeps the pre-existing shape when nothing spawned and claims no cancellation", () => {
+    const report = formatMidFanoutFailureReport({
+      error: "boom",
+      spawnedIds: [],
+      totalMembers: 2,
+    });
+    expect(report).toContain("Orchestration dispatch failed mid-fanout: boom");
+    expect(report).toContain("Spawned 0/2 before failure: ");
+    expect(report).toContain("Missing 2 member(s).");
+    expect(report).not.toContain("cancelled");
+  });
+});
+
+describe("formatPartialFinalizationLabel", () => {
+  it("names finished, spawned and missing counts with an explicit partial status", () => {
+    expect(formatPartialFinalizationLabel(2, 2, 1)).toBe(
+      "2 agent(s) finished (partial — 2 spawned, 1 missing: spawn failed mid-fanout)",
+    );
+  });
+
+  it("supports the swarm noun", () => {
+    expect(formatPartialFinalizationLabel(1, 1, 1, "swarm agent(s)")).toBe(
+      "1 swarm agent(s) finished (partial — 1 spawned, 1 missing: spawn failed mid-fanout)",
+    );
   });
 });

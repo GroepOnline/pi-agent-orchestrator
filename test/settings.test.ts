@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyAndEmitLoaded,
   applySettings,
+  capturedDispatchNotices,
+  extractCapturedDispatchLimits,
   loadSettings,
   persistToastFor,
   type SettingsAppliers,
@@ -71,6 +73,12 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({ maxConcurrent: 8, defaultJoinMode: "group" });
   });
 
+  it("lets project perAgentTokenLimit: 0 disable a positive global cap", () => {
+    writeGlobal({ perAgentTokenLimit: 125000 });
+    writeProject({ perAgentTokenLimit: 0 });
+    expect(loadSettings(projectDir).perAgentTokenLimit).toBe(0);
+  });
+
   it("merges global + project with project winning on conflicts", () => {
     writeGlobal({ maxConcurrent: 16, graceTurns: 10, defaultJoinMode: "async" });
     writeProject({ maxConcurrent: 4, defaultMaxTurns: 50 });
@@ -103,25 +111,6 @@ describe("settings persistence", () => {
 
     // Absence — caller's "use default" signal — must not become a stored false.
     saveSettings({}, projectDir);
-    expect(loadSettings(projectDir)).toEqual({});
-  });
-
-  it("round-trips tracingEnabled (true and false), and absence stays absent", () => {
-    saveSettings({ tracingEnabled: false }, projectDir);
-    expect(loadSettings(projectDir)).toEqual({ tracingEnabled: false });
-
-    saveSettings({ tracingEnabled: true }, projectDir);
-    expect(loadSettings(projectDir)).toEqual({ tracingEnabled: true });
-
-    // Absence — caller's "use default" signal — must not become a stored false.
-    saveSettings({}, projectDir);
-    expect(loadSettings(projectDir)).toEqual({});
-  });
-
-  it("sanitize drops non-boolean tracingEnabled silently", async () => {
-    writeProject({ tracingEnabled: "yes" } as any);
-    expect(loadSettings(projectDir)).toEqual({});
-    writeProject({ tracingEnabled: 1 } as any);
     expect(loadSettings(projectDir)).toEqual({});
   });
 
@@ -354,38 +343,6 @@ describe("settings persistence", () => {
       expect(loadSettings(projectDir)).toEqual({});
     });
 
-    it("preserves a configured posthog block through sanitization", () => {
-      writeProject({
-        posthog: { key: "phc_abc", host: "https://eu.posthog.com", distinctId: "node-1" },
-      });
-      expect(loadSettings(projectDir)).toEqual({
-        posthog: { key: "phc_abc", host: "https://eu.posthog.com", distinctId: "node-1" },
-      });
-    });
-
-    it("preserves a partial posthog block (key only)", () => {
-      writeProject({ posthog: { key: "phc_abc" } });
-      expect(loadSettings(projectDir)).toEqual({ posthog: { key: "phc_abc" } });
-    });
-
-    it("drops non-string and empty posthog fields", () => {
-      writeProject({ posthog: { key: 42, host: true, distinctId: "" } });
-      expect(loadSettings(projectDir)).toEqual({});
-    });
-
-    it("drops a malformed posthog value (array / non-object)", () => {
-      writeProject({ posthog: ["phc_abc"] as any });
-      expect(loadSettings(projectDir)).toEqual({});
-      writeProject({ posthog: "phc_abc" as any });
-      expect(loadSettings(projectDir)).toEqual({});
-    });
-
-    it("round-trips a saved posthog config so the bridge can enable on load", () => {
-      saveSettings({ posthog: { key: "phc_roundtrip", distinctId: "node-9" } }, projectDir);
-      expect(loadSettings(projectDir)).toEqual({
-        posthog: { key: "phc_roundtrip", distinctId: "node-9" },
-      });
-    });
   });
 
   describe("save result + corrupt-file warning", () => {
@@ -436,13 +393,13 @@ describe("settings persistence", () => {
     beforeEach(() => {
       appliers = {
         setMaxConcurrent: vi.fn(),
+        setPerAgentTokenLimit: vi.fn(),
         setSessionLimits: vi.fn(),
         setDefaultMaxTurns: vi.fn(),
         setGraceTurns: vi.fn(),
         setMaxEndHookRevisions: vi.fn(),
         setDefaultJoinMode: vi.fn(),
         setSchedulingEnabled: vi.fn(),
-        setTracingEnabled: vi.fn(),
         setAnimationStyle: vi.fn(),
         setUiStyle: vi.fn(),
         setShowActivityStream: vi.fn(),
@@ -450,8 +407,6 @@ describe("settings persistence", () => {
         setShowTurnProgress: vi.fn(),
         setOrchestrationMode: vi.fn(),
         setDashboardRefreshInterval: vi.fn(),
-        setSessionMaxSpawns: vi.fn(),
-        setSessionMaxTurns: vi.fn(),
         setPromptCompressionLevel: vi.fn(),
         setDebugCapture: vi.fn(),
         setDebugCapturePaths: vi.fn(),
@@ -463,6 +418,7 @@ describe("settings persistence", () => {
     it("is a no-op on an empty settings object", () => {
       applySettings({}, appliers);
       expect(appliers.setMaxConcurrent).not.toHaveBeenCalled();
+      expect(appliers.setPerAgentTokenLimit).not.toHaveBeenCalled();
       expect(appliers.setDefaultMaxTurns).not.toHaveBeenCalled();
       expect(appliers.setGraceTurns).not.toHaveBeenCalled();
       expect(appliers.setDefaultJoinMode).not.toHaveBeenCalled();
@@ -487,6 +443,7 @@ describe("settings persistence", () => {
       applySettings(
         {
           maxConcurrent: 8,
+          perAgentTokenLimit: 120000,
           maxAgentsPerSession: 12,
           maxTotalTurnsPerSession: 80,
           defaultMaxTurns: 50,
@@ -501,6 +458,7 @@ describe("settings persistence", () => {
         appliers,
       );
       expect(appliers.setMaxConcurrent).toHaveBeenCalledWith(8);
+      expect(appliers.setPerAgentTokenLimit).toHaveBeenCalledWith(120000);
       expect(appliers.setSessionLimits).toHaveBeenCalledWith({
         maxAgentsPerSession: 12,
         maxTotalTurnsPerSession: 80,
@@ -515,6 +473,14 @@ describe("settings persistence", () => {
       expect(appliers.setShowTurnProgress).toHaveBeenCalledWith(false);
     });
 
+    it("loads and applies a persisted per-agent token cap", () => {
+      writeProject({ perAgentTokenLimit: 125000 });
+      const loaded = loadSettings(projectDir);
+      expect(loaded.perAgentTokenLimit).toBe(125000);
+      applySettings(loaded, appliers);
+      expect(appliers.setPerAgentTokenLimit).toHaveBeenCalledWith(125000);
+    });
+
     it("applies defaultMaxTurns: 0 as the explicit unlimited marker", () => {
       applySettings({ defaultMaxTurns: 0 }, appliers);
       expect(appliers.setDefaultMaxTurns).toHaveBeenCalledWith(0);
@@ -525,6 +491,29 @@ describe("settings persistence", () => {
       expect(appliers.setSessionLimits).toHaveBeenCalledWith({
         maxAgentsPerSession: 3,
         maxTotalTurnsPerSession: undefined,
+      });
+    });
+
+    it("loads deprecated sessionMaxSpawns/sessionMaxTurns aliases via setSessionLimits", () => {
+      writeProject({ sessionMaxSpawns: 12, sessionMaxTurns: 80 });
+      applySettings(loadSettings(projectDir), appliers);
+      expect(appliers.setSessionLimits).toHaveBeenCalledWith({
+        maxAgentsPerSession: 12,
+        maxTotalTurnsPerSession: 80,
+      });
+    });
+
+    it("prefers canonical session limit keys over deprecated aliases", () => {
+      writeProject({
+        maxAgentsPerSession: 5,
+        maxTotalTurnsPerSession: 50,
+        sessionMaxSpawns: 99,
+        sessionMaxTurns: 999,
+      });
+      applySettings(loadSettings(projectDir), appliers);
+      expect(appliers.setSessionLimits).toHaveBeenCalledWith({
+        maxAgentsPerSession: 5,
+        maxTotalTurnsPerSession: 50,
       });
     });
 
@@ -547,21 +536,6 @@ describe("settings persistence", () => {
     it("does not call setSchedulingEnabled when the field is absent", () => {
       applySettings({ maxConcurrent: 4 }, appliers);
       expect(appliers.setSchedulingEnabled).not.toHaveBeenCalled();
-    });
-
-    it("calls setTracingEnabled(true) when tracingEnabled is true", () => {
-      applySettings({ tracingEnabled: true }, appliers);
-      expect(appliers.setTracingEnabled).toHaveBeenCalledWith(true);
-    });
-
-    it("calls setTracingEnabled(false) when tracingEnabled is false", () => {
-      applySettings({ tracingEnabled: false }, appliers);
-      expect(appliers.setTracingEnabled).toHaveBeenCalledWith(false);
-    });
-
-    it("does not call setTracingEnabled when the field is absent", () => {
-      applySettings({ maxConcurrent: 4 }, appliers);
-      expect(appliers.setTracingEnabled).not.toHaveBeenCalled();
     });
 
     it("applies display boolean settings correctly", () => {
@@ -611,13 +585,13 @@ describe("settings persistence", () => {
     beforeEach(() => {
       appliers = {
         setMaxConcurrent: vi.fn(),
+        setPerAgentTokenLimit: vi.fn(),
         setSessionLimits: vi.fn(),
         setDefaultMaxTurns: vi.fn(),
         setGraceTurns: vi.fn(),
         setMaxEndHookRevisions: vi.fn(),
         setDefaultJoinMode: vi.fn(),
         setSchedulingEnabled: vi.fn(),
-        setTracingEnabled: vi.fn(),
         setAnimationStyle: vi.fn(),
         setUiStyle: vi.fn(),
         setShowActivityStream: vi.fn(),
@@ -625,8 +599,6 @@ describe("settings persistence", () => {
         setShowTurnProgress: vi.fn(),
         setOrchestrationMode: vi.fn(),
         setDashboardRefreshInterval: vi.fn(),
-        setSessionMaxSpawns: vi.fn(),
-        setSessionMaxTurns: vi.fn(),
         setPromptCompressionLevel: vi.fn(),
         setDebugCapture: vi.fn(),
         setDebugCapturePaths: vi.fn(),
@@ -670,35 +642,32 @@ describe("settings persistence", () => {
   });
 
   describe("saveAndEmitChanged", () => {
-    it("preserves file-only/expert settings (subagentModel, posthog) not surfaced in the snapshot", () => {
+    it("preserves file-only/expert settings (subagentModel) not surfaced in the snapshot", () => {
       // Regression: saveSettings() overwrites the project file. Settings that
       // are consumed via loadSettings() at spawn time (not held in the
-      // in-memory registry / buildSettingsSnapshot) — e.g. subagentModel and
-      // the optional posthog bridge — must survive a menu save round-trip.
+      // in-memory registry / buildSettingsSnapshot) — e.g. subagentModel —
+      // must survive a menu save round-trip.
       // A naive overwrite silently wiped them; saveAndEmitChanged now merges
       // the snapshot over the persisted file first.
       writeProject({
         maxConcurrent: 4,
         subagentModel: "inherit",
-        posthog: { key: "phc_test" },
       });
 
       const emit = vi.fn();
-      // Menu changes maxConcurrent only; the snapshot omits subagentModel/posthog.
+      // Menu changes maxConcurrent only; the snapshot omits subagentModel.
       saveAndEmitChanged({ maxConcurrent: 8 }, "Max concurrency set to 8", emit, projectDir);
 
       // The snapshot field is updated; the file-only fields are carried through.
       expect(loadSettings(projectDir)).toEqual({
         maxConcurrent: 8,
         subagentModel: "inherit",
-        posthog: { key: "phc_test" },
       });
       // The emitted settings reflect the merged persisted state.
       expect(emit).toHaveBeenCalledWith("subagents:settings_changed", {
         settings: {
           maxConcurrent: 8,
           subagentModel: "inherit",
-          posthog: { key: "phc_test" },
         },
         persisted: true,
       });
@@ -718,6 +687,29 @@ describe("settings persistence", () => {
       expect(toast).toEqual({ message: "Max concurrency set to 5", level: "info" });
       // File actually written
       expect(JSON.parse(readFileSync(projectFile(), "utf-8"))).toEqual(snapshot);
+    });
+
+    it("strips deprecated session limit aliases when persisting canonical keys", () => {
+      writeProject({
+        maxConcurrent: 4,
+        sessionMaxSpawns: 100,
+        sessionMaxTurns: 1000,
+      });
+      const emit = vi.fn();
+      saveAndEmitChanged(
+        { maxConcurrent: 4, maxAgentsPerSession: 100, maxTotalTurnsPerSession: 1000 },
+        "Session limits updated",
+        emit,
+        projectDir,
+      );
+      const persisted = JSON.parse(readFileSync(projectFile(), "utf-8"));
+      expect(persisted.sessionMaxSpawns).toBeUndefined();
+      expect(persisted.sessionMaxTurns).toBeUndefined();
+      expect(loadSettings(projectDir)).toEqual({
+        maxConcurrent: 4,
+        maxAgentsPerSession: 100,
+        maxTotalTurnsPerSession: 1000,
+      });
     });
 
     it("emits with persisted=false and returns warning toast on save failure", () => {
@@ -743,5 +735,82 @@ describe("settings persistence", () => {
         rmSync(filePosingAsCwd, { force: true });
       }
     });
+  });
+});
+
+/**
+ * R2 captured-value notices (KTD2): the effective per-agent max turns is
+ * provably captured at dispatch (tools/agent.ts bakes `effectiveMaxTurns`
+ * into every spawn; agent-runner resolves it once per run), so a settings
+ * change reaches only the NEXT dispatch. Each change therefore emits exactly
+ * ONE notice stating when it takes effect — never per turn. Values the live
+ * chain already applies (maxAgentsPerSession, maxTotalTurnsPerSession,
+ * perAgentTokenLimit) never emit a notice.
+ */
+describe("captured-dispatch limit notices", () => {
+  it("extracts dispatch-captured limits, mapping 0/unset to unlimited", () => {
+    expect(extractCapturedDispatchLimits({ defaultMaxTurns: 25 })).toEqual({ defaultMaxTurns: 25 });
+    // 0 is the explicit unlimited marker (snapshot + sanitize convention).
+    expect(extractCapturedDispatchLimits({ defaultMaxTurns: 0 })).toEqual({ defaultMaxTurns: undefined });
+    expect(extractCapturedDispatchLimits({})).toEqual({ defaultMaxTurns: undefined });
+    expect(extractCapturedDispatchLimits(undefined)).toEqual({ defaultMaxTurns: undefined });
+  });
+
+  it("emits exactly one notice when the effective max turns changes, stating when it takes effect", () => {
+    const previous = extractCapturedDispatchLimits({ defaultMaxTurns: 25 });
+    const next = extractCapturedDispatchLimits({ defaultMaxTurns: 40 });
+
+    const notices = capturedDispatchNotices(previous, next);
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0].setting).toBe("defaultMaxTurns");
+    expect(notices[0].previous).toBe(25);
+    expect(notices[0].next).toBe(40);
+    // The notice must state WHEN the value takes effect (R2).
+    expect(notices[0].message).toContain("next dispatch");
+    expect(notices[0].message).toContain("25");
+    expect(notices[0].message).toContain("40");
+  });
+
+  it("notices a change to unlimited (0) and back", () => {
+    const raise = capturedDispatchNotices(
+      extractCapturedDispatchLimits({ defaultMaxTurns: 25 }),
+      extractCapturedDispatchLimits({ defaultMaxTurns: 0 }),
+    );
+    expect(raise).toHaveLength(1);
+    expect(raise[0].next).toBeUndefined();
+
+    const limit = capturedDispatchNotices(
+      extractCapturedDispatchLimits({ defaultMaxTurns: 0 }),
+      extractCapturedDispatchLimits({ defaultMaxTurns: 30 }),
+    );
+    expect(limit).toHaveLength(1);
+    expect(limit[0].previous).toBeUndefined();
+    expect(limit[0].next).toBe(30);
+  });
+
+  it("emits no notice when the captured value is unchanged", () => {
+    const previous = extractCapturedDispatchLimits({ defaultMaxTurns: 25 });
+    const next = extractCapturedDispatchLimits({ defaultMaxTurns: 25 });
+    expect(capturedDispatchNotices(previous, next)).toEqual([]);
+
+    // The listener updates its state after each change, so re-diffing the
+    // new state against itself is silent (once-per-change discipline).
+    const changed = extractCapturedDispatchLimits({ defaultMaxTurns: 40 });
+    expect(capturedDispatchNotices(changed, changed)).toEqual([]);
+  });
+
+  it("emits no notice for values the live chain already applies", () => {
+    // maxAgentsPerSession / maxTotalTurnsPerSession / perAgentTokenLimit are
+    // enforced live (spawn gate, turn gate, spend check) — changing them in a
+    // settings payload must not produce a captured-value notice.
+    const previous = extractCapturedDispatchLimits({ defaultMaxTurns: 25 });
+    const next = extractCapturedDispatchLimits({
+      defaultMaxTurns: 25,
+      maxAgentsPerSession: 8,
+      maxTotalTurnsPerSession: 500,
+      perAgentTokenLimit: 20_000,
+    });
+    expect(capturedDispatchNotices(previous, next)).toEqual([]);
   });
 });

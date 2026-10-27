@@ -68,7 +68,7 @@ Publish 0.17.5 as a normal patch/minor on the **0.17 line**. Keep the 0.18 trans
 
 ## Next (after 0.17.5 soaks)
 
-1. **Host integration documentation** — `TracerProvider`, exporters, public API / hooks / RPC discovery.
+1. **Host integration documentation** — public API / hooks / RPC discovery.
 2. **Examples gallery** — short spawn / crew / swarm / hooks recipes.
 3. **Agent Ready / catalog polish** — install → first orchestration stays reliable (feeds later 0.18 distribution story).
 
@@ -84,9 +84,8 @@ Publish 0.17.5 as a normal patch/minor on the **0.17 line**. Keep the 0.18 trans
 
 ### Observability
 - ✅ Structured JSON logging (`src/logger.ts`).
-- ✅ Tracing master switch + `correlation.id` on agent lifecycle spans; `/agents → Health check`.
+- ✅ `correlationId` on agent records and `/agents → Health check` recent errors.
 - ⏳ Prometheus-format metrics export.
-- ⏳ Package-owned local trace exporter (host configures `TracerProvider` today).
 - ⏳ Correlation id on **every** runner log line.
 
 ### Security & governance

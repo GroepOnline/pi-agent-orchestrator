@@ -71,8 +71,15 @@ Raw markdown (read from the installed package root):
 - `docs/custom-agents.md`
 - `AGENTS.md`
 
-Human HTML mirror:
+Human HTML mirror (canonical product site):
 
 - https://orchestrator.chefgroep.online/docs/api-reference
 - https://orchestrator.chefgroep.online/docs/architecture
 - Terminal showcase: https://orchestrator.chefgroep.online/assets/dashboard_preview.mp4
+
+GitHub Pages mirror (pi.dev `pi.video` host after Deploy Pages runs on `main`):
+
+- https://groeponline.github.io/pi-agent-orchestrator/
+- https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4
+
+- Product film (raw): https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/product_film.mp4

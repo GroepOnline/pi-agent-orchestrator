@@ -16,7 +16,7 @@ Please also read our [Code of Conduct](CODE_OF_CONDUCT.md).
 4. Open a PR. Use [Conventional Commits](https://www.conventionalcommits.org/)
    in the title (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
    Scope is encouraged (e.g. `feat(dashboard):`).
-5. Wait for review. Merging requires an `@GroepOnline/owners` member to
+5. Wait for review. Merging requires an `@GroepOnline/admins` member to
    approve — this is enforced by branch protection.
 
 ## Development setup
@@ -76,7 +76,7 @@ npm run lint:fix                   # auto-fix biome issues
 Before opening a PR also run `npm run build` (builds dist/).
 
 The CI matrix runs the same plus cross-platform tests. A PR is green when
-all required checks pass and an `@GroepOnline/owners` team member
+all required checks pass and an `@GroepOnline/admins` team member
 approves.
 
 ## Project conventions (the short list)
@@ -105,7 +105,7 @@ spawn-roles table.
 2. Make commits using Conventional Commits.
 3. Ensure `npm run typecheck`, `npm run lint`, and `npm test` pass.
 4. Open a PR against `main`.
-5. An `@GroepOnline/owners` team member must approve.
+5. An `@GroepOnline/admins` team member must approve.
 6. The merge must be a fast-forward or squash merge — linear history is enforced.
 7. The branch is deleted after merge.
 
@@ -137,10 +137,19 @@ tests on Windows related to temp directory races. These are
 ## Release flow
 
 - Conventional Commits drive changelog groups.
-- The maintainer (currently the only member of `@GroepOnline/owners`)
-  updates `CHANGELOG.md` (CI sets `package.json` version from the tag).
-- Tag `vX.Y.Z` and push it; `release.yml` builds, gates, publishes to npm,
-  and creates the GitHub Release. Don't publish manually.
+- A version bump merged to main must be tagged `v<version>` by the release step.
+- Declared version source is root `package.json`. Tag `vX.Y.Z` must equal that
+  version and the tag commit must be on `origin/main`.
+- `release.yml` verifies the reviewed main commit and publishes to npm.
+  `workflow_dispatch` recovers the latest canonical release commit already on
+  main and refuses a caller-supplied SHA.
+- Tag pushes run `release-tag-artifacts.yml` (tags only). That workflow packs
+  the npm tarball, writes `SHA256SUMS`, and attaches both to the GitHub
+  Release. It is separate from `release.yml` because a push filter that sets
+  both `branches` and `tags` never runs.
+- PRs that touch `package.json` fail when that version already has a tag or
+  GitHub Release.
+- Don't publish manually.
 
 ## Need help?
 

@@ -7,11 +7,11 @@ Canonical product URL is a **subdomain of `chefgroep.online`**. Cloudflare Pages
 | Host | Role |
 |------|------|
 | `https://orchestrator.chefgroep.online` | **Canonical** product site (`chefgroep.online` zone) |
-| `https://groeponline.github.io/pi-agent-orchestrator/` | GitHub Pages mirror (Actions deploy; README/legacy links) |
+| `https://groeponline.github.io/pi-agent-orchestrator/` | GitHub Pages mirror and **pi.dev `pi.video` host** |
 
 Internal only (not a public brand URL): the Cloudflare project default host `pi-agent-orchestrator.pages.dev` exists as the Pages origin behind the CNAME. Do not advertise it; point humans and agents at `orchestrator.chefgroep.online`. The Pages origin and branch-preview hosts receive `X-Robots-Tag: noindex` through `site/web/public/_headers`.
 
-GitHub Pages requires a one-time repo enablement (`build_type=workflow`). The Deploy Pages workflow only publishes from `main` and cannot flip that enablement bit with `GITHUB_TOKEN`.
+GitHub Pages is workflow-backed (`build_type=workflow`, enabled 2026-08-18). The Deploy Pages workflow only publishes from `main`. `actions/deploy-pages` runs on `ubuntu-latest`; a hung fleet job in the `pages` concurrency group would block catalog-video publishes.
 
 ## Deployment
 
@@ -19,7 +19,7 @@ Production deploys run from the `main` branch:
 
 1. `scripts/build-site.sh` builds the Vite SPA in `site/web/` and assembles `_site/`
 2. Cloudflare: `wrangler pages deploy` via [`.github/workflows/cloudflare-pages.yml`](../.github/workflows/cloudflare-pages.yml)
-3. GitHub mirror: [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) (base path `/pi-agent-orchestrator/`)
+3. GitHub mirror: [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) (base path `/pi-agent-orchestrator/`). Path filters include `package.json` and `CHANGELOG.md` so a release commit republishes `pi.video`. The build fails if `_site/assets/dashboard_preview.mp4` is missing or tiny.
 
 Showcase media is staged from `docs/images/` before the Vite build. Documentation markdown is bundled into the SPA as HTML. The build also publishes a deliberately small machine-readable surface verbatim: `llms.txt`, `llms-full.txt`, `sitemap.md`, `AGENTS.md`, `agent-permissions.json`, and `/.well-known/agent-permissions.json`. The remaining `docs/*.md` files stay package-owned and are not exposed as raw public files.
 

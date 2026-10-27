@@ -1,16 +1,17 @@
-name: Prepare Release 0.18.1
+name: Prepare Release
 
 on:
   workflow_dispatch:
     inputs:
-      confirmation:
-        description: "This creates the reviewed v0.18.1 release PR. Select the exact release action."
+      version:
+        description: "Exact next patch version (e.g. 0.19.2). Must remain inside the unlocked train in .release-policy.json."
         required: true
-        type: choice
+        type: string
+      confirmation:
+        description: "Confirmation string. Must be exactly: RELEASE <version>"
+        required: true
+        type: string
         default: CANCEL
-        options:
-          - CANCEL
-          - RELEASE 0.18.1
 
 permissions:
   actions: write
@@ -18,18 +19,18 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: prepare-release-0.18.1
+  group: prepare-release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
   prepare:
-    if: ${{ inputs.confirmation == 'RELEASE 0.18.1' }}
+    if: ${{ inputs.confirmation == format('RELEASE {0}', inputs.version) }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      RELEASE_VERSION: 0.18.1
-      RELEASE_BRANCH: release/v0.18.1
-      RELEASE_TITLE: "chore(release): v0.18.1"
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_BRANCH: "${{ format('release/v{0}', inputs.version) }}"
+      RELEASE_TITLE: "${{ format('chore(release): v{0}', inputs.version) }}"
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,16 +39,16 @@ jobs:
           persist-credentials: true
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
       - name: Refuse stale, duplicate, or non-main preparation
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main" || {
@@ -68,22 +69,36 @@ jobs:
           node scripts/release-recovery.mjs assert-absent "$PACKAGE" "$RELEASE_VERSION"
 
           if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" >/dev/null 2>&1; then
-            OPEN_RELEASE_PRS="$(gh pr list --head "$RELEASE_BRANCH" --state open --json number --jq 'length')"
-            if [ "$OPEN_RELEASE_PRS" != "0" ]; then
-              echo "Release branch $RELEASE_BRANCH already has an open PR; finish or close it before retrying." >&2
-              exit 1
+            REMOTE_RELEASE_SHA="$(git ls-remote --heads origin "$RELEASE_BRANCH" | awk '{print $1}')"
+            EXISTING_RELEASE_PR="$(gh pr list --head "$RELEASE_BRANCH" --state open --json url --jq '.[0].url // ""')"
+            if [ -n "$EXISTING_RELEASE_PR" ]; then
+              echo "Refreshing existing release PR $EXISTING_RELEASE_PR from current main."
+              echo "REMOTE_RELEASE_SHA=$REMOTE_RELEASE_SHA" >> "$GITHUB_ENV"
+              echo "EXISTING_RELEASE_PR=$EXISTING_RELEASE_PR" >> "$GITHUB_ENV"
+            else
+              echo "Removing stale release branch $RELEASE_BRANCH from an earlier failed preparation."
+              git push origin --delete "$RELEASE_BRANCH"
             fi
-            echo "Removing stale release branch $RELEASE_BRANCH from an earlier failed preparation."
-            git push origin --delete "$RELEASE_BRANCH"
           fi
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          # npm may normalize dependency metadata in package-lock.json across npm versions.
+          # Release preparation must start from the reviewed main lockfile exactly.
+          git restore --source=HEAD -- package-lock.json
 
       - name: Verify frozen release policy
         run: |
           npm run verify:release-policy
           node scripts/release-policy.mjs candidate "$RELEASE_VERSION"
+
+      - name: Generate release notes from merged main changes when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_VERSION="$(node -p "require('./package.json').version")"
+          node scripts/generate-release-notes.mjs "$RELEASE_VERSION" "$SOURCE_VERSION"
 
       - name: Prepare source version, changelog, and promo metadata
         run: node scripts/prepare-release.mjs "$RELEASE_VERSION" "$(date -u +%F)"
@@ -95,7 +110,7 @@ jobs:
           npm run typecheck
           npm run lint
           npm test
-          npm run verify:package
+          npm run verify:package # includes Pi package contract gate
           npm --prefix showcase/remotion run promo:data:check
           npm pack --dry-run --json > npm-pack.json
           node scripts/verify-npm-pack.mjs npm-pack.json
@@ -106,9 +121,7 @@ jobs:
           set -euo pipefail
           git diff --check
           ACTUAL="$(git diff --name-only | sort)"
-          EXPECTED="$(printf '%s\n' CHANGELOG.md package-lock.json package.json showcase/remotion/public/promo-data.json docs/releases/v0.18.1.md | sort)"
-          # Every changed file must be expected; prepare may leave files it
-          # already finds in the repo (e.g. the release notes template) untouched.
+          EXPECTED="$(printf '%s\n' CHANGELOG.md package-lock.json package.json showcase/remotion/public/promo-data.json "docs/releases/v${RELEASE_VERSION}.md" | sort)"
           UNEXPECTED="$(comm -23 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$EXPECTED"))"
           if [ -n "$UNEXPECTED" ]; then
             echo "Release preparation changed unexpected files:" >&2
@@ -122,34 +135,44 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "$RELEASE_BRANCH"
-          git add CHANGELOG.md package.json package-lock.json showcase/remotion/public/promo-data.json
+          git switch -C "$RELEASE_BRANCH"
+          git add CHANGELOG.md package.json package-lock.json showcase/remotion/public/promo-data.json "docs/releases/v${RELEASE_VERSION}.md"
           git commit -m "$RELEASE_TITLE"
-          node scripts/verify-release-transaction.mjs HEAD^ HEAD "$RELEASE_VERSION"
-          git push origin "HEAD:$RELEASE_BRANCH"
+          node scripts/verify-version-transition.mjs HEAD^ HEAD "$RELEASE_BRANCH"
+          if [ -n "${REMOTE_RELEASE_SHA:-}" ]; then
+            git push --force-with-lease="$RELEASE_BRANCH:$REMOTE_RELEASE_SHA" origin "HEAD:$RELEASE_BRANCH"
+          else
+            git push origin "HEAD:$RELEASE_BRANCH"
+          fi
 
-      - name: Open reviewed release PR
+      - name: Open or refresh reviewed release PR
         id: pr
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cat > release-pr.md <<'EOF'
           ## Release transaction
 
-          This PR was generated by the guarded **Prepare Release 0.18.1** workflow.
+          This PR was generated by the guarded **Prepare Release __RELEASE_VERSION__** workflow.
 
-          - Updates `package.json` and both package-lock root versions to `0.18.1`.
+          - Updates `package.json` and both package-lock root versions to `__RELEASE_VERSION__`.
           - Synchronizes all package-lock root metadata from `package.json`.
-          - Finalizes the v0.18.1 changelog date and deterministic Remotion promo metadata.
+          - Finalizes the v__RELEASE_VERSION__ changelog date and deterministic Remotion promo metadata.
           - Contains no runtime or workflow changes.
-          - Publishing starts only after this PR is approved, fully green, and merged.
-          - The publisher rejects every version outside the locked `0.18.x` train; `0.19.0` remains blocked.
+          - Auto-merge is enabled immediately; publishing starts when required checks and repository review policy are satisfied.
+          - The publisher rejects every version outside the currently unlocked release policy.
 
-          After merge, `.github/workflows/release.yml` validates the exact squash commit, publishes npm with provenance, creates `v0.18.1` on that commit, and creates the matching GitHub Release.
+          After merge, `.github/workflows/release.yml` validates the exact squash commit, publishes npm with provenance, creates `v__RELEASE_VERSION__` on that commit, and creates the matching GitHub Release.
           EOF
-          PR_URL="$(gh pr create --base main --head "$RELEASE_BRANCH" --title "$RELEASE_TITLE" --body-file release-pr.md)"
+          sed -i "s/__RELEASE_VERSION__/$RELEASE_VERSION/g" release-pr.md
+          if [ -n "${EXISTING_RELEASE_PR:-}" ]; then
+            PR_URL="$EXISTING_RELEASE_PR"
+            gh pr edit "$PR_URL" --title "$RELEASE_TITLE" --body-file release-pr.md
+          else
+            PR_URL="$(gh pr create --base main --head "$RELEASE_BRANCH" --title "$RELEASE_TITLE" --body-file release-pr.md)"
+          fi
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
           gh pr edit "$PR_URL" --add-reviewer SoulWayy || echo "Reviewer request could not be added automatically; branch protection still requires external approval."
           gh pr comment "$PR_URL" --body "@coderabbitai review" || echo "CodeRabbit review trigger was not accepted; external approval remains mandatory."
@@ -157,19 +180,19 @@ jobs:
       - name: Dispatch required checks for the bot-created PR
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh workflow run ci.yml --ref "$RELEASE_BRANCH"
           gh workflow run linter.yml --ref "$RELEASE_BRANCH"
 
-      - name: Enable auto-merge after checks and external approval
+      - name: Enable auto-merge after required gates
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ steps.pr.outputs.url }}
         run: |
           set -euo pipefail
           gh pr merge "$PR_URL" --auto --squash \
             --subject "$RELEASE_TITLE" \
-            --body "Prepared by the guarded v0.18.1 release workflow."
+            --body "Prepared by the guarded v$RELEASE_VERSION release workflow."

@@ -21,6 +21,7 @@ env:
 jobs:
   quality:
     name: Quality gate
+    # PR → pr-isolated (no docker/secrets). Push to main → trusted-heavy.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -36,9 +37,9 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install dependencies
@@ -46,6 +47,20 @@ jobs:
 
       - name: Verify frozen release policy
         run: npm run verify:release-policy
+
+      - name: Refuse package version reuse
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BASE_SHA:-}" ] && git diff --name-only "$BASE_SHA" HEAD | grep -qx package.json; then
+            export VERSION_REUSE_GIT_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            node scripts/check-version-reuse.mjs
+          else
+            echo "package.json unchanged; skip version-reuse gate"
+          fi
 
       - name: Verify package version transition
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
@@ -73,9 +88,6 @@ jobs:
             node scripts/verify-version-transition.mjs origin/main HEAD "$CURRENT_BRANCH"
           fi
 
-      - name: Typecheck
-        run: npm run typecheck
-
       - name: Lint
         id: lint
         shell: bash
@@ -85,7 +97,7 @@ jobs:
 
       - name: Upload Biome diagnostics
         if: failure() && steps.lint.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: biome-diagnostics-${{ github.run_id }}
           path: biome.log
@@ -106,7 +118,7 @@ jobs:
 
       - name: Upload quality test diagnostics
         if: failure() && steps.tests.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quality-test-diagnostics-${{ github.run_id }}
           path: test.log
@@ -120,23 +132,20 @@ jobs:
           node scripts/verify-npm-pack.mjs npm-pack.json
 
   compatibility:
-    name: Compatibility (${{ matrix.os }}, Node ${{ matrix.node }})
-    runs-on: ${{ matrix.os }}
+    name: Compatibility (${{ matrix.label }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # BILLING_QUARANTINE 2026-08-12: windows-latest/macos-latest matrix legs removed until GroepOnline Actions spending restored.
+          - label: Linux (fleet)
+            runs-on: ubuntu-latest
             node: 24
-          - os: windows-latest
+          - label: Linux (fleet)
+            runs-on: ubuntu-latest
             node: 22
-          - os: windows-latest
-            node: 24
-          - os: macos-latest
-            node: 22
-          - os: macos-latest
-            node: 24
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -144,7 +153,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -161,9 +170,9 @@ jobs:
 
       - name: Upload compatibility test diagnostics
         if: failure() && steps.tests.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: compatibility-${{ matrix.os }}-node-${{ matrix.node }}-${{ github.run_id }}
+          name: compatibility-${{ matrix.label }}-node-${{ matrix.node }}-${{ github.run_id }}
           path: test.log
           retention-days: 14
 
@@ -178,18 +187,43 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install lowest supported peer dependencies
+        # zizmor: ignore[adhoc-packages]
         run: |
+          set -euo pipefail
           npm ci
-          npm install --no-save --package-lock=false --include=dev \
+          # npm 10.9.8 can crash in Arborist (null edgesOut) when package.json
+          # is mutated after npm ci and the root graph is immediately reified.
+          # Keep the reviewed lockfile/tree intact: resolve the public peer floor
+          # in an isolated runner directory, then replace only the two host
+          # package directories that this compatibility lane intentionally tests.
+          FLOOR_DIR="$RUNNER_TEMP/pi-lowest-peer"
+          rm -rf "$FLOOR_DIR"
+          mkdir -p "$FLOOR_DIR"
+          printf '{"private":true}\n' > "$FLOOR_DIR/package.json"
+          npm install --prefix "$FLOOR_DIR" --no-save --package-lock=false \
             @earendil-works/pi-ai@0.81.1 \
             @earendil-works/pi-coding-agent@0.81.1
-          npm ls @earendil-works/pi-ai @earendil-works/pi-coding-agent
+          rm -rf \
+            node_modules/@earendil-works/pi-ai \
+            node_modules/@earendil-works/pi-coding-agent
+          cp -a "$FLOOR_DIR/node_modules/@earendil-works/pi-ai" \
+            node_modules/@earendil-works/pi-ai
+          cp -a "$FLOOR_DIR/node_modules/@earendil-works/pi-coding-agent" \
+            node_modules/@earendil-works/pi-coding-agent
+          node --input-type=module -e '
+            import ai from "./node_modules/@earendil-works/pi-ai/package.json" with { type: "json" };
+            import agent from "./node_modules/@earendil-works/pi-coding-agent/package.json" with { type: "json" };
+            if (ai.version !== "0.81.1" || agent.version !== "0.81.1") {
+              throw new Error(`lowest-peer install mismatch: pi-ai=${ai.version}, pi-coding-agent=${agent.version}`);
+            }
+            console.log(`Lowest peer floor installed: pi-ai=${ai.version}, pi-coding-agent=${agent.version}`);
+          '
 
       - name: Typecheck
         run: npm run typecheck
@@ -203,7 +237,7 @@ jobs:
 
       - name: Upload lowest-peer test diagnostics
         if: failure() && steps.tests.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lowest-peer-test-diagnostics-${{ github.run_id }}
           path: test.log
@@ -259,7 +293,8 @@ jobs:
 
   benchmarks:
     name: Render benchmarks
-    needs: quality
+    # This job has an independent checkout, install, and threshold check. Start
+    # it with the other gates; required-gate still waits for both jobs.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -269,9 +304,9 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22.19
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install dependencies
@@ -326,39 +361,48 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Create Linear issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY_CI }}
+          CI_WORKFLOW: ${{ github.workflow }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_BRANCH: ${{ github.head_ref || github.ref_name }}
+          CI_SHA: ${{ github.sha }}
         with:
           script: |
-            const title = `CI Failure: ${{ github.workflow }} in pi-agent-orchestrator`;
-            const runUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const title = `CI Failure: ${process.env.CI_WORKFLOW} in pi-agent-orchestrator`;
+            const repositoryUrl = `https://github.com/${process.env.CI_REPOSITORY}`;
+            const runUrl = `${repositoryUrl}/actions/runs/${process.env.CI_RUN_ID}`;
             const desc = [
-              `Workflow **${{ github.workflow }}** failed in [pi-agent-orchestrator](`https://github.com/${{ github.repository }}`)`,
+              `Workflow **${process.env.CI_WORKFLOW}** failed in [pi-agent-orchestrator](${repositoryUrl})`,
               ``,
               `**Run:** ${runUrl}`,
-              `**Branch:** ${{ github.head_ref || github.ref_name }}`,
-              `**SHA:** ${{ github.sha.substring(0,7) }}`,
+              `**Branch:** ${process.env.CI_BRANCH}`,
+              `**SHA:** ${process.env.CI_SHA.slice(0, 7)}`,
               ``,
               `Created automatically by CI failure tracker.`,
             ].join('\n');
             const query = `
-              mutation {
-                issueCreate(input: {
-                  title: "${title.replace(/"/g, '\\"')}",
-                  description: "${desc.replace(/"/g, '\\"').replace(/\\n/g, '\\n')}",
-                  teamId: "bbd2b9e0-e644-4717-9074-8d0eaa3f150a",
-                  priority: 2,
-                  labelIds: ["713eee90-d169-40a6-98b8-7c71502b9855", "73cc7952-aca3-48f9-8bbd-1193c20fdfe2"]
-                }) {
+              mutation CreateIssue($input: IssueCreateInput!) {
+                issueCreate(input: $input) {
                   issue { id identifier }
                 }
               }
             `;
+            const variables = {
+              input: {
+                title,
+                description: desc,
+                teamId: "bbd2b9e0-e644-4717-9074-8d0eaa3f150a",
+                priority: 2,
+                labelIds: ["713eee90-d169-40a6-98b8-7c71502b9855", "73cc7952-aca3-48f9-8bbd-1193c20fdfe2"],
+              },
+            };
             const res = await fetch('https://api.linear.app/graphql', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': process.env.LINEAR_API_KEY },
-              body: JSON.stringify({ query })
+              body: JSON.stringify({ query, variables })
             });
             const data = await res.json();
             if (data.data?.issueCreate?.issue) {

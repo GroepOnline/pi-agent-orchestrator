@@ -12,14 +12,14 @@ export function LandingPage() {
     <div className="mx-auto w-full max-w-6xl px-5 py-16 md:py-24">
       <section className="flex flex-col gap-6">
         <Badge variant="outline" className="w-fit border-accent/40 text-accent">
-          Pi extension · autonomous agent infrastructure
+          Pi coding agent extension · multi-agent orchestration
         </Badge>
         <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-foreground md:text-6xl md:leading-[1.02]">
-          Run a coordinated agent fleet from one terminal.
+          Run coding agents in parallel. Keep control in one terminal.
         </h1>
         <p className="max-w-2xl text-lg text-muted-foreground md:text-xl">
-          Spawn specialized agents, partition work, schedule recurring jobs, coordinate swarms,
-          compress prompts, and inspect the full fleet through a responsive TUI.
+          Spawn autonomous subagents, isolate implementation in git worktrees, coordinate swarms,
+          schedule recurring jobs, enforce budgets, and inspect every run through a live TUI.
         </p>
         <div className="flex flex-wrap gap-3">
           <Button asChild size="lg">
@@ -60,10 +60,10 @@ export function LandingPage() {
 
       <section className="flex flex-col gap-8">
         <div className="flex flex-col gap-3">
-          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">Orchestration primitives that compose.</h2>
+          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">Multi-agent orchestration without a second control plane.</h2>
           <p className="max-w-2xl text-muted-foreground">
-            The extension stays inside the Pi host and adds the control-plane functions needed for
-            bounded, observable multi-agent execution.
+            The extension stays inside the Pi coding-agent host and adds the primitives needed for
+            bounded, observable agent workflows: subagents, worktrees, swarms, schedules and handoffs.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

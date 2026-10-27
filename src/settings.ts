@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AnimationStyle, OrchestrationMode } from "./agent-registry.js";
 import { logger } from "./logger.js";
-import type { PostHogConfig } from "./posthog-bridge.js";
 import type { JoinMode, PromptCompressionLevel } from "./types.js";
 import type { DashboardKeybindingsOverride } from "./ui/dashboard-keybindings.js";
 import { sanitizeDashboardKeybindings } from "./ui/dashboard-keybindings.js";
@@ -20,6 +19,8 @@ export type { PromptCompressionLevel } from "./types.js";
 
 export interface SubagentsSettings {
   maxConcurrent?: number;
+  /** Persisted per-agent token cap for spend warnings; 0/omitted = off. */
+  perAgentTokenLimit?: number;
   maxAgentsPerSession?: number;
   maxTotalTurnsPerSession?: number;
   /** 0 is the explicit unlimited marker. */
@@ -32,14 +33,6 @@ export interface SubagentsSettings {
   maxEndHookRevisions?: number;
   defaultJoinMode?: JoinMode;
   schedulingEnabled?: boolean;
-  tracingEnabled?: boolean;
-  /**
-   * Optional PostHog product-analytics bridge. Inert unless `posthog.key`
-   * (or `POSTHOG_KEY`) is set, so a default install ships zero outbound
-   * analytics. When enabled, agent lifecycle events are captured to the
-   * configured project.
-   */
-  posthog?: PostHogConfig;
   /**
    * Override the model used by spawned subagents.
    * - `"inherit"`: use the session-default (parent) model — useful when a
@@ -59,8 +52,6 @@ export interface SubagentsSettings {
   showAgentTopWidget?: boolean;
   orchestrationMode?: OrchestrationMode;
   dashboardRefreshInterval?: number;
-  sessionMaxSpawns?: number;
-  sessionMaxTurns?: number;
   promptCompressionLevel?: PromptCompressionLevel;
   debugCapture?: boolean;
   debugCapturePaths?: DebugCapturePathOverrides;
@@ -72,13 +63,13 @@ export interface SubagentsSettings {
 
 export interface SettingsAppliers {
   setMaxConcurrent: (value: number) => void;
+  setPerAgentTokenLimit: (value: number) => void;
   setSessionLimits: (limits: { maxAgentsPerSession?: number; maxTotalTurnsPerSession?: number }) => void;
   setDefaultMaxTurns: (value: number) => void;
   setGraceTurns: (value: number) => void;
   setMaxEndHookRevisions: (value: number) => void;
   setDefaultJoinMode: (mode: JoinMode) => void;
   setSchedulingEnabled: (enabled: boolean) => void;
-  setTracingEnabled: (enabled: boolean) => void;
   setAnimationStyle: (style: AnimationStyle) => void;
   setUiStyle: (style: "premium" | "retro" | "plain") => void;
   setShowActivityStream: (enabled: boolean) => void;
@@ -87,8 +78,6 @@ export interface SettingsAppliers {
   setShowAgentTopWidget: (enabled: boolean) => void;
   setOrchestrationMode: (mode: OrchestrationMode) => void;
   setDashboardRefreshInterval: (interval: number) => void;
-  setSessionMaxSpawns: (value: number) => void;
-  setSessionMaxTurns: (value: number) => void;
   setPromptCompressionLevel: (level: PromptCompressionLevel) => void;
   setDebugCapture: (enabled: boolean) => void;
   setDebugCapturePaths: (paths: DebugCapturePathOverrides) => void;
@@ -102,7 +91,6 @@ export interface SettingsGetters {
   getMaxEndHookRevisions: () => number;
   getDefaultJoinMode: () => JoinMode;
   isSchedulingEnabled: () => boolean;
-  isTracingEnabled: () => boolean;
 }
 
 export interface SettingsSetters {
@@ -111,7 +99,6 @@ export interface SettingsSetters {
   setMaxEndHookRevisions: (value: number) => void;
   setDefaultJoinMode: (mode: JoinMode) => void;
   setSchedulingEnabled: (enabled: boolean) => void;
-  setTracingEnabled: (enabled: boolean) => void;
 }
 
 export type SettingsEmit = (event: string, payload: unknown) => void;
@@ -138,8 +125,7 @@ const MAX_TURNS_CEILING = 10_000;
 const MAX_TOTAL_TURNS_PER_SESSION_CEILING = 100_000;
 const GRACE_TURNS_CEILING = 1_000;
 const MAX_END_HOOK_REVISIONS_CEILING = 10;
-const SESSION_MAX_SPAWNS_CEILING = 10_000;
-const SESSION_MAX_TURNS_CEILING = 100_000;
+const DEPRECATED_SESSION_LIMIT_ALIASES = ["sessionMaxSpawns", "sessionMaxTurns"] as const;
 
 function validateInt(
   raw: Record<string, unknown>,
@@ -188,17 +174,26 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const integerFields = [
     ["maxConcurrent", 1, MAX_CONCURRENT_CEILING],
+    ["perAgentTokenLimit", 0, 10_000_000],
     ["maxAgentsPerSession", 1, MAX_AGENTS_PER_SESSION_CEILING],
     ["maxTotalTurnsPerSession", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING],
     ["graceTurns", 1, GRACE_TURNS_CEILING],
     ["dashboardRefreshInterval", 100, 60_000],
-    ["sessionMaxSpawns", 1, SESSION_MAX_SPAWNS_CEILING],
-    ["sessionMaxTurns", 1, SESSION_MAX_TURNS_CEILING],
   ] as const;
 
   for (const [key, min, max] of integerFields) {
-    const value = validateInt(source, key, min, max, 0);
-    if (value > 0) (settings as Record<string, unknown>)[key] = value;
+    const value = validateInt(source, key, min, max, -1);
+    if (value >= min) (settings as Record<string, unknown>)[key] = value;
+  }
+
+  // Migrate deprecated aliases into canonical keys without retaining duplicate state.
+  if (settings.maxAgentsPerSession === undefined) {
+    const legacy = validateInt(source, "sessionMaxSpawns", 1, MAX_AGENTS_PER_SESSION_CEILING, 0);
+    if (legacy > 0) settings.maxAgentsPerSession = legacy;
+  }
+  if (settings.maxTotalTurnsPerSession === undefined) {
+    const legacy = validateInt(source, "sessionMaxTurns", 1, MAX_TOTAL_TURNS_PER_SESSION_CEILING, 0);
+    if (legacy > 0) settings.maxTotalTurnsPerSession = legacy;
   }
 
   const defaultMaxTurns = validateInt(source, "defaultMaxTurns", 0, MAX_TURNS_CEILING, -1);
@@ -233,7 +228,6 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const booleanFields = [
     "schedulingEnabled",
-    "tracingEnabled",
     "showActivityStream",
     "showTokenUsage",
     "showTurnProgress",
@@ -258,22 +252,6 @@ function sanitize(raw: unknown): SubagentsSettings {
 
   const footerStatus = sanitizeFooterStatusConfig(source.footerStatus);
   if (footerStatus) settings.footerStatus = footerStatus;
-
-  // PostHog bridge config: preserve explicitly set string fields so a saved
-  // `posthog.key` survives sanitization and reaches the bridge at activation.
-  const rawPostHog = source.posthog;
-  if (rawPostHog && typeof rawPostHog === "object" && !Array.isArray(rawPostHog)) {
-    const phSource = rawPostHog as Record<string, unknown>;
-    const posthog: PostHogConfig = {};
-    if (typeof phSource.key === "string" && phSource.key) posthog.key = phSource.key;
-    if (typeof phSource.host === "string" && phSource.host) posthog.host = phSource.host;
-    if (typeof phSource.distinctId === "string" && phSource.distinctId) {
-      posthog.distinctId = phSource.distinctId;
-    }
-    if (posthog.key !== undefined || posthog.host !== undefined || posthog.distinctId !== undefined) {
-      settings.posthog = posthog;
-    }
-  }
 
   return settings;
 }
@@ -302,27 +280,52 @@ export function loadSettings(cwd: string = process.cwd()): SubagentsSettings {
   return { ...readSettingsFile(globalPath()), ...readSettingsFile(projectPath(cwd)) };
 }
 
+/** Resolve canonical session limits. */
+export function resolveSessionLimits(settings: SubagentsSettings): {
+  maxAgentsPerSession?: number;
+  maxTotalTurnsPerSession?: number;
+} | undefined {
+  const { maxAgentsPerSession, maxTotalTurnsPerSession } = settings;
+  if (typeof maxAgentsPerSession !== "number" && typeof maxTotalTurnsPerSession !== "number") {
+    return undefined;
+  }
+  return { maxAgentsPerSession, maxTotalTurnsPerSession };
+}
+
+/** Prepare settings for persistence with canonical session-limit keys only. */
+export function prepareSettingsForSave(settings: SubagentsSettings): SubagentsSettings {
+  const limits = resolveSessionLimits(settings);
+  const canonical = limits ? { ...settings, ...limits } : { ...settings };
+  return stripDeprecatedSessionLimitAliases(canonical);
+}
+
 /** Persist project-local settings. Global defaults are never mutated. */
 export function saveSettings(settings: SubagentsSettings, cwd: string = process.cwd()): boolean {
   const path = projectPath(cwd);
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
+    writeFileSync(path, JSON.stringify(prepareSettingsForSave(settings), null, 2), "utf-8");
     return true;
   } catch {
     return false;
   }
 }
 
+/** Drop deprecated session-limit aliases before persisting canonical keys. */
+export function stripDeprecatedSessionLimitAliases(settings: SubagentsSettings): SubagentsSettings {
+  const copy = { ...settings };
+  for (const key of DEPRECATED_SESSION_LIMIT_ALIASES) {
+    delete (copy as Record<string, unknown>)[key];
+  }
+  return copy;
+}
+
 /** Apply persisted settings to in-memory state. */
 export function applySettings(settings: SubagentsSettings, appliers: SettingsAppliers): void {
   if (typeof settings.maxConcurrent === "number") appliers.setMaxConcurrent(settings.maxConcurrent);
-  if (typeof settings.maxAgentsPerSession === "number" || typeof settings.maxTotalTurnsPerSession === "number") {
-    appliers.setSessionLimits({
-      maxAgentsPerSession: settings.maxAgentsPerSession,
-      maxTotalTurnsPerSession: settings.maxTotalTurnsPerSession,
-    });
-  }
+  if (typeof settings.perAgentTokenLimit === "number") appliers.setPerAgentTokenLimit(settings.perAgentTokenLimit);
+  const sessionLimits = resolveSessionLimits(settings);
+  if (sessionLimits) appliers.setSessionLimits(sessionLimits);
   if (typeof settings.defaultMaxTurns === "number") appliers.setDefaultMaxTurns(settings.defaultMaxTurns);
   if (typeof settings.graceTurns === "number") appliers.setGraceTurns(settings.graceTurns);
   if (typeof settings.maxEndHookRevisions === "number") {
@@ -330,7 +333,6 @@ export function applySettings(settings: SubagentsSettings, appliers: SettingsApp
   }
   if (settings.defaultJoinMode) appliers.setDefaultJoinMode(settings.defaultJoinMode);
   if (typeof settings.schedulingEnabled === "boolean") appliers.setSchedulingEnabled(settings.schedulingEnabled);
-  if (typeof settings.tracingEnabled === "boolean") appliers.setTracingEnabled(settings.tracingEnabled);
   if (settings.animationStyle) appliers.setAnimationStyle(settings.animationStyle);
   if (settings.uiStyle) appliers.setUiStyle(settings.uiStyle);
   if (typeof settings.showActivityStream === "boolean") appliers.setShowActivityStream(settings.showActivityStream);
@@ -341,8 +343,6 @@ export function applySettings(settings: SubagentsSettings, appliers: SettingsApp
   if (typeof settings.dashboardRefreshInterval === "number") {
     appliers.setDashboardRefreshInterval(settings.dashboardRefreshInterval);
   }
-  if (typeof settings.sessionMaxSpawns === "number") appliers.setSessionMaxSpawns(settings.sessionMaxSpawns);
-  if (typeof settings.sessionMaxTurns === "number") appliers.setSessionMaxTurns(settings.sessionMaxTurns);
   if (settings.promptCompressionLevel) appliers.setPromptCompressionLevel(settings.promptCompressionLevel);
   if (typeof settings.debugCapture === "boolean") appliers.setDebugCapture(settings.debugCapture);
   if (settings.debugCapturePaths !== undefined) appliers.setDebugCapturePaths(settings.debugCapturePaths);
@@ -359,6 +359,71 @@ export function persistToastFor(
   return persisted
     ? { message: successMessage, level: "info" }
     : { message: `${successMessage} (session only; failed to persist)`, level: "warning" };
+}
+
+// ---- R2: dispatch-captured limits and one-time change notices ----
+
+/**
+ * Settings values that are provably CAPTURED at dispatch rather than read
+ * live at enforcement: `tools/agent.ts` bakes the effective max turns into
+ * every spawn and the runner resolves it once per run, so a change reaches
+ * only the NEXT dispatch. Live-enforced limits (maxAgentsPerSession at the
+ * spawn gate, maxTotalTurnsPerSession at the turn gate, perAgentTokenLimit in
+ * the spend check) are deliberately absent — they already apply to the
+ * running session at the next enforcement point and never emit a notice.
+ */
+export interface CapturedDispatchLimits {
+  /** Effective per-agent max turns; `undefined` = unlimited. */
+  defaultMaxTurns?: number;
+}
+
+/** One-time notice that a dispatch-captured limit changed (R2). */
+export interface CapturedLimitNotice {
+  setting: "defaultMaxTurns";
+  previous: number | undefined;
+  next: number | undefined;
+  /** Operator-facing message stating when the new value takes effect. */
+  message: string;
+}
+
+/** Extract the dispatch-captured limits from a settings object (0 = unlimited). */
+export function extractCapturedDispatchLimits(
+  settings: SubagentsSettings | undefined,
+): CapturedDispatchLimits {
+  return {
+    defaultMaxTurns:
+      typeof settings?.defaultMaxTurns === "number" && settings.defaultMaxTurns > 0
+        ? settings.defaultMaxTurns
+        : undefined,
+  };
+}
+
+/**
+ * Diff previously-applied vs newly-applied dispatch-captured limits (R2).
+ * Returns at most one notice per changed value. The caller feeds it once per
+ * `subagents:settings_changed` event — which fires exactly once per accepted
+ * settings change — so notices are once-per-change, never per turn. Returns
+ * `[]` when nothing captured changed, including changes that only touch
+ * live-enforced limits.
+ */
+export function capturedDispatchNotices(
+  previous: CapturedDispatchLimits,
+  next: CapturedDispatchLimits,
+): CapturedLimitNotice[] {
+  const notices: CapturedLimitNotice[] = [];
+  if (previous.defaultMaxTurns !== next.defaultMaxTurns) {
+    const from = previous.defaultMaxTurns ?? "unlimited";
+    const to = next.defaultMaxTurns ?? "unlimited";
+    notices.push({
+      setting: "defaultMaxTurns",
+      previous: previous.defaultMaxTurns,
+      next: next.defaultMaxTurns,
+      message:
+        `Default max turns changed from ${from} to ${to}: the new value applies to agents ` +
+        `dispatched from now on (next dispatch) — running agents keep the turn budget they were dispatched with.`,
+    });
+  }
+  return notices;
 }
 
 export function applyAndEmitLoaded(
@@ -378,14 +443,14 @@ export function saveAndEmitChanged(
   emit: SettingsEmit,
   cwd: string = process.cwd(),
 ): { message: string; level: "info" | "warning" } {
-  // Preserve file-only/expert settings (e.g. `posthog`, `subagentModel`) that
+  // Preserve file-only/expert settings (e.g. `subagentModel`) that
   // are not surfaced through the in-memory snapshot. They are consumed via
   // loadSettings() at spawn time and must survive a menu save round-trip; a
   // bare saveSettings(snapshot) would overwrite the project file and silently
   // wipe them. Merge the snapshot over the persisted project file first, so
   // any field absent from the snapshot is carried through unchanged.
   const persistedFile = readSettingsFile(projectPath(cwd));
-  const merged: SubagentsSettings = { ...persistedFile, ...snapshot };
+  const merged = prepareSettingsForSave({ ...persistedFile, ...snapshot });
   const persisted = saveSettings(merged, cwd);
   emit("subagents:settings_changed", { settings: merged, persisted });
   return persistToastFor(successMessage, persisted);

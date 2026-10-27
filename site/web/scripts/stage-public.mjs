@@ -36,6 +36,7 @@ const requiredAssets = [
 
 /** Showcase gallery — included when present (Remotion CI may generate these). */
 const optionalAssets = [
+  "dashboard_preview.svg",
   "dashboard_preview.png",
   "dashboard_preview_programmatic.gif",
   "showcase_skill_creation.mp4",

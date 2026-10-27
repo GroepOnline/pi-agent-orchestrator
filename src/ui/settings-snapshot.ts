@@ -5,7 +5,10 @@ import {
   getOrchestrationMode,
   getPromptCompressionLevel,
   getUiStyle,
+  isShowActivityStream,
   isShowAgentTopWidget,
+  isShowTokenUsage,
+  isShowTurnProgress,
 } from "../agent-registry.js";
 import type { SettingsGetters, SubagentsSettings } from "../settings.js";
 
@@ -15,6 +18,7 @@ import type { SettingsGetters, SubagentsSettings } from "../settings.js";
 export function buildSettingsSnapshot(manager: AgentManager, getters: SettingsGetters): SubagentsSettings {
   return {
     maxConcurrent: manager.getMaxConcurrent(),
+    perAgentTokenLimit: manager.getPerAgentTokenLimit(),
     ...manager.getSessionLimits(),
     // 0 = unlimited — per SubagentsSettings.defaultMaxTurns docstring and
     // normalizeMaxTurns() in agent-runner.ts (which maps 0 → undefined).
@@ -23,14 +27,14 @@ export function buildSettingsSnapshot(manager: AgentManager, getters: SettingsGe
     maxEndHookRevisions: getters.getMaxEndHookRevisions(),
     defaultJoinMode: getters.getDefaultJoinMode(),
     schedulingEnabled: getters.isSchedulingEnabled(),
-    tracingEnabled: getters.isTracingEnabled(),
     animationStyle: getAnimationStyle(),
     uiStyle: getUiStyle(),
     orchestrationMode: getOrchestrationMode(),
     dashboardRefreshInterval: getDashboardRefreshInterval(),
-    sessionMaxSpawns: manager.getSessionMaxSpawns(),
-    sessionMaxTurns: manager.getSessionMaxTurns(),
     promptCompressionLevel: getPromptCompressionLevel(),
+    showActivityStream: isShowActivityStream(),
+    showTokenUsage: isShowTokenUsage(),
+    showTurnProgress: isShowTurnProgress(),
     showAgentTopWidget: isShowAgentTopWidget(),
   };
 }

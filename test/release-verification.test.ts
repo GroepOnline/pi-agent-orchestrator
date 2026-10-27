@@ -2,7 +2,7 @@
  * release-verification.test.ts — Offline verification of the public npm release contract.
  *
  * Tests cover package contents, license consistency, registry configuration,
- * the frozen 0.18 release train, and the prepare/publish workflow split.
+ * the frozen 0.19 release train, and the prepare/publish workflow split.
  */
 
 import { spawnSync } from "node:child_process";
@@ -50,6 +50,8 @@ function createBaselinePolicySandbox(version = "0.17.5"): string {
     "package-lock.json",
     "docs/releases/v0.18.0.md",
     "docs/releases/v0.18.1.md",
+    "docs/releases/v0.19.0.md",
+    "docs/releases/v0.19.1.md",
     "scripts/release-policy.mjs",
   ]) {
     const destination = join(sandbox, path);
@@ -153,12 +155,12 @@ describe("license verification", () => {
 describe("Node.js version consistency", () => {
   it(".nvmrc pins the exact Node version used by release-critical CI", () => {
     expect(fileExists(".nvmrc")).toBe(true);
-    expect(readRoot(".nvmrc").trim()).toBe("22.19.0");
+    expect(readRoot(".nvmrc").trim()).toBe("22.22.3");
   });
 
   it("package.json engines.node requires at least the .nvmrc version", () => {
     const pkg = JSON.parse(readRoot("package.json"));
-    expect(pkg.engines?.node).toBe(">=22.19.0");
+    expect(pkg.engines?.node).toBe(">=22.22.3");
   });
 
   it("package-lock root metadata matches package.json", () => {
@@ -172,13 +174,16 @@ describe("Node.js version consistency", () => {
     expect(rootPackage?.version).toBe(pkg.version);
   });
 
-  it("ci.yml pins release-critical Linux jobs to Node 22.19", () => {
+  it("ci.yml reads the release-critical runtime from .nvmrc", () => {
     const ci = readRoot(".github/workflows/ci.yml");
-    const pinned = [...ci.matchAll(/node-version:\s*22\.19/g)];
-    expect(pinned.length).toBeGreaterThanOrEqual(3);
+    const managedRuntime = 'node-version-file: ".nvmrc"';
+    expect(ci.match(new RegExp(managedRuntime, "g"))?.length).toBeGreaterThanOrEqual(3);
     const qualityJob = ci.match(/quality:[\s\S]*?compatibility:/)?.[0] ?? "";
-    expect(qualityJob).toMatch(/node-version:\s*22\.19/);
-    expect(qualityJob).not.toMatch(/node-version:\s*22\s*$/m);
+    expect(qualityJob).toContain(managedRuntime);
+    expect(qualityJob).not.toMatch(/node-version:\s*\d/m);
+    // Compatibility deliberately spans supported majors and therefore does not
+    // consume .nvmrc as the single default-runtime source.
+    expect(ci).toContain("node-version: $" + "{{ matrix.node }}");
   });
 
   it("version-transition avoids unauthenticated git fetch origin main", () => {
@@ -206,24 +211,25 @@ describe("Node.js version consistency", () => {
 
 // ── Frozen release train ─────────────────────────────────────────────────────
 
-describe("0.18 release policy", () => {
-  it("declares 0.18.x as the only allowed train and blocks 0.19.0", () => {
+describe("0.19 release policy", () => {
+  it("declares 0.19.x as the only allowed train and blocks 0.20.0", () => {
     const policy = JSON.parse(readRoot(".release-policy.json"));
-    expect(policy.releaseTrain).toBe("0.18");
-    expect(policy.initialRelease).toBe("0.18.1");
-    expect(policy.sourceBaselines).toEqual(["0.17.1", "0.17.5", "0.17.6", "0.18.0"]);
+    expect(policy.releaseTrain).toBe("0.19");
+    expect(policy.initialRelease).toBe("0.19.1");
+    expect(policy.sourceBaselines).toContain("0.18.1");
+    expect(policy.sourceBaselines).toContain("0.19.0");
     expect(policy.allowPrerelease).toBe(false);
-    expect(policy.blockedNextMinor).toBe("0.19.0");
-    expect(policy.releaseCommitTitle).toBe("chore(release): v0.18.1");
+    expect(policy.blockedNextMinor).toBe("0.20.0");
+    expect(policy.releaseCommitTitle).toBe("chore(release): v0.19.1");
   });
 
-  it("accepts stable 0.18 candidates", () => {
-    expect(runReleasePolicy("candidate", "0.18.1").status).toBe(0);
-    expect(runReleasePolicy("candidate", "0.18.7").status).toBe(0);
+  it("accepts stable 0.19 candidates", () => {
+    expect(runReleasePolicy("candidate", "0.19.1").status).toBe(0);
+    expect(runReleasePolicy("candidate", "0.19.7").status).toBe(0);
   });
 
-  it("rejects 0.19, old trains, and prereleases", () => {
-    for (const blocked of ["0.19.0", "0.17.2", "1.0.0", "0.18.0-beta.1"]) {
+  it("rejects 0.20, old trains, and prereleases", () => {
+    for (const blocked of ["0.20.0", "0.19.0", "0.17.2", "1.0.0", "0.19.1-beta.1"]) {
       const result = runReleasePolicy("candidate", blocked);
       expect(result.status, `${blocked}: ${result.stderr}`).not.toBe(0);
     }
@@ -235,7 +241,7 @@ describe("0.18 release policy", () => {
     expect(repository.status, repository.stderr).toBe(0);
     const publish = runReleasePolicyAt(sandbox, "publish");
     expect(publish.status).not.toBe(0);
-    expect(publish.stderr).toContain("outside the locked 0.18.x release train");
+    expect(publish.stderr).toContain("outside the locked 0.19.x release train");
   });
 
   it("accepts maintenance baseline publish policy for 0.17.5", () => {
@@ -312,14 +318,24 @@ describe("0.18 release policy", () => {
 // ── Transactional release workflows ─────────────────────────────────────────
 
 describe("transactional release workflow", () => {
-  it("provides an explicit guarded Prepare Release 0.18.1 button", () => {
+  it("provides an explicit guarded parameterized Prepare Release button", () => {
     expect(fileExists(".github/workflows/prepare-release.yml")).toBe(true);
     const content = readRoot(".github/workflows/prepare-release.yml");
-    expect(content).toMatch(/name:\s*Prepare Release 0\.18\.1/);
+    expect(content).toMatch(/name:\s*Prepare Release/);
     expect(content).toMatch(/workflow_dispatch:/);
-    expect(content).toContain("RELEASE 0.18.1");
+    expect(content).toContain("inputs.version");
+    expect(content).not.toContain("inputs.branch");
+    expect(content).not.toContain("inputs.title");
+    expect(content).toContain("RELEASE_BRANCH: \"$" + "{{ format('release/v{0}', inputs.version) }}\"");
+    expect(content).toContain("RELEASE_TITLE: \"$" + "{{ format('chore(release): v{0}', inputs.version) }}\"");
+    expect(content).toContain("format('RELEASE {0}', inputs.version)");
     expect(content).toContain("node scripts/prepare-release.mjs");
-    expect(content).toContain("node scripts/verify-release-transaction.mjs HEAD^ HEAD");
+    expect(content).toContain("docs/releases/v$" + "{RELEASE_VERSION}.md");
+    expect(content).toContain("__RELEASE_VERSION__");
+    expect(content).toContain("s/__RELEASE_VERSION__/$RELEASE_VERSION/g");
+    expect(content).not.toContain("0.18.1");
+    expect(content).toContain("git restore --source=HEAD -- package-lock.json");
+    expect(content).toContain("node scripts/verify-version-transition.mjs HEAD^ HEAD \"$RELEASE_BRANCH\"");
     expect(content).toContain("gh pr create");
     expect(content).toContain("gh workflow run ci.yml");
     expect(content).toContain("gh workflow run linter.yml");
@@ -337,12 +353,28 @@ describe("transactional release workflow", () => {
     const content = readRoot(".github/workflows/release.yml");
     const verifier = readRoot("scripts/verify-release-transaction.mjs");
     expect(content).toMatch(/branches:\s*\[main\]/);
+    // A push filter that sets both branches and tags never runs. Tag artifacts
+    // live in the tags-only workflow instead.
     expect(content).not.toMatch(/tags:\s*\n/);
+    expect(content).toMatch(/workflow_dispatch:/);
+    expect(content).toContain("release_sha:");
+    expect(content).not.toContain("inputs.release_sha");
+    expect(content).toContain("git log --first-parent --format='%H%x09%s' origin/main");
+    expect(content).toContain('git merge-base --is-ancestor "$RELEASE_SHA" origin/main');
+    expect(content).toContain("release_sha: $" + "{{ steps.release.outputs.release_sha }}");
+    expect(content).not.toContain("ref: $" + "{{ needs.detect.outputs.release_sha }}");
+    expect(content).toContain('git worktree add --detach "$SOURCE_DIR" "$RELEASE_SHA"');
+    expect(content).toContain('test "$(git rev-parse HEAD)" = "$RELEASE_SHA"');
+    expect(content).toContain("ref: main");
+    expect(content).toContain('ensure-release-tag.mjs "v$RELEASE_VERSION" "$RELEASE_SHA"');
+    expect(content).toContain("if: github.ref == 'refs/heads/main'");
     expect(content).toContain("chore(release): v$VERSION");
     expect(content).toContain("npm run verify:release-policy:publish");
     expect(content).toContain("node scripts/verify-release-transaction.mjs");
     expect(content).toContain("node scripts/release-policy.mjs candidate");
-    expect(verifier).toContain('ALLOWED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"]');
+    expect(verifier).toContain('REQUIRED_FILES = ["CHANGELOG.md", "package-lock.json", "package.json"]');
+    expect(verifier).toContain('path === "README.md"');
+    expect(verifier).toContain('path.endsWith(".md") || path.endsWith(".svg")');
     expect(verifier).toContain("package.json changed fields other than version");
     expect(verifier).toContain("package-lock changed outside top-level version");
     expect(verifier).toContain("CHANGELOG history from v0.17.1 backwards was modified");
@@ -418,6 +450,53 @@ describe("transactional release workflow", () => {
     // findings and auto-merge stalls.
     expect(linter).not.toContain("VALIDATE_TRIVY");
     expect(readRoot(".github/workflows/ci.yml")).toContain("dependency-review");
+  });
+
+  it("GitHub Pages republishes the pi.dev catalog MP4 from main and release path filters", () => {
+    const pages = readRoot(".github/workflows/pages.yml");
+    const buildJob = pages.slice(pages.indexOf("  build:"), pages.indexOf("  deploy:"));
+    const videoCheck = buildJob.slice(
+      buildJob.indexOf("      - name: Confirm catalog video is staged"),
+      buildJob.indexOf("      - name: Setup Pages"),
+    );
+    expect(pages).toContain("https://groeponline.github.io/pi-agent-orchestrator/");
+    expect(pages).toMatch(/push:\n\s+branches: \[main\]/);
+    expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'README\.md'/);
+    expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'CHANGELOG\.md'/);
+    expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'package\.json'/);
+    expect(buildJob).toContain("if: github.ref == 'refs/heads/main'");
+    expect(buildJob).toContain("actions/setup-node@");
+    expect(buildJob).toMatch(/^\s+runs-on:\s+ubuntu-latest$/m);
+    expect(buildJob).not.toContain("self-hosted");
+    expect(videoCheck).toContain("dashboard_preview.mp4");
+    expect(videoCheck).toContain("product_film.mp4");
+    expect(videoCheck).toContain("dashboard_preview.gif");
+    expect(videoCheck).toContain('test "$size" -gt 100000');
+    expect(JSON.parse(readRoot("package.json")).pi?.video).toBe(
+      "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
+    );
+  });
+
+  it("PRs that touch package.json refuse an already released version", () => {
+    const ci = readRoot(".github/workflows/ci.yml");
+    expect(ci).toContain("node scripts/check-version-reuse.mjs");
+    expect(ci).toContain('git diff --name-only "$BASE_SHA" HEAD | grep -qx package.json');
+    expect(readRoot("CONTRIBUTING.md")).toContain(
+      "A version bump merged to main must be tagged `v<version>` by the release step.",
+    );
+  });
+
+  it("attaches tag artifacts from a tags-only workflow", () => {
+    const release = readRoot(".github/workflows/release.yml");
+    const tags = readRoot(".github/workflows/release-tag-artifacts.yml");
+    expect(release).not.toMatch(/tags:\s*\n/);
+    expect(tags).toMatch(/tags:\s*\n\s+- "v\*"/);
+    expect(tags).not.toMatch(/branches:\s*\[main\]/);
+    expect(tags).toContain("if: startsWith(github.ref, 'refs/tags/v')");
+    expect(tags).toContain("node scripts/verify-release-tag.mjs");
+    expect(tags).toContain("SHA256SUMS");
+    expect(tags).toMatch(/^\s+runs-on:\s+ubuntu-latest$/m);
+    expect(tags).not.toContain("self-hosted");
   });
 
   it("legacy publish workflows remain removed", () => {

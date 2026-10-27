@@ -80,10 +80,6 @@ vi.mock("../src/agent-types.js", () => ({
   getToolNamesForType: vi.fn(() => ["read", "write", "edit", "bash", "grep", "glob", "find"]),
 }));
 
-vi.mock("../src/env.js", () => ({
-  detectEnv: vi.fn(async () => ({ isGitRepo: true, branch: "main", platform: "linux", hasChrome: true })),
-}));
-
 vi.mock("../src/prompts.js", () => ({
   buildAgentPrompt: vi.fn(() => "system prompt from mock"),
 }));

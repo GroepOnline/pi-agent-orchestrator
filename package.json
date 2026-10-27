@@ -1,14 +1,14 @@
 {
   "name": "@groeponline/pi-agent-orchestrator",
-  "version": "0.18.1",
-  "description": "Multi-agent orchestration for Pi: autonomous subagents, worktrees, swarms, schedules, handoffs, prompt compression, and live TUI observability.",
+  "version": "0.19.2",
+  "description": "Multi-agent orchestration for Pi coding agents: autonomous subagents, parallel worktrees, swarms, schedules, handoffs, budgets, and a live terminal dashboard.",
   "author": "GroepOnline",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/GroepOnline/pi-agent-orchestrator.git"
   },
-  "homepage": "https://github.com/GroepOnline/pi-agent-orchestrator#readme",
+  "homepage": "https://orchestrator.chefgroep.online/",
   "bugs": {
     "url": "https://github.com/GroepOnline/pi-agent-orchestrator/issues"
   },
@@ -34,7 +34,19 @@
     "prompt-compression",
     "tui",
     "dashboard",
-    "developer-tools"
+    "developer-tools",
+    "groeponline",
+    "agent-swarm",
+    "agent-dashboard",
+    "terminal-ui",
+    "workflow-orchestration",
+    "ai-agents",
+    "ai-agent-orchestration",
+    "agentic-workflows",
+    "coding-agents",
+    "developer-agent",
+    "terminal-agents",
+    "agent-workflows"
   ],
   "files": [
     "dist/",
@@ -54,8 +66,9 @@
     "CODE_OF_CONDUCT.md"
   ],
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.81.1",
-    "@earendil-works/pi-coding-agent": ">=0.81.1"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-agent-core": "*"
   },
   "peerDependenciesMeta": {
     "@groeponline/context-mode": {
@@ -66,15 +79,14 @@
     },
     "@earendil-works/pi-coding-agent": {
       "optional": true
+    },
+    "@earendil-works/pi-agent-core": {
+      "optional": true
     }
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.1",
     "@sinclair/typebox": "^0.34.52",
-    "croner": "^10.0.1",
-    "nanoid": "^6.0.0",
-    "posthog-node": "~5.45.2",
-    "proper-lockfile": "^4.1.2"
+    "croner": "^10.0.1"
   },
   "scripts": {
     "build": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc",
@@ -95,7 +107,7 @@
     "cloud:verify": "npm run verify:cloud",
     "cloud:smoke": "bash scripts/cursor-cloud-smoke.sh",
     "cloud:artifacts": "bash scripts/cursor-cloud-artifacts.sh",
-    "verify:package": "node scripts/verify-package-metadata.mjs",
+    "verify:package": "node scripts/verify-package-metadata.mjs && node scripts/verify-pi-package-contract.mjs",
     "bench:all": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run test/widget-render-perf.test.ts test/dashboard-render-perf.test.ts test/spawn-latency-bench.test.ts test/spawn-latency-e2e-bench.test.ts --reporter=verbose",
     "lint": "biome check src/ test/ scripts/",
     "lint:fix": "biome check --write --unsafe src/ test/ scripts/",
@@ -112,22 +124,23 @@
     "showcase:label-scenes": "node scripts/label-showcase-scenes.mjs",
     "showcase:verify-media": "node scripts/verify-showcase-media.mjs",
     "showcase:vhs": "bash scripts/render-showcase-vhs.sh",
-    "screenshots": "npm run build && node scripts/render-screenshots.mjs"
+    "screenshots": "npm run build && node scripts/render-screenshots.mjs",
+    "verify:pi-package": "node scripts/verify-pi-package-contract.mjs",
+    "bench:profile": "npm run build && node scripts/benchmark-runtime-profile.mjs"
   },
   "type": "module",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.22.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.5",
-    "@earendil-works/pi-agent-core": "^0.81.1",
-    "@earendil-works/pi-ai": "^0.81.1",
-    "@earendil-works/pi-coding-agent": "^0.81.1",
-    "@types/node": "^26.1.0",
-    "@types/proper-lockfile": "^4.1.4",
+    "@biomejs/biome": "^2.5.13",
+    "@earendil-works/pi-agent-core": "^0.99.1",
+    "@earendil-works/pi-ai": "^0.99.1",
+    "@earendil-works/pi-coding-agent": "^0.99.1",
+    "@types/node": "^26.4.1",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^7.0.2",
     "vitest": "^4.1.7"
   },
@@ -143,7 +156,8 @@
     "prompts": [
       "./prompts"
     ],
-    "video": "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4"
+    "video": "https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4",
+    "image": "https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/social_preview.png"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

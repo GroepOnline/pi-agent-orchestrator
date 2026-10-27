@@ -23,6 +23,16 @@ import type { AgentConfig } from "../src/types.js";
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
 }));
 
 vi.mock("../src/worktree.js", () => ({
@@ -173,7 +183,7 @@ describe("Backward compat: default values for new fields", () => {
     expect(getAgentConfig("Plan")?.disallowedTools).toEqual(["write", "edit"]);
   });
 
-  it("compactionKeepTurns defaults to undefined (falls back to DEFAULT_KEEP_TURNS=5)", () => {
+  it("compactionKeepTurns defaults to undefined (unused schema field)", () => {
     registerAgents(new Map());
 
     for (const name of ["general-purpose", "Explore", "Plan"]) {

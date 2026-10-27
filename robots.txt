@@ -1,7 +1,5 @@
 # ChefGroep — Pi Agent Orchestrator
 # AI assistants may fetch and reference content. Training is declined.
-# Media stays reachable by direct URL; public image indexes are declined
-# via Googlebot-Image + X-Robots-Tag: noimageindex (see site/web/public/_headers).
 
 User-agent: *
 Content-Signal: search=yes,ai-input=yes,ai-train=no,use=reference
@@ -54,9 +52,5 @@ Disallow: /
 User-agent: Applebot-Extended
 Disallow: /
 
-# Public image indexes: do not discover/index media galleries.
-# Direct links still work for humans and AI assistants (not Googlebot-Image).
-User-agent: Googlebot-Image
-Disallow: /
 
 Sitemap: https://orchestrator.chefgroep.online/sitemap.xml

@@ -3,7 +3,7 @@
  *
  * The function reads from three sources:
  *   1. `manager`            — maxConcurrent, session limits, session max spawns/turns
- *   2. `getters`            — default max turns, grace turns, join mode, scheduling, tracing
+ *   2. `getters`            — default max turns, grace turns, join mode, scheduling
  *   3. `agent-registry`     — animation/ui/orchestration/refresh/compression (direct imports)
  *
  * The agent-registry reads are mocked at the module boundary so we can assert
@@ -23,6 +23,9 @@ vi.mock("../src/agent-registry.js", () => ({
   getPromptCompressionLevel: vi.fn(),
   getUiStyle: vi.fn(),
   isShowAgentTopWidget: vi.fn(() => true),
+  isShowActivityStream: vi.fn(() => true),
+  isShowTokenUsage: vi.fn(() => true),
+  isShowTurnProgress: vi.fn(() => true),
   getFooterStatusConfig: () => DEFAULT_FOOTER_STATUS_CONFIG,
   getDashboardKeybindings: () => DEFAULT_DASHBOARD_KEYBINDINGS,
 }));
@@ -45,10 +48,10 @@ import { buildSettingsSnapshot } from "../src/ui/settings-snapshot.js";
  */
 type SnapshotManager = Pick<
   AgentManager,
-  "getMaxConcurrent" | "getSessionLimits" | "getSessionMaxSpawns" | "getSessionMaxTurns"
+  "getMaxConcurrent" | "getPerAgentTokenLimit" | "getSessionLimits" | "getSessionMaxSpawns" | "getSessionMaxTurns"
 >;
 
-/** Build a SettingsGetters object with all 5 fields controllable per test. */
+/** Build a SettingsGetters object with all fields controllable per test. */
 function makeGetters(overrides: Partial<SettingsGetters> = {}): SettingsGetters {
   return {
     getDefaultMaxTurns: () => 25,
@@ -56,7 +59,6 @@ function makeGetters(overrides: Partial<SettingsGetters> = {}): SettingsGetters 
     getMaxEndHookRevisions: () => 0,
     getDefaultJoinMode: () => "smart",
     isSchedulingEnabled: () => true,
-    isTracingEnabled: () => true,
     ...overrides,
   };
 }
@@ -65,6 +67,7 @@ function makeGetters(overrides: Partial<SettingsGetters> = {}): SettingsGetters 
 function makeManager(overrides: Partial<SnapshotManager> = {}): SnapshotManager {
   return {
     getMaxConcurrent: () => 4,
+    getPerAgentTokenLimit: () => 0,
     getSessionLimits: () => ({}),
     getSessionMaxSpawns: () => 0,
     getSessionMaxTurns: () => 0,
@@ -94,6 +97,14 @@ beforeEach(() => {
 // ── Manager-owned fields ────────────────────────────────────────────────
 
 describe("buildSettingsSnapshot — manager-owned fields", () => {
+  it("persists the manager per-agent token cap", () => {
+    const snapshot = buildSettingsSnapshot(
+      asManager(makeManager({ getPerAgentTokenLimit: () => 125000 })),
+      makeGetters(),
+    );
+    expect(snapshot.perAgentTokenLimit).toBe(125000);
+  });
+
   it("pulls maxConcurrent from the manager", () => {
     const snapshot = buildSettingsSnapshot(
       asManager(makeManager({ getMaxConcurrent: () => 8 })),
@@ -113,20 +124,8 @@ describe("buildSettingsSnapshot — manager-owned fields", () => {
     );
     expect(snapshot.maxAgentsPerSession).toBe(12);
     expect(snapshot.maxTotalTurnsPerSession).toBe(80);
-  });
-
-  it("propagates sessionMaxSpawns and sessionMaxTurns from the manager", () => {
-    const snapshot = buildSettingsSnapshot(
-      asManager(
-        makeManager({
-          getSessionMaxSpawns: () => 12,
-          getSessionMaxTurns: () => 80,
-        }),
-      ),
-      makeGetters(),
-    );
-    expect(snapshot.sessionMaxSpawns).toBe(12);
-    expect(snapshot.sessionMaxTurns).toBe(80);
+    expect(snapshot.sessionMaxSpawns).toBeUndefined();
+    expect(snapshot.sessionMaxTurns).toBeUndefined();
   });
 
   it("omits session-limit fields when getSessionLimits() returns {}", () => {
@@ -168,16 +167,14 @@ describe("buildSettingsSnapshot — getter-owned fields", () => {
     expect(snapshot.defaultJoinMode).toBe("group");
   });
 
-  it("pulls schedulingEnabled and tracingEnabled from the getters (false case)", () => {
+  it("pulls schedulingEnabled from the getters (false case)", () => {
     const snapshot = buildSettingsSnapshot(
       asManager(makeManager()),
       makeGetters({
         isSchedulingEnabled: () => false,
-        isTracingEnabled: () => false,
       }),
     );
     expect(snapshot.schedulingEnabled).toBe(false);
-    expect(snapshot.tracingEnabled).toBe(false);
   });
 
   it("maps defaultMaxTurns: undefined to 0 (the unlimited marker)", () => {
@@ -227,15 +224,17 @@ describe("buildSettingsSnapshot — call-count invariants", () => {
   it("calls each manager method exactly once per snapshot (no double-reads)", () => {
     const spy: SnapshotManager = {
       getMaxConcurrent: vi.fn(() => 4),
+      getPerAgentTokenLimit: vi.fn(() => 0),
       getSessionLimits: vi.fn(() => ({})),
       getSessionMaxSpawns: vi.fn(() => 0),
       getSessionMaxTurns: vi.fn(() => 0),
     };
     buildSettingsSnapshot(asManager(spy), makeGetters());
     expect(spy.getMaxConcurrent).toHaveBeenCalledTimes(1);
+    expect(spy.getPerAgentTokenLimit).toHaveBeenCalledTimes(1);
     expect(spy.getSessionLimits).toHaveBeenCalledTimes(1);
-    expect(spy.getSessionMaxSpawns).toHaveBeenCalledTimes(1);
-    expect(spy.getSessionMaxTurns).toHaveBeenCalledTimes(1);
+    expect(spy.getSessionMaxSpawns).not.toHaveBeenCalled();
+    expect(spy.getSessionMaxTurns).not.toHaveBeenCalled();
   });
 
   it("calls each getter exactly once per snapshot (no double-reads)", () => {
@@ -245,7 +244,6 @@ describe("buildSettingsSnapshot — call-count invariants", () => {
       getMaxEndHookRevisions: vi.fn(() => 0),
       getDefaultJoinMode: vi.fn(() => "smart"),
       isSchedulingEnabled: vi.fn(() => true),
-      isTracingEnabled: vi.fn(() => true),
     };
     buildSettingsSnapshot(asManager(makeManager()), spy);
     expect(spy.getDefaultMaxTurns).toHaveBeenCalledTimes(1);
@@ -253,7 +251,6 @@ describe("buildSettingsSnapshot — call-count invariants", () => {
     expect(spy.getMaxEndHookRevisions).toHaveBeenCalledTimes(1);
     expect(spy.getDefaultJoinMode).toHaveBeenCalledTimes(1);
     expect(spy.isSchedulingEnabled).toHaveBeenCalledTimes(1);
-    expect(spy.isTracingEnabled).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -266,20 +263,21 @@ describe("buildSettingsSnapshot — snapshot shape", () => {
     // be silently dropped on save.
     const expectedKeys = [
       "maxConcurrent",
+      "perAgentTokenLimit",
       "defaultMaxTurns",
       "graceTurns",
       "maxEndHookRevisions",
       "defaultJoinMode",
       "schedulingEnabled",
-      "tracingEnabled",
       "animationStyle",
       "uiStyle",
       "orchestrationMode",
       "dashboardRefreshInterval",
-      "sessionMaxSpawns",
-      "sessionMaxTurns",
       "promptCompressionLevel",
       "showAgentTopWidget",
+      "showActivityStream",
+      "showTokenUsage",
+      "showTurnProgress",
     ];
     for (const key of expectedKeys) {
       expect(snapshot).toHaveProperty(key);

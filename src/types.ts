@@ -5,6 +5,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { CompactionSnapshot } from "./compaction-snapshot.js";
+import type { AgentOutcome } from "./spend.js";
 import type { LifetimeUsage } from "./usage.js";
 
 export type { CompactionSnapshot, ThinkingLevel };
@@ -111,9 +112,8 @@ export interface AgentConfig {
     /** Per-agent override for MAX_MEMORY_LINES. Falls back to global default (200). */
     maxMemoryLines?: number;
     /**
-     * Intended keep-turns for local tool-output pruning in `src/compaction.ts`.
-     * Not consumed by `runAgent` today — subagent compaction is Pi upstream
-     * auto-compaction only (#325). Kept for config/schema compatibility.
+     * Unused. Kept for config/schema compatibility. Subagent compaction is
+     * Pi upstream auto-compaction only (#325).
      */
     compactionKeepTurns?: number;
     /** Partitioned state: mapping partition name → allowed tool names for that partition. */
@@ -134,6 +134,17 @@ export interface AgentRecord {
     status: AgentStatus;
     result?: string;
     error?: string;
+    /**
+     * Explicit outcome contract (R4): executed | blocked_budget | not_executed.
+     * Derived by the runner and recorded here so get_subagent_result and the
+     * task notifications present budget cuts and silent runs explicitly —
+     * an empty result is never presented as successful completion. Optional:
+     * records created before this field existed (or by paths that never set
+     * it) simply omit it.
+     */
+    outcome?: AgentOutcome;
+    /** Structured reason behind `outcome` — the abort message or a progress note. */
+    outcomeReason?: string;
     toolUses: number;
     /** Timestamp when the agent was spawned (record created). Never reset. */
     spawnedAt: number;
@@ -172,12 +183,13 @@ export interface AgentRecord {
      * Total = input + output + cacheWrite. Initialized to zeros at spawn.
      */
     lifetimeUsage: LifetimeUsage;
+    /** Spend-warning thresholds already fired for this agent ("50"|"80"|"100"). */
+    spendFlags?: Set<string>;
     /** Number of successful upstream compactions observed. Initialized to 0 at spawn. */
     compactionCount: number;
     /**
      * Snapshot of the most recent upstream Pi `compaction_end` event
-     * (success or aborted). Local prune helpers in `src/compaction.ts` are
-     * not on the live subagent path (#325).
+     * (success or aborted).
      */
     lastCompaction?: CompactionSnapshot;
     /** Resolved spawn params, captured for UI display. Fixed at spawn time. */
@@ -197,10 +209,10 @@ export interface AgentRecord {
     /** Active partition for this agent (first partition from invocation.partitions). */
     activePartition?: string;
     /**
-     * Short (8-hex-char) correlation id shared across the agent's spans +
-     * log lines. Generated at spawn time and preserved across
-     * `resumeAgent`, so re-running an agent keeps the same id and traces
-     * line up in the OTel exporter and the `/agents health` report.
+     * Short (8-hex-char) correlation id shared across the agent's log lines.
+     * Generated at spawn time and preserved across `resumeAgent`, so
+     * re-running an agent keeps the same id and log lines line up in the
+     * `/agents health` report.
      */
     correlationId?: string;
 }

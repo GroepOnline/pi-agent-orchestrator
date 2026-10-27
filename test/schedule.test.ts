@@ -341,7 +341,7 @@ describe("SubagentScheduler — fire path", () => {
   afterEach(() => {
     scheduler.stop();
     // maxRetries + retryDelay handles Windows file-locking races where the
-    // proper-lockfile lockfile directory is briefly held open after release.
+    // fs.mkdir lock directory is briefly held open after release.
     rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 

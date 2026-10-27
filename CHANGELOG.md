@@ -2,11 +2,128 @@
 
 ## [Unreleased]
 
+No unreleased changes. The repository is now on the 0.19.x release train.
+
+---
+
+## v0.19.2 (2026-09-11)
+
+### Changes since v0.19.1
+
+- feat(marketing): harden 0.19.2 SEO and runtime
+- fix(release): harden auto-release trigger
+- fix(release): publish the next patch after main advances (#91)
+- fix(docs): make npm README media portable (#90)
+- chore(deps): bump @vitest/mocker (#89)
+
+### Additional changes since v0.19.1
+
+- Dropped unused local tool-output prune helpers (`src/compaction.ts`). Live compaction stays Pi upstream auto-compaction.
+- Replaced `nanoid` with `node:crypto` for schedule job ids.
+- Removed unused TUI spinner glyphs that no pack or role used.
+- Dropped unused docs-site deps (`lucide-react` and leftover `@radix-ui/react-*` next to `radix-ui`).
+- Removed the unwired orchestra engine (`workflow-runner` / `run-manager` / `execution-strategy`). Live crew stays `orchestration-dispatch`.
+- Dropped OpenTelemetry and PostHog bridges (`@opentelemetry/api`, `posthog-node`). In-process `telemetry.ts` remains.
+- Dropped ChefGroep OS preflight injection, legacy `detectEnv` git exec, and `proper-lockfile`.
+
+---
+
+## v0.19.1 (2026-09-07)
+
+v0.19.1 publishes the reviewed 0.19 runtime state after branch convergence. It is intentionally a patch release: the orchestration/runtime model remains on the v0.19 line while the release transaction adds the bounded Explore handoff demo path and hardens the capture tooling around it.
+
+### What changed
+
+- Added bounded Explore handoff terminal demo tooling.
+- Added deterministic handoff parsing checks used by the demo path.
+- Added the GroepOnline Pi extension install helper used by the demo.
+- Hardened demo capture preflight so it verifies the configured live MiMo route before recording.
+- Removed unsafe demo setup behavior: capture does not perform unverified binary downloads and does not mutate global Pi trust.
+- Synchronized package, lockfile and Remotion promo metadata to `0.19.1`.
+- Refreshed README and documentation navigation for the v0.19.1 public surface.
+- Replaced the README's generated social-card hero with a small source-controlled orchestration SVG that also anchors the architecture documentation.
+
+### Bounded handoff demo
+
+The demo is designed to demonstrate an actual execution boundary rather than a mock terminal sequence:
+
+```text
+read-only Explore task
+  → bounded tools / turn limit
+  → real model route preflight
+  → execution
+  → structured handoff JSON
+  → deterministic parse/render check
+```
+
+Relevant repository pieces include:
+
+- `scripts/handoff-demo-drive.sh` — recording choreography.
+- `scripts/handoff-demo-check.mjs` — deterministic parser/render verification.
+- the GroepOnline Pi extension install helper used by the demo setup.
+
+The demo's read-only boundary and route verification are part of the evidence. Recording should fail before capture when the required route is not verified instead of silently producing a misleading showcase.
+
+### Documentation changes
+
+The release PR now also carries the documentation needed to understand the published package:
+
+- `README.md` — install, first useful run, execution model, safety boundaries, dashboard, skills and docs map.
+- `docs/getting-started.md` — first-run guide and operating model.
+- `docs/index.md` — complete navigation across execution, operations, releases and skills.
+- `docs/architecture.md` — refreshed topology, permission resolution, lifecycle, dispatch, handoffs, scheduling, UI, RPC and telemetry.
+- `docs/images/orchestration_flow.svg` — reviewable source-controlled product/architecture visual.
+- `docs/assets-layout.md` — clarified split between source visuals, generated social assets and large binary media.
+
+### Release scope
+
+This patch does not replay historical branches whose behavior is already present on `main` or superseded by newer policy. It publishes the reviewed mainline state represented by the v0.19.1 release transaction.
+
+There are no intended new hosted services, package-owned data stores or implicit release actions in this patch. Multi-agent execution remains opt-in and the default orchestration strategy remains `single`.
+
+### Dependency refresh
+
+- Updated `posthog-node` from 5.50.0 to 5.51.4, including the matching PostHog core/types updates.
+- Updated the Pi development host stack to the 0.84.4 line (`pi-agent-core` and `pi-coding-agent`) together with Biome 2.5.12 and current Node.js type definitions.
+- Added the runtime-profile benchmark and decision record now present on `main`; these remain part of the published source state rather than being dropped by the release branch.
+
+### Verification
+
+The release transaction was prepared with the existing v0.19.1 policy and package gates, including version-transition checks, release verification, package metadata checks, Remotion promo-data checks and npm pack verification. CI on the final PR head remains authoritative before merge.
+
+---
+
+## v0.19.0 (2026-09-03)
+
+### Model resilience: automatic multi-model fallback
+
+- **Subagents no longer die on provider failures.** 401/403/429/rate-limit/unavailable/overloaded/quota now trigger a transparent retry chain: session-default model first, then up to 4 more available models — covering both soft `stopReason:error` endings and thrown transport errors.
+- **Rate-limit backoff**: retries honor a `retry-after` hint from the error message (capped at 10s) or wait a fixed 1.5s instead of instantly burning the next candidate.
+- **Session-only "free models only" gate** (`/agents → Settings → Free models only`): swaps paid models for zero-cost ones for this session only — never persisted. Applies to initial resolution and fallback candidate filtering.
+
+### Per-subagent spend budget
+
+- **Budget warnings rebuilt on real usage**: per-agent token-cap warnings at 50/80/100% (`/agents → Settings → Per-agent token cap`, default off), backed by pure cost math (`src/spend.ts`) over the pi-ai model rates.
+- **Spam fix**: session budget warnings now fire exactly once per threshold instead of on every turn end.
+- **`max_spend_tokens` Agent tool param**: per-run hard cap wired to the runner's existing quota abort.
+
+### Settings menu: descriptor-driven SSOT
+
+- One descriptor per menu-editable setting; dispatch by stable id, never label text. `persist: false` marks session-only settings.
+- Activity stream / Token usage / Turn progress toggles are now reachable (previously persisted but menu-less).
+
+### Menu & core structure
+
+- `/agents` main menu dispatches via typed entry ids instead of label-text matching.
+- NotificationHub extracted from the extension entry point.
+
+### Additional changes since v0.18.1
+
 No unreleased changes. The repository remains locked to the 0.18.x stabilization train.
 
 ---
 
-## v0.18.1 (2026-08-10)
+## v0.18.1 (2026-08-22)
 
 ### Subagent budget fix (data-driven)
 
@@ -24,6 +141,9 @@ Oversized tasks should still pass an explicit `max_turns`; the ceiling is a safe
 - Docs synced for identity, hotkeys, tools, and PERFORMANCE (CHE-30).
 - **Release infra**: re-release allowed when npm lacks the exact version; prepare diff gate is a subset check.
 - Test fix: addAgentToSwarm assertions align with the CHE-25 two-arg signature.
+- Raise the Node.js floor to `22.22.3` (`.nvmrc`, Cloud Dockerfile digest, `engines.node`, and release-critical CI) so `posthog-node@5.47.3` engine requirements no longer fail Cursor Cloud install.
+- Keep Cursor Cloud system packages current (`apt-get update/upgrade`) and ship Google Chrome stable in the Dockerfile + install refresh for computer-use.
+- Install the Pi.dev host CLI (`pi` / `@earendil-works/pi-coding-agent`) in the Cloud image and align it during install; run the Pi-host extension smoke as part of Cloud install so agents can actually load-test the extension.
 
 ### Fixed
 

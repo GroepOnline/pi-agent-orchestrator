@@ -1,175 +1,210 @@
-# @groeponline/pi-agent-orchestrator
+<p align="center">
+  <img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/dashboard_preview.gif" alt="Pi Agent Orchestrator live agent dashboard" width="100%">
+</p>
 
-> Multi-agent orchestration for the Pi coding agent: autonomous subagents,
-> isolated worktrees, swarms, schedules, structured handoffs, prompt compression,
-> and live terminal observability.
+<h1 align="center">Pi Agent Orchestrator</h1>
 
-[![npm version](https://img.shields.io/npm/v/@groeponline/pi-agent-orchestrator)](https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator)
-[![npm downloads](https://img.shields.io/npm/dm/@groeponline/pi-agent-orchestrator)](https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator)
-[![CI](https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml)
-[![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+<p align="center"><strong>Turn one Pi session into a visible team of agents.</strong><br>Run parallel research, isolated implementation, swarms, schedules and handoffs without losing control of who is doing what.</p>
 
-## Install or try it immediately
+<p align="center">
+  <a href="https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator"><img src="https://img.shields.io/npm/v/@groeponline/pi-agent-orchestrator" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@groeponline/pi-agent-orchestrator"><img src="https://img.shields.io/npm/dm/@groeponline/pi-agent-orchestrator" alt="npm downloads"></a>
+  <a href="https://pi.dev/packages/@groeponline/pi-agent-orchestrator"><img src="https://img.shields.io/badge/Pi-package-9b59b6.svg" alt="Pi package"></a>
+  <a href="https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml"><img src="https://github.com/GroepOnline/pi-agent-orchestrator/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="MIT License"></a>
+</p>
 
-Install globally in Pi:
+## Start in 10 seconds
 
 ```bash
 pi install npm:@groeponline/pi-agent-orchestrator
 ```
 
-Try the published package for one session without changing your settings:
+Then run:
+```text
+/orchestra-audit src
+/agents
+```
+
+That gives you a first useful run immediately: read-only agents fan out over the codebase, results come back into one synthesis, and `/agents` shows the live queue while it happens.
+
+## See the operator surface
+
+This is the actual terminal UI, not a mockup. The dashboard stays in the same Pi process as the agents it is supervising.
+
+<table>
+<tr>
+<td width="50%"><img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/showcase_dashboard.gif" alt="Pi Agent Orchestrator live dashboard with agent queue and status" width="100%"><br><sub>Live agent queue, state and results.</sub></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/showcase_top_view.gif" alt="Pi Agent Orchestrator resource top view" width="100%"><br><sub>Resource and performance view while work is running.</sub></td>
+</tr>
+</table>
+
+Prefer a one-off session first?
 
 ```bash
 pi -e npm:@groeponline/pi-agent-orchestrator
 ```
 
-For a project-local install:
+## Three things to try first
 
-```bash
-pi install npm:@groeponline/pi-agent-orchestrator -l
-```
-
-Requires Node.js 22.19.0 or newer and `@earendil-works/pi-coding-agent` 0.81.1 or newer.
-Use `pi install`; running `npm install` alone does not register the package resources with Pi.
-
-## Why this package
-
-| Capability | What it gives you |
-| --- | --- |
-| Autonomous subagents | Explore, Plan, Analysis, general-purpose, and custom agents with bounded execution |
-| Parallel orchestration | Background groups, swarms, structured handoffs, and controlled concurrency |
-| Safe isolation | Permission inheritance, partition filtering, budgets, depth limits, and optional git worktrees |
-| Operator control | Interactive `/agents` dashboard, live status, steering, termination, schedules, and performance views |
-| Ready-made workflows | Progressive-disclosure orchestration and Pi TypeScript engineering skills plus audit, plan, and implementation prompt templates |
-| Local execution | No hosted control plane, no package-owned telemetry backend, and no package-owned data service |
-
-The extension runs inside the Pi host process. It does not make outbound network calls of its own and does not store user data on a hosted service.
-
-## Real terminal showcase
-
-The preview is rendered from the compiled dashboard, resource top view, and widget implementation. Remotion supplies the framing and encoding; the terminal content comes from the actual product renderers.
-
-[![Pi Agent Orchestrator terminal preview](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/dashboard_preview.svg)](https://groeponline.github.io/pi-agent-orchestrator/assets/product_film.mp4)
-
-- [Watch the product film](https://groeponline.github.io/pi-agent-orchestrator/assets/product_film.mp4) — the full Remotion-rendered showcase
-- [Watch the dashboard preview](https://groeponline.github.io/pi-agent-orchestrator/assets/dashboard_preview.mp4)
-- [Open the agent-readable project site](https://groeponline.github.io/pi-agent-orchestrator/)
-- [Read the Pi package documentation](https://pi.dev/docs/latest/packages)
-
-## First useful run
-
-Start Pi with the package, then run the packaged audit template:
+### 1. Audit a codebase in parallel
 
 ```text
 /orchestra-audit src
 ```
 
-Open the control surface while the agents run:
+Use this when one agent would otherwise spend several turns walking the tree serially. Explore agents stay read-only, work in parallel and return evidence to one parent.
 
+### 2. Implement without agents stepping on each other
 ```text
-/agents
+/orchestra-implement "Fix the scheduler race and verify it"
 ```
 
-Useful controls:
+The packaged workflow discovers first, plans the change, gives implementation to one bounded writer and verifies the result independently. Implementation agents can use git worktrees so parallel work does not share one mutable checkout.
 
-- `j` / `k` or arrows: navigate agents
-- `Space`: multi-select
-- `t`: resource top view
-- `z`: daemon schedules
-- `Shift+K`: terminate selected agents
-- `?`: help
-- `/perf`: performance metrics
+### 3. Keep recurring agent work visible
 
-The Pi footer can expose live running and queued counts through the `subagents` status slot.
+Open the daemon view from `/agents` with `z`, or schedule a bounded recurring job. Schedules persist, expose next-run state and stay inspectable from the same operator surface.
 
-## Packaged skills and Orchestra workflows
+## What you see while it runs
 
-The npm package includes three skills and three prompt templates. Pi loads only each skill description into the system prompt; the full workflow is read on demand.
+`/agents` is the live operator view for the current Pi process:
 
-| Command | Use |
+- running and queued agents;
+- current task and agent type;
+- resource usage and performance metrics;
+- schedules and daemon state;
+- multi-select, steering and termination;
+- structured results and handoff state.
+
+Common controls:
+
+| Key | Action |
 | --- | --- |
-| `/skill:pi-orchestra` | Load the complete evidence-first orchestration operating model |
-| `/skill:pi-typescript-extension-engineering` | Engineer and review strict TypeScript across Pi tools, sessions, TUI, persistence, tests, and package boundaries |
-| `/skill:real-product-showcase` | Record real terminal, browser, or app demos and check framing plus media gates |
-| `/orchestra-audit [scope]` | Run three parallel read-only audits and synthesize ranked findings |
-| `/orchestra-plan <goal>` | Gather evidence in parallel and produce a mechanically verifiable plan |
-| `/orchestra-implement <goal>` | Discover, plan, implement in one isolated writer, and independently verify |
+| `j` / `k` or arrows | Navigate |
+| `Space` | Multi-select |
+| `t` | Resource top view |
+| `z` | Daemon schedules |
+| `Shift+K` | Terminate selected agents |
+| `?` | Help |
+| `/perf` | Performance metrics |
 
-Install skills into Cursor, Codex, Claude Code, or another Agent Skills-compatible client:
+[Watch the full product film](https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/product_film.mp4) · [Open the showcase](https://orchestrator.chefgroep.online/showcase)
+
+## Why this exists
+
+Pi deliberately keeps the core small. That is useful until a job needs several independent lines of work at once.
+
+Pi Agent Orchestrator adds that execution layer without replacing Pi itself. The host still owns the session, tools and model path. The orchestrator adds bounded child agents, isolation, coordination, schedules and one place to watch the whole run.
+
+| When you need to… | Use |
+| --- | --- |
+| inspect several areas at once | parallel Explore agents |
+| plan before editing | read-only Plan agents |
+| make changes without checkout collisions | isolated implementation worktrees |
+| coordinate several workers | crew or swarm orchestration |
+| continue work on a cadence | persistent schedules |
+| pass explicit state between workers | structured handoffs |
+| stop or steer work mid-run | `/agents` controls |
+
+## Core capabilities
+
+- **Interactive TUI dashboard** — inspect agents, queues, schedules, resources, health and performance while work is live.
+- **Subagent lifecycle** — spawn, queue, steer, stop, inspect and collect structured results.
+- **Permission inheritance** — child agents can only become more restricted than their parent.
+- **Worktree isolation** — give implementation agents separate branches and filesystems when parallel writes would collide.
+- **Persistent scheduling** — cron, interval and one-shot jobs with daemon visibility.
+- **Structured handoffs** — pass machine-readable state between agents instead of relying on hidden chat context.
+- **Swarm coordination** — coordinate dynamic membership and completion across several workers.
+- **Prompt compression profiles** — reduce static system-prompt overhead with global and per-agent profiles.
+- **Cross-extension RPC** — authenticated peer-extension calls with a strict spawn allowlist and mutation rate limits.
+
+## Built-in agent types
+
+| Type | Mode | Best for |
+| --- | --- | --- |
+| Explore | read-only | Fast parallel codebase discovery and evidence gathering |
+| Plan | read-only | Architecture and implementation planning before edits |
+| Analysis | read-only + `ctx_*` | Sandboxed data or compute with optional `@groeponline/context-mode` |
+| general-purpose | full tools | Bounded implementation and multi-step execution |
+
+Project-specific agents can live in `.pi/agents/*.md` with their own tools, models and limits. See [Custom agents](docs/custom-agents.md).
+
+## How a run is bounded
+
+Autonomy is explicit, not just a prompt convention. Before a child runs, the orchestrator resolves inherited tool restrictions, partition filters, explicit disallow rules, depth limits, turn limits, token budgets and optional worktree isolation.
+
+A child cannot silently regain a tool or scope removed by its parent.
+
+The package does not automatically merge, publish, tag or deploy unless the workflow you run explicitly asks for those actions.
+## How orchestration fits together
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/GroepOnline/pi-agent-orchestrator/main/docs/images/orchestration_flow.svg" alt="Pi Agent Orchestrator execution flow" width="100%">
+</p>
+
+The dispatcher supports `single`, `crew`, `swarm` and `auto` strategies. Multi-agent execution is opt-in; the default remains `single`.
+
+Use the packaged workflows when you want a good default:
+
+| Entry point | What it does |
+| --- | --- |
+| `/orchestra-audit [scope]` | Parallel read-only inspection followed by ranked synthesis |
+| `/orchestra-plan <goal>` | Evidence gathering followed by a mechanically verifiable plan |
+| `/orchestra-implement <goal>` | Discover, plan, implement with one writer and independently verify |
+| `/skill:pi-orchestra` | Operating model for evidence-first orchestration |
+| `/skill:pi-typescript-extension-engineering` | Pi extension engineering and review guidance |
+| `/skill:real-product-showcase` | Real terminal/browser/app capture and media verification |
+
+You can also install the packaged Agent Skills into another compatible client:
 
 ```bash
 npx skills add https://github.com/GroepOnline/pi-agent-orchestrator --skill real-product-showcase
 npx skills add https://github.com/GroepOnline/pi-agent-orchestrator --skill pi-typescript-extension-engineering
 ```
 
-The templates deliberately avoid automatic merge, publish, tag, or deploy actions unless those actions are explicitly part of the request.
-
-## Built-in agent types
-
-| Type | Mode | Use when |
+## Where it fits in the GroepOnline Pi stack
+| Stage | Package | Owns |
 | --- | --- | --- |
-| Explore | read-only | Parallel codebase discovery and evidence collection |
-| Plan | read-only | Architecture and implementation planning before edits |
-| Analysis | read-only + `ctx_*` | Sandboxed data or compute through optional `@groeponline/context-mode` |
-| general-purpose | full tools | Bounded implementation and multi-step execution |
+| Capture | [`pi-wishcraft`](https://github.com/GroepOnline/pi-wishcraft) | Operator cockpit and lightweight ideas |
+| Persist | [`pi-missions`](https://github.com/GroepOnline/pi-missions) | Durable plan, queue, evidence, recovery and mission handoff state |
+| Execute | **pi-agent-orchestrator** | Agents, worktrees, swarms, schedules and execution handoffs |
 
-Create project agents in `.pi/agents/*.md`. See [Custom Agents](docs/custom-agents.md) for the complete frontmatter schema.
-
-## Core capabilities
-
-- **Interactive TUI dashboard** — agent list, resource top, daemon schedules, performance metrics, help, and settings.
-- **Subagent lifecycle** — spawn, queue, steer, stop, inspect, and collect structured results.
-- **Permission inheritance** — children cannot silently regain tools or scopes removed by a parent.
-- **Worktree isolation** — optional branch and filesystem isolation for implementation agents.
-- **Prompt compression profiles** — static system-prompt guidance with global defaults and per-agent overrides; this does not compact conversation history.
-- **Persistent scheduling** — cron, interval, and one-shot jobs with a daemon schedule view.
-- **Structured handoffs** — machine-readable transfer between agents and chained workflows.
-- **Swarm coordination** — dynamic membership and coordinated completion.
-- **Cross-extension RPC** — capability-based integration for trusted peer extensions.
-
-Default orchestration mode is `single`; multi-agent modes are opt-in.
+A common path is `idea → mission → orchestration run`, but the orchestrator also works standalone.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — module map and data flow.
-- [Tool calling and execution contract](docs/tool-calling.md) — schemas, lifecycle ordering, cancellation, steering, concurrency, result ownership, telemetry, and test invariants.
-- [API reference](docs/api-reference.md) — tools, settings, handoffs, and scheduler.
-- [Custom agents](docs/custom-agents.md) — frontmatter schema and examples.
-- [Prompt compression](docs/prompt-compression.md) — exact scope and impact.
-- [Performance](docs/PERFORMANCE.md) — render budgets and benchmarks.
-- [Troubleshooting](docs/troubleshooting.md) — common operator fixes.
-- [Orchestra skill](skills/pi-orchestra/SKILL.md) — evidence-first multi-agent operating model.
-- [Pi TypeScript extension engineering skill](skills/pi-typescript-extension-engineering/SKILL.md) — strict host-compatible TypeScript for extensions and SDK orchestration.
-- [Real product showcase skill](skills/real-product-showcase/SKILL.md) — real terminal/browser/app capture, post, and media checks. No fake hero UI.
-- [AGENTS.md](AGENTS.md) — repository invariants for contributors and coding agents.
-- [CHANGELOG.md](CHANGELOG.md) — release history.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution workflow.
-- [SECURITY.md](SECURITY.md) — private vulnerability reporting.
+- [Getting started](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [Execution strategies](docs/execution-strategies.md)
+- [Tool calling](docs/tool-calling.md)
+- [API reference](docs/api-reference.md)
+- [Custom agents](docs/custom-agents.md)
+- [Prompt compression](docs/prompt-compression.md)
+- [Performance](docs/PERFORMANCE.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [v0.19.2 release notes](docs/releases/v0.19.2.md)
 
 ## Development
 
 ```bash
 npm ci
-npm run setup:hooks   # optional local git hooks
 npm run typecheck
 npm run lint
 npm test
 npm run build
 npm run verify:package
 ```
-
-### Cursor Cloud
-
-The repository ships a deterministic [Cursor Cloud](https://cursor.com/docs/cloud-agent/setup)
-environment in `.cursor/environment.json` + `.cursor/Dockerfile`. The Dockerfile
-pins Node to the `.nvmrc` version (`node:22.19.0-bookworm`) so bare shells use a
-compliant Node by default; it installs with `scripts/cursor-cloud-install.sh` and
-exposes one canonical gate:
+For the canonical repository gate in cloud environments:
 
 ```bash
-npm run verify:cloud   # typecheck + lint + test + build + verify:package + release policy
-npm run cloud:smoke    # load the built extension through the real Pi host (no API key)
+npm run verify:cloud
+npm run cloud:smoke
 ```
+
+## Privacy
+
+The extension runs inside the Pi host process. There is no package-owned hosted control plane and no package-owned telemetry backend. Optional telemetry is inert until explicitly configured by the operator.
 
 ## License
 

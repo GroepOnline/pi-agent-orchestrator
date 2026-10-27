@@ -2,12 +2,22 @@
  * task-budget.test.ts — Tests for task budget and depth limiting.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentManager, activeAgentStorage } from "../src/agent-manager.js";
+import { AgentManager, activeAgentStorage, type BudgetWarningType } from "../src/agent-manager.js";
 import type { AgentRecord } from "../src/types.js";
 
 vi.mock("../src/agent-runner.js", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
+  AgentRunnerError: class AgentRunnerError extends Error {
+    constructor(
+      message: string,
+      public readonly code: string,
+      public readonly context?: Record<string, unknown>,
+    ) {
+      super(message);
+      this.name = "AgentRunnerError";
+    }
+  },
 }));
 
 vi.mock("../src/worktree.js", () => ({
@@ -16,7 +26,7 @@ vi.mock("../src/worktree.js", () => ({
   pruneWorktrees: vi.fn(),
 }));
 
-import { runAgent } from "../src/agent-runner.js";
+import { AgentRunnerError, runAgent } from "../src/agent-runner.js";
 
 const mockPi = {} as any;
 const mockCtx = { cwd: "/tmp" } as any;
@@ -303,5 +313,337 @@ describe("Task Budget", () => {
     ]);
 
     expect(seen).toEqual(["agent-1", "agent-2"]);
+  });
+});
+
+/**
+ * Live-limit characterization (R2/KTD2): the session-limit setters feed the
+ * spawn and turn gates live — a mid-session raise applies at the NEXT
+ * enforcement point with no rebuild or restart. These tests lock that
+ * invariant; they pass on current code and must keep passing.
+ */
+describe("Live session-limit enforcement (characterization)", () => {
+  let manager: AgentManager;
+
+  afterEach(() => {
+    manager?.dispose();
+    vi.mocked(runAgent).mockReset();
+    vi.clearAllMocks();
+  });
+
+  it("raising maxAgents mid-session admits the next dispatch at the spawn gate", async () => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(16); // keep every spawn off the concurrency queue
+    resolvedRun();
+    manager.setSessionMaxSpawns(5);
+
+    const firstWave: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      firstWave.push(manager.spawn(mockPi, mockCtx, "Explore", `crew ${i}`, {
+        description: `crew-${i}`,
+        isBackground: true,
+      }));
+    }
+    for (const id of firstWave) await manager.getRecord(id)!.promise;
+    // Completed agents still count against the session limit (issue #5 shape).
+    expect(manager.getSessionUsage().spawnedAgents).toBe(5);
+
+    // At 5/5 the spawn gate rejects the next dispatch...
+    expect(() =>
+      manager.spawn(mockPi, mockCtx, "Explore", "sixth", { description: "sixth", isBackground: true }),
+    ).toThrow("Session agent limit reached (5/5)");
+
+    // ...and the gate reads the limit live: raising it mid-session admits
+    // three more dispatches without a restart.
+    manager.setSessionMaxSpawns(8);
+    const raisedWave: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      raisedWave.push(manager.spawn(mockPi, mockCtx, "Explore", `raised ${i}`, {
+        description: `raised-${i}`,
+        isBackground: true,
+      }));
+    }
+    for (const id of raisedWave) await manager.getRecord(id)!.promise;
+    expect(manager.getSessionUsage().spawnedAgents).toBe(8);
+
+    // The NEW limit is the enforced ceiling.
+    expect(() =>
+      manager.spawn(mockPi, mockCtx, "Explore", "ninth", { description: "ninth", isBackground: true }),
+    ).toThrow("Session agent limit reached (8/8)");
+  });
+
+  it("raising maxTurns mid-session applies the new cap at the next turn-budget evaluation", () => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(4);
+
+    // Capture the manager's onTurnEnd gate from the spawned run. spawn()
+    // invokes the run synchronously (no worktree isolation, queue capacity
+    // free), so the gate is available immediately after spawn returns.
+    let turnGate: ((turnCount: number) => void) | undefined;
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      turnGate = options.onTurnEnd;
+      return { responseText: "done", session: mockSession(), aborted: false, steered: false };
+    });
+
+    manager.setSessionMaxTurns(5);
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "long task", {
+      description: "long task",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    expect(turnGate).toBeDefined();
+
+    // Four turns under the old cap of 5 — no session-turn abort yet.
+    turnGate!(1);
+    turnGate!(4);
+    expect(manager.getSessionUsage().totalTurns).toBe(4);
+    expect(record.error).toBeUndefined();
+
+    // Raise 5 → 8 mid-session: the next evaluation reads the NEW cap, so
+    // turn 5 (which the old cap would abort) passes cleanly.
+    manager.setSessionMaxTurns(8);
+    turnGate!(5);
+    expect(record.error).toBeUndefined();
+
+    // Turn 8 crosses the new cap — the gate fires with the new numbers.
+    turnGate!(8);
+    expect(record.error).toBe("Session turn limit reached (8/8)");
+  });
+});
+
+/**
+ * Budget threshold warnings (R3). The once-per-threshold dedup
+ * (`firedBudgetThresholds` in agent-manager.ts) is pre-existing behavior —
+ * these tests are characterization and must keep passing. The re-arm tests
+ * below cover the U4 delta: a changed limit clears the fired state so a
+ * later crossing warns again.
+ */
+describe("Budget threshold warnings (R3)", () => {
+  let manager: AgentManager;
+
+  afterEach(() => {
+    manager?.dispose();
+    vi.mocked(runAgent).mockReset();
+    vi.clearAllMocks();
+  });
+
+  it("crossing 80% fires one agents warning; ten subsequent turns fire none (dedup characterization)", async () => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(16); // keep every spawn off the concurrency queue
+    const warnings: BudgetWarningType[] = [];
+    manager.setBudgetWarningHandler((type) => warnings.push(type));
+    manager.setSessionMaxSpawns(5); // agent threshold only — no turn limit armed
+
+    // Capture a turn gate (the warning check runs on every turn end).
+    let turnGate: ((turnCount: number) => void) | undefined;
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      turnGate = options.onTurnEnd;
+      return { responseText: "done", session: mockSession(), aborted: false, steered: false };
+    });
+
+    // Four agents = exactly 80% of the agent cap.
+    for (let i = 0; i < 4; i++) {
+      manager.spawn(mockPi, mockCtx, "Explore", `crew ${i}`, {
+        description: `crew-${i}`,
+        isBackground: true,
+      });
+    }
+
+    // First turn end observes 4/5 = 80% — fires once.
+    turnGate!(1);
+    expect(warnings).toEqual(["agents_at_80"]);
+
+    // Ten further turn-ends stay above the 80% line — the dedup keeps quiet.
+    for (let turn = 2; turn <= 11; turn++) turnGate!(turn);
+    expect(warnings).toEqual(["agents_at_80"]);
+  });
+
+  it("raising a limit re-arms the threshold so a later crossing warns again (R3)", async () => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(16);
+    const warnings: BudgetWarningType[] = [];
+    manager.setBudgetWarningHandler((type) => warnings.push(type));
+    manager.setSessionMaxSpawns(5);
+
+    let turnGate: ((turnCount: number) => void) | undefined;
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      turnGate = options.onTurnEnd;
+      return { responseText: "done", session: mockSession(), aborted: false, steered: false };
+    });
+
+    for (let i = 0; i < 4; i++) {
+      manager.spawn(mockPi, mockCtx, "Explore", `first ${i}`, {
+        description: `first-${i}`,
+        isBackground: true,
+      });
+    }
+    turnGate!(1); // 4/5 = 80% — first fire
+    expect(warnings).toEqual(["agents_at_80"]);
+
+    // Raising the limit re-arms the threshold but fires nothing by itself.
+    manager.setSessionMaxSpawns(10);
+    expect(warnings).toEqual(["agents_at_80"]);
+
+    // Re-cross 80% of the NEW cap (8/10): a fresh warning must fire.
+    for (let i = 0; i < 4; i++) {
+      manager.spawn(mockPi, mockCtx, "Explore", `second ${i}`, {
+        description: `second-${i}`,
+        isBackground: true,
+      });
+    }
+    turnGate!(2);
+    expect(warnings).toEqual(["agents_at_80", "agents_at_80"]);
+  });
+});
+
+/**
+ * Explicit outcome contract (R4 / AE2): the manager records the runner-derived
+ * outcome on the AgentRecord so get_subagent_result and the task notifications
+ * present budget cuts as `blocked_budget` — never as a completed empty result —
+ * and a silent no-op completion (issue #40) as `not_executed`. The session
+ * turn-limit gate aborts through the parent signal, which the runner can only
+ * classify as an external stop, so the manager re-labels it with the
+ * structured limit reason it recorded.
+ */
+describe("Explicit outcome contract (R4)", () => {
+  let manager: AgentManager;
+
+  afterEach(() => {
+    manager?.dispose();
+    vi.mocked(runAgent).mockReset();
+    vi.clearAllMocks();
+  });
+
+  it("records outcome blocked_budget for a token-quota abort (AE2)", async () => {
+    manager = new AgentManager();
+    vi.mocked(runAgent).mockResolvedValue({
+      responseText: "[pi-agent-orchestrator] Agent completed without producing output.\nStatus: aborted",
+      session: mockSession(),
+      aborted: true,
+      steered: false,
+      outcome: "blocked_budget",
+      outcomeReason: "Token quota exceeded (600/500 tokens)",
+    });
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "budget cut", {
+      description: "budget cut",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.status).toBe("aborted");
+    expect(record.outcome).toBe("blocked_budget");
+    expect(record.outcomeReason).toContain("Token quota exceeded");
+  });
+
+  it("records outcome not_executed for a silent no-op completion (issue #40 shape)", async () => {
+    manager = new AgentManager();
+    vi.mocked(runAgent).mockResolvedValue({
+      responseText: "[pi-agent-orchestrator] Agent completed without producing output.\nStatus: completed",
+      session: mockSession(),
+      aborted: false,
+      steered: false,
+      outcome: "not_executed",
+      outcomeReason: "Agent completed without producing output or executing any tools.",
+    });
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "no-op", {
+      description: "no-op",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.status).toBe("completed");
+    expect(record.outcome).toBe("not_executed");
+    expect(record.outcomeReason).toBeTruthy();
+  });
+
+  it("records outcome executed with the partial-progress note for a cut after real work", async () => {
+    manager = new AgentManager();
+    vi.mocked(runAgent).mockResolvedValue({
+      responseText: "partial findings so far",
+      session: mockSession(),
+      aborted: true,
+      steered: false,
+      outcome: "executed",
+      outcomeReason: "Aborted mid-run (Token quota exceeded (600/500 tokens)) — output may be incomplete.",
+    });
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "cut mid-work", {
+      description: "cut mid-work",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.outcome).toBe("executed");
+    expect(record.outcomeReason).toMatch(/incomplete/);
+    expect(record.result).toContain("partial findings");
+  });
+
+  it("re-labels a session turn-limit abort as blocked_budget with the structured limit reason", async () => {
+    manager = new AgentManager();
+    manager.setSessionMaxTurns(2);
+    vi.mocked(runAgent).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      // The manager's session turn-budget gate aborts through the parent
+      // signal; the runner sees a plain external stop with no structured
+      // reason — exactly the gap the manager-side re-label closes.
+      options?.onTurnEnd?.(2);
+      return {
+        responseText: "",
+        session: mockSession(),
+        aborted: true,
+        steered: false,
+        outcome: "not_executed",
+        outcomeReason: "Stopped before executing any work.",
+      };
+    });
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "long run", {
+      description: "long run",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.error).toBe("Session turn limit reached (2/2)");
+    expect(record.outcome).toBe("blocked_budget");
+    expect(record.outcomeReason).toContain("Session turn limit reached");
+  });
+
+  it("maps AgentRunnerError codes to the outcome on the catch path", async () => {
+    manager = new AgentManager();
+    vi.mocked(runAgent).mockRejectedValue(
+      new AgentRunnerError("Max agent depth reached (5/5)", "depth_exceeded"),
+    );
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "nested", {
+      description: "nested",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.status).toBe("error");
+    expect(record.outcome).toBe("not_executed");
+    expect(record.outcomeReason).toContain("Max agent depth reached");
+  });
+
+  it("leaves the outcome unset when the runner result carries none (backward compatibility)", async () => {
+    manager = new AgentManager();
+    resolvedRun();
+
+    const id = manager.spawn(mockPi, mockCtx, "Explore", "plain", {
+      description: "plain",
+      isBackground: true,
+    });
+    const record = manager.getRecord(id)!;
+    await record.promise;
+
+    expect(record.status).toBe("completed");
+    expect(record.outcome).toBeUndefined();
+    expect(record.outcomeReason).toBeUndefined();
   });
 });

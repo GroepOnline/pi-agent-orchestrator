@@ -64,7 +64,7 @@ ES modules only (`"type": "module"`). No CommonJS.
 ## Adding built-in agents or settings
 
 - New agent type → update `src/default-agents.ts` + `test/default-agents.test.ts` + `README.md`
-- New setting → update `src/settings.ts` (interface + defaults) + `src/output-handler.ts` (`buildSettingsSnapshot` + settings menu) + `docs/api-reference.md`
+- New menu-editable setting → add ONE descriptor in `src/ui/settings-schema.ts` (`buildSettingEntries`): label + edit flow; `persist: false` for session-only. Then update `src/settings.ts` (interface + sanitize) if it persists, `buildSettingsSnapshot` if snapshot-visible, and `docs/api-reference.md`
 
 ## Commit style
 
@@ -177,6 +177,8 @@ All runtime-configurable settings are defined in `src/settings.ts` (`SubagentsSe
 - `src/ui/dashboard/schedules-section.ts` — daemon schedule view in dashboard body
 - `src/swarm-join.ts` — live swarm join/leave coordination
 - `src/schedule.ts` + `src/schedule-store.ts` — cron-style scheduling, persisted to `.pi/subagent-schedules/`
+- `src/notification-hub.ts` — cancellable completion notifications (nudge debounce, individual emission, event payloads)
+- `src/ui/settings-schema.ts` — SSOT for the /agents → Settings menu: one descriptor per setting (id + label + edit); dispatch is id-based, never label-based; `persist: false` marks session-only settings
 
 See `docs/architecture.md` for the full module map and data-flow diagram.
 
@@ -194,16 +196,18 @@ This package is a **Pi host extension**, not a standalone app or server — ther
 | Purpose | File / command |
 | --- | --- |
 | Environment definition | `.cursor/environment.json` (`build.dockerfile` + `install`) |
-| Deterministic base image | `.cursor/Dockerfile` (`node:22.19.0-bookworm`, `ubuntu` user, git/sudo) |
+| Deterministic base image | `.cursor/Dockerfile` (`node:22.22.3-bookworm`, `ubuntu` user, git/sudo, Google Chrome stable) |
 | Node source of truth | `.nvmrc` (kept in sync with the Dockerfile base and `package.json` `engines.node`) |
 | Install / update | `bash scripts/cursor-cloud-install.sh` (runs from `environment.json`) |
 | Full verification gate | `npm run verify:cloud` (Node-safe; runs `scripts/cursor-cloud-verify.sh` → `verify:cloud:internal`) |
-| Pi-host extension smoke | `bash scripts/cursor-cloud-smoke.sh` |
+| Pi-host extension smoke | `bash scripts/cursor-cloud-smoke.sh` (also runs at end of Cloud `install`) |
 | Reviewable artifacts | `bash scripts/cursor-cloud-artifacts.sh` |
 
 **Invariants:**
 
-- **Node is compliant by default.** In Cloud the `.cursor/Dockerfile` bakes Node `22.19.0` at `/usr/local/bin/node` (pinned by digest so the image is reproducible), so even bare shells resolve a compliant `node`. As defense-in-depth (and for local/non-Docker runs), `scripts/cursor-cloud-lib.sh` treats `.nvmrc` as a **minimum**: it accepts any ambient Node `>= .nvmrc`, and only installs the exact `.nvmrc` version via `nvm` when the ambient Node is missing or older. When bumping Node, change `.nvmrc` **and** the `.cursor/Dockerfile` `FROM` (tag + digest) together. Do not hardcode absolute NVM/exec-daemon paths.
+- **Node is compliant by default.** In Cloud the `.cursor/Dockerfile` bakes Node `22.22.3` at `/usr/local/bin/node` (pinned by digest so the image is reproducible), so even bare shells resolve a compliant `node`. As defense-in-depth (and for local/non-Docker runs), `scripts/cursor-cloud-lib.sh` treats `.nvmrc` as a **minimum**: it accepts any ambient Node `>= .nvmrc`, and only installs the exact `.nvmrc` version via `nvm` when the ambient Node is missing or older. When bumping Node, change `.nvmrc` **and** the `.cursor/Dockerfile` `FROM` (tag + digest) together. Do not hardcode absolute NVM/exec-daemon paths.
+- **System packages + browser stay fresh.** The Dockerfile runs `apt-get update && apt-get upgrade` and installs `google-chrome-stable` from Google's apt repo. `scripts/cursor-cloud-install.sh` also refreshes apt packages (and Chrome when available) on each install/build so computer-use gets a current browser without a separate image edit.
+- **Pi.dev CLI is on PATH.** The Dockerfile installs `@earendil-works/pi-coding-agent` globally (`pi`); Cloud install re-aligns it to the repo's locked host version and runs `scripts/cursor-cloud-smoke.sh` so the extension actually loads in the Pi host (RPC, no API key).
 - **The Pi host loads the built extension.** The smoke test runs `pi --mode rpc --no-session -e ./dist/index.js` (credential-free) and asserts the host registered the extension's commands from `dist/index.js`. No model API key is required to prove loading.
 - **Artifacts must never modify tracked docs.** Generate the dashboard via `scripts/cursor-cloud-artifacts.sh` (writes to the Cursor artifact dir or `.cloud-artifacts/`). Do **not** use `npm run screenshots` for artifacts — that overwrites the tracked `docs/images/dashboard_preview.svg`. Artifact generation asserts a clean working tree.
 
@@ -223,3 +227,5 @@ This package is a **Pi host extension**, not a standalone app or server — ther
 - On `jan`, `~/.npmrc` may scope `@groeponline` to GitHub Packages (older caps); this package publishes to npmjs.org (`publishConfig.registry`), so `pi update` may need `--@groeponline:registry=https://registry.npmjs.org`.
 - Dependency CVE SSOT for merges is `dependency-review` inside `Required CI gate` plus Dependabot — not Super-Linter Trivy (`VALIDATE_TRIVY` must not be treated as a required merge signal).
 - Binary showcase media lives in sibling repo `GroepOnline/pi-agent-orchestrator-assets`; consume via `npm run assets:link` or `ORCHESTRATOR_MEDIA_DIR` (see `docs/assets-layout.md` when present).
+
+Compound Engineering overlay: `.compound-engineering/` (tracked `config.yaml`, gitignored `config.local.yaml`). Artifact root `.compound-engineering/artifacts/`. Portable skills `~/.agents/skills/ce-*` and `lfg`. The native Cursor plugin is Cursor-only fallback when this overlay is absent — Pi, Codex, and Claude never enable it, never spawn `cursor-agent`, and never copy Cursor Task slugs (`cursor-grok-*`). Each CLI implements in-session (`work_engine_mode: off`).

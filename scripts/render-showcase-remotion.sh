@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REMOTION_DIR="$ROOT/showcase/remotion"
 OUT_DIR="$ROOT/docs/images"
 CAST_PATH="${SHOWCASE_CAST:-${1:-}}"
+SHIM="$ROOT/scripts/remotion-network-shim.mjs"
 
 if [[ -z "$CAST_PATH" ]]; then
 	echo "Usage: npm run showcase:remotion -- /path/to/real-session.cast" >&2
@@ -27,13 +28,20 @@ node "$REMOTION_DIR/scripts/capture-terminal.mjs" "$CAST_PATH"
 node "$REMOTION_DIR/scripts/extract-promo-data.mjs"
 npm --prefix "$REMOTION_DIR" run verify
 
+# Harden against os.networkInterfaces() failures on isolated runners (error 97).
+# Prepend so existing NODE_OPTIONS are preserved.
+export NODE_OPTIONS="--import=${SHIM}${NODE_OPTIONS:+ ${NODE_OPTIONS}}"
+
 EXTRA_ARGS=()
 if [[ -n "${REMOTION_BROWSER_EXECUTABLE:-}" ]]; then
   EXTRA_ARGS+=("--browser-executable=${REMOTION_BROWSER_EXECUTABLE}")
 fi
 
 render() {
-  npm --prefix "$REMOTION_DIR" run "$1" -- "${EXTRA_ARGS[@]}"
+  # De geïsoleerde PR-runner sluit bij parallelle frame-encodering herhaalbaar
+  # de encoder-pipe vroegtijdig. Eén worker is ruimschoots binnen de CI-timeout
+  # en houdt de renderpijplijn stabiel.
+  npm --prefix "$REMOTION_DIR" run "$1" -- --concurrency=1 "${EXTRA_ARGS[@]}"
 }
 
 normalize_terminal_video() {

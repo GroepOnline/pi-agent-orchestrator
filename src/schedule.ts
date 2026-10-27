@@ -16,9 +16,9 @@
  *     `subagent-notification` followUp path. No new delivery code.
  */
 
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Cron } from "croner";
-import { nanoid } from "nanoid";
 import type { AgentManager } from "./agent-manager.js";
 import { logger } from "./logger.js";
 import { resolveModel } from "./model-resolver.js";
@@ -170,7 +170,7 @@ export class SubagentScheduler {
     
     const detected = SubagentScheduler.detectSchedule(input.schedule);
     return {
-      id: nanoid(10),
+      id: randomUUID().replace(/-/g, "").slice(0, 10),
       name: input.name,
       description: input.description,
       schedule: detected.normalized,
@@ -256,10 +256,10 @@ export class SubagentScheduler {
 
   /** Next-run time as ISO, or undefined if not currently armed. */
   getNextRun(jobId: string): string | undefined {
-    const cron = this.jobs.get(jobId);
-    if (cron) return cron.nextRun()?.toISOString();
     const job = this.store?.get(jobId);
     if (!job?.enabled) return undefined;
+    const cron = this.jobs.get(jobId);
+    if (cron) return cron.nextRun()?.toISOString();
     if (job.scheduleType === "once") return job.schedule;
     if (job.scheduleType === "interval" && job.intervalMs) {
       // Before the first fire there's no `lastRun`, so fall back to "now" —
@@ -384,8 +384,9 @@ export class SubagentScheduler {
 
     const record = manager.getRecord(agentId);
     const finalize = async (status: "success" | "error") => {
-      const next = this.getNextRun(id);
       const current = store.get(id);
+      const isOneShot = current?.scheduleType === "once";
+      const next = isOneShot ? undefined : this.getNextRun(id);
       await store.update(id, {
         lastRun: new Date().toISOString(),
         lastStatus: status,
@@ -393,9 +394,10 @@ export class SubagentScheduler {
         nextRun: next,
         // Auto-disable one-shots atomically with the status update to
         // prevent races with a concurrent store.update from the Cron callback.
-        ...(current?.scheduleType === "once" ? { enabled: false } : {}),
+        ...(isOneShot ? { enabled: false } : {}),
       });
-      if (current?.scheduleType === "once") {
+      if (isOneShot) {
+        this.unscheduleJob(id);
         const updated = store.get(id);
         if (updated) this.emit({ type: "updated", job: updated });
       }

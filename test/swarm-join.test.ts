@@ -86,6 +86,31 @@ describe("SwarmCoordinator", () => {
     });
   });
 
+  describe("missingMembers (mid-fanout partial finalization)", () => {
+    it("includes missingMembers in delivery meta when configured", () => {
+      const sc = new SwarmCoordinator(deliverCb);
+      const swarmId = sc.createSwarm({ name: "Partial Swarm", strategy: "batch", missingMembers: 1 });
+      sc.addAgentToSwarm(swarmId, "agent-1");
+
+      sc.onAgentComplete(makeRecord({ id: "agent-1" }));
+
+      expect(deliverCb).toHaveBeenCalledTimes(1);
+      const meta = deliverCb.mock.calls[0]![3];
+      expect(meta).toMatchObject({ missingMembers: 1, contributorCount: 1 });
+    });
+
+    it("omits missingMembers for swarms that spawned complete (characterization)", () => {
+      const sc = new SwarmCoordinator(deliverCb);
+      const swarmId = sc.createSwarm({ name: "Full Swarm", strategy: "batch" });
+      sc.addAgentToSwarm(swarmId, "agent-1");
+
+      sc.onAgentComplete(makeRecord({ id: "agent-1" }));
+
+      const meta = deliverCb.mock.calls[0]![3];
+      expect(meta).not.toHaveProperty("missingMembers");
+    });
+  });
+
   describe("addAgentToSwarm", () => {
     it("adds an agent to an existing swarm", () => {
       const sc = new SwarmCoordinator(deliverCb);

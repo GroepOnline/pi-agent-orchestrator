@@ -23,17 +23,15 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { isAbortError } from "./abort-wait.js";
-import { getPromptCompressionLevel } from "./agent-registry.js";
+import { getPromptCompressionLevel, isFreeModelsOnly } from "./agent-registry.js";
 import {
   runAdversarialValidation,
 } from "./agent-runner-validator.js";
 import { type EffectiveConfig, getAgentConfig, getConfig, getMemoryToolNames, getReadOnlyMemoryToolNames, getToolNamesForType } from "./agent-types.js";
-import { loadChefGroepPreflight } from "./chefgroep-preflight.js";
 import { buildCompactionSnapshot, type CompactionSnapshot } from "./compaction-snapshot.js";
 import { buildParentContext, extractText } from "./context.js";
 import { resolveCtxInjectionForAgent } from "./context-mode-bridge.js";
 import { DEFAULT_AGENTS } from "./default-agents.js";
-import { detectEnv } from "./env.js";
 import { buildEnvFromContext } from "./env-context.js";
 import { type AgentHandoff, parseHandoff, renderHandoffForParent } from "./handoff.js";
 import { type HookRegistry, normalizeHookResponse } from "./hooks.js";
@@ -42,17 +40,13 @@ import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { loadSettings } from "./settings.js";
 import { preloadSkills } from "./skill-loader.js";
-import { emitTelemetry } from "./telemetry.js";
 import {
-  endAgentSpan,
-  endCompactionSpan,
-  endToolSpan,
-  endTurnSpan,
-  startAgentSpan,
-  startCompactionSpan,
-  startToolSpan,
-  startTurnSpan,
-} from "./telemetry-otel.js";
+  type AgentAbortReason,
+  type AgentOutcome,
+  type AgentRunnerErrorCode,
+  deriveAgentOutcome,
+} from "./spend.js";
+import { emitTelemetry } from "./telemetry.js";
 import type { SubagentType, ThinkingLevel, ValidationResult } from "./types.js";
 import {
   hasValidators,
@@ -104,7 +98,7 @@ const CB_RECOVERY_TIMEOUT_MS = 30_000;
 export class AgentRunnerError extends Error {
   constructor(
     message: string,
-    public readonly code: "depth_exceeded" | "model_unavailable" | "quota_exceeded" | "aborted" | "timeout" | "unknown",
+    public readonly code: AgentRunnerErrorCode,
     public readonly context?: Record<string, unknown>,
   ) {
     super(message);
@@ -192,8 +186,61 @@ export function isModelAuthFailure(message: string): boolean {
   );
 }
 
+/** True when a pi-ai Model has zero cost on every dimension (free tier). */
+export function isFreeModel(model: Model<Api>): boolean {
+  const cost = (model as unknown as { cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } }).cost;
+  if (!cost) return false;
+  return (cost.input ?? 0) === 0 && (cost.output ?? 0) === 0 && (cost.cacheRead ?? 0) === 0 && (cost.cacheWrite ?? 0) === 0;
+}
+
+/** Build ordered fallback candidates excluding the failed model. */
+function getFallbackModels(
+  failed: Model<Api>,
+  registry: { getAvailable?(): Model<Api>[]; getAll(): Model<Api>[] },
+  parent: Model<Api> | undefined,
+  freeOnly: boolean,
+): Model<Api>[] {
+  const available = registry.getAvailable?.() ?? registry.getAll();
+  const filtered = freeOnly ? available.filter(isFreeModel) : available;
+  const failedKey = modelKey(failed);
+  const byKey = new Map(filtered.map((m) => [modelKey(m), m] as const));
+  byKey.delete(failedKey);
+  const out: Model<Api>[] = [];
+  if (parent) {
+    const pk = modelKey(parent);
+    const parentFreeOk = !freeOnly || isFreeModel(parent);
+    if (pk !== failedKey && parentFreeOk) {
+      // Parent is always a candidate even if not in the available list (e.g. host model)
+      if (byKey.has(pk)) byKey.delete(pk);
+      out.push(parent);
+    }
+  }
+  for (const m of filtered) {
+    const k = modelKey(m);
+    if (byKey.has(k)) out.push(byKey.get(k)!);
+  }
+  return out.slice(0, 5);
+}
+
 function modelKey(model: Model<Api>): string {
   return `${model.provider}/${model.id}`;
+}
+
+/**
+ * Backoff before retrying on a rate-limit failure. Honors a `retry-after:
+ * Ns` hint in the error message when present (capped at 10s); otherwise
+ * waits a short fixed delay so we do not instantly burn the next candidate.
+ */
+async function rateLimitBackoff(errorMessage: string): Promise<void> {
+  const isRateLimit = /\b429\b|rate[\s_-]?limit/i.test(errorMessage);
+  if (!isRateLimit) return;
+  let ms = 1500;
+  const hint = errorMessage.match(/retry[-\s]?after[:\s]*(\d+)/i);
+  if (hint) {
+    ms = Math.min(10_000, Number.parseInt(hint[1], 10) * 1000);
+  }
+  logger.debug("Rate-limit backoff before fallback retry", { ms });
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 class ModelCircuitBreaker {
@@ -279,8 +326,9 @@ const globalCircuitBreaker = new ModelCircuitBreaker();
 async function promptWithCircuitBreaker(
   session: AgentSession,
   text: string,
+  options?: { allowWhenOpen?: boolean },
 ): Promise<void> {
-  globalCircuitBreaker.assertAllow();
+  if (!options?.allowWhenOpen) globalCircuitBreaker.assertAllow();
   try {
     await session.prompt(text);
   } catch (err) {
@@ -395,12 +443,7 @@ export interface RunOptions {
   levelLimit?: number;
   parentConfig?: EffectiveConfig;
   partitions?: readonly string[];
-  /**
-   * Short correlation id (8 hex chars) shared by every span the agent
-   * emits. If absent, `startAgentSpan` simply omits the `correlation.id`
-   * attribute. The manager sets this on every spawn so the id is stable
-   * across `resumeAgent` calls and is queryable from the agent record.
-   */
+  /** Short correlation id (8 hex chars). Set by AgentManager at spawn. */
   correlationId?: string;
   hooks?: HookRegistry;
   spawnedAt?: number;
@@ -432,6 +475,17 @@ export interface RunResult {
    * non-empty `error` as a failure even though `session.prompt` resolved.
    */
   error?: string;
+  /**
+   * Structured reason when an internal budget gate (token/tool/duration/turn
+   * quota) stopped the run. Absent for normal completion and external stops,
+   * so a `blocked_budget` outcome is derivable rather than guessed from
+   * error strings (R4 / AE2).
+   */
+  abortReason?: AgentAbortReason;
+  /** Explicit outcome contract (R4): executed | blocked_budget | not_executed. */
+  outcome?: AgentOutcome;
+  /** Reason for the outcome — the structured abort message or a partial-progress note. */
+  outcomeReason?: string;
 }
 
 export interface RunMetrics {
@@ -598,10 +652,11 @@ export async function runAgent(
   });
 
   const effectiveCwd = options.cwd ?? ctx.cwd;
-  // CHEF-100 Phase 1 dual-read: consume host workspaceContext when
-  // available (zero shell-out), fall back to legacy detectEnv on pre-RFC
-  // hosts. See src/env-context.ts and docs/chef-rfcs/CHEF-100-workspace-context.md.
-  const env = buildEnvFromContext(options.pi) ?? await detectEnv(options.pi, effectiveCwd);
+  const env = buildEnvFromContext(options.pi) ?? {
+    isGitRepo: false,
+    branch: "",
+    platform: process.platform,
+  };
   const parentSystemPrompt = ctx.getSystemPrompt();
 
   // Resolve extensions/skills
@@ -654,34 +709,6 @@ export async function runAgent(
     systemPrompt = buildAgentPrompt({ ...fallback, name: type }, effectiveCwd, env, parentSystemPrompt, extras, compressionLevel);
   }
 
-  // ChefGroep OS operational context is injected unconditionally when present.
-  // This removes per-agent prompting and keeps every subagent on the same fleet,
-  // datastore and mutation-logging contract. Ordinary installations fail open
-  // when ChefGroep OS is not installed; malformed/oversized state is visible.
-  const chefPreflight = loadChefGroepPreflight({ agentId: options.agentId });
-  if (chefPreflight.status === "loaded" && chefPreflight.systemPromptAddition) {
-    systemPrompt = `${systemPrompt}
-
-${chefPreflight.systemPromptAddition}`;
-    logger.debug("ChefGroep operational preflight injected", {
-      agentId: options.agentId ?? "unknown",
-      path: chefPreflight.path,
-    });
-  } else if (chefPreflight.status === "invalid" || chefPreflight.status === "oversize") {
-    logger.warn("ChefGroep operational preflight rejected", {
-      agentId: options.agentId ?? "unknown",
-      path: chefPreflight.path,
-      status: chefPreflight.status,
-      error: chefPreflight.error,
-    });
-  } else {
-    logger.debug("ChefGroep operational preflight unavailable", {
-      agentId: options.agentId ?? "unknown",
-      path: chefPreflight.path,
-      status: chefPreflight.status,
-    });
-  }
-
   // Context-mode injection — only for agents that opt in via useContextMode,
   // and only when getConfig kept ctx_* tools in the effective allowlist.
   const ctxInjection = resolveCtxInjectionForAgent(agentConfig?.useContextMode);
@@ -725,7 +752,7 @@ ${chefPreflight.systemPromptAddition}`;
     loadSettings(effectiveCwd).subagentModel,
     agentConfig?.model,
   );
-  const model = options.model ?? resolveDefaultModel(
+  let model = options.model ?? resolveDefaultModel(
     ctx.model, ctx.modelRegistry, configuredModel,
   );
 
@@ -734,6 +761,38 @@ ${chefPreflight.systemPromptAddition}`;
       "No model available for agent execution",
       "model_unavailable",
     );
+  }
+
+  // Session-only gate: when free-only is on, swap a paid model for a free one
+  // before any prompt is sent. Prefers the parent model when it is free, then
+  // the first available free model. This keeps the session within the free tier
+  // without needing to rewrite persisted subagentModel settings.
+  if (isFreeModelsOnly() && !isFreeModel(model!)) {
+    const freeOnlyParent = ctx.model && isFreeModel(ctx.model) ? ctx.model : undefined;
+    if (freeOnlyParent && modelKey(freeOnlyParent) !== modelKey(model!)) {
+      logger.warn("Free-only mode: swapping paid model for free parent", {
+        agentId: options.agentId ?? "unknown",
+        from: modelKey(model!),
+        to: modelKey(freeOnlyParent),
+      });
+      model = freeOnlyParent;
+    } else {
+      const avail = ctx.modelRegistry.getAvailable?.() ?? ctx.modelRegistry.getAll();
+      const freeAlt = avail.find((m) => isFreeModel(m) && modelKey(m) !== modelKey(model!));
+      if (freeAlt) {
+        logger.warn("Free-only mode: swapping paid model for free alternative", {
+          agentId: options.agentId ?? "unknown",
+          from: modelKey(model!),
+          to: modelKey(freeAlt),
+        });
+        model = freeAlt;
+      } else {
+        logger.warn("Free-only mode: no free alternative found, using paid model", {
+          agentId: options.agentId ?? "unknown",
+          model: modelKey(model!),
+        });
+      }
+    }
   }
 
   const thinkingLevel = options.thinkingLevel ?? agentConfig?.thinking;
@@ -819,18 +878,6 @@ ${chefPreflight.systemPromptAddition}`;
 
   options.onSessionCreated?.(session);
 
-  // OpenTelemetry span — created after all throwable setup completes.
-  // If session creation or hook dispatch throws, no span leaks.
-  const { span: agentSpan, ctx: agentCtx } = startAgentSpan(options.agentId ?? "unknown", type, {
-    description: agentConfig?.description,
-    depth: currentLevel,
-    model: `${model.provider}/${model.id}`,
-    correlationId: options.correlationId,
-  });
-  const activeToolSpans = new Map<string, import("@opentelemetry/api").Span>();
-  let currentTurnSpan: import("@opentelemetry/api").Span | undefined;
-  let toolSpanSeq = 0;
-
   // Turn tracking and quotas
   let turnCount = 0;
   let toolCallCount = 0;
@@ -842,6 +889,10 @@ ${chefPreflight.systemPromptAddition}`;
   let softLimitReached = false;
   let aborted = false;
   let timedOut = false;
+  // Structured reason for internal budget aborts (R4). Set at the abort site
+  // below so the outcome is derived from a deliberate signal, not from
+  // matching error strings. External stops leave it undefined.
+  let abortReason: AgentAbortReason | undefined;
 
   let currentMessageText = "";
   const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
@@ -858,6 +909,7 @@ ${chefPreflight.systemPromptAddition}`;
         maxDurationMs: quotas.maxDurationMs,
       });
       timedOut = true;
+      abortReason = { kind: "duration_quota", message: `Duration quota exceeded (${quotas.maxDurationMs}ms)` };
       session.abort();
       aborted = true;
       return;
@@ -865,15 +917,13 @@ ${chefPreflight.systemPromptAddition}`;
     const totalTokens = tokensIn + tokensOut;
     if (totalTokens > quotas.maxTokens) {
       logger.warn(`Token quota exceeded`, { agentId: options.agentId, totalTokens, maxTokens: quotas.maxTokens });
+      abortReason = { kind: "token_quota", message: `Token quota exceeded (${totalTokens}/${quotas.maxTokens} tokens)` };
       session.abort();
       aborted = true;
       return;
     }
 
     if (event.type === "turn_end") {
-      // End previous turn span
-      if (currentTurnSpan) { endTurnSpan(currentTurnSpan); currentTurnSpan = undefined; }
-
       options.hooks
         ?.dispatch("turn:end", options.agentId ?? "unknown")
         .catch((err) => {
@@ -887,17 +937,16 @@ ${chefPreflight.systemPromptAddition}`;
           session.steer("You have reached your turn budget. Wrap up NOW: write your final end report — findings, what is done, what is blocked, exact file paths/commit SHAs. Do not start new work.");
         } else if (softLimitReached && turnCount >= maxTurns + graceTurns) {
           aborted = true;
+          abortReason = {
+            kind: "turn_budget",
+            message: `Turn budget exhausted (${turnCount}/${maxTurns} turns + ${graceTurns} grace turns)`,
+          };
           session.abort();
         }
       }
     }
 
     if (event.type === "turn_start") {
-      // End any prior turn span (safety)
-      if (currentTurnSpan) { endTurnSpan(currentTurnSpan); currentTurnSpan = undefined; }
-      // Start new turn span
-      currentTurnSpan = startTurnSpan(options.agentId ?? "unknown", turnCount + 1, agentCtx);
-
       options.hooks
         ?.dispatch("turn:start", options.agentId ?? "unknown")
         .catch((err) => {
@@ -919,13 +968,10 @@ ${chefPreflight.systemPromptAddition}`;
 
     if (event.type === "tool_execution_start") {
       toolCallCount++;
-      // Start tool span
-      const toolSpanKey = `${event.toolName}-${++toolSpanSeq}`;
-      const toolSpan = startToolSpan(options.agentId ?? "unknown", event.toolName, agentCtx);
-      activeToolSpans.set(toolSpanKey, toolSpan);
 
       if (toolCallCount > quotas.maxToolCalls) {
         logger.warn(`Tool call quota exceeded`, { agentId: options.agentId, toolCallCount, maxToolCalls: quotas.maxToolCalls });
+        abortReason = { kind: "tool_quota", message: `Tool call quota exceeded (${toolCallCount}/${quotas.maxToolCalls} tool calls)` };
         session.abort();
         aborted = true;
         return;
@@ -934,15 +980,6 @@ ${chefPreflight.systemPromptAddition}`;
     }
 
     if (event.type === "tool_execution_end") {
-      // End tool span — iterate in reverse for most-recent matching span
-      for (const [key, ts] of [...activeToolSpans.entries()].reverse()) {
-        if (key.startsWith(`${event.toolName}-`)) {
-          endToolSpan(ts);
-          activeToolSpans.delete(key);
-          break;
-        }
-      }
-
       options.onToolActivity?.({ type: "end", toolName: event.toolName });
     }
 
@@ -965,14 +1002,6 @@ ${chefPreflight.systemPromptAddition}`;
       const snapshot = buildCompactionSnapshot(event);
       options.onCompaction?.(snapshot);
       if (!event.aborted) {
-        const compactionSpan = startCompactionSpan(
-          options.agentId ?? "unknown",
-          event.reason,
-          snapshot.tokensBefore,
-          agentCtx,
-        );
-        endCompactionSpan(compactionSpan);
-
         options.hooks
           ?.dispatch("compaction:end", options.agentId ?? "unknown", {
             reason: event.reason,
@@ -1035,39 +1064,73 @@ ${chefPreflight.systemPromptAddition}`;
     aborted = true;
   });
   let gatedResponseText = "";
+  let exhaustedModelError: string | undefined;
 
   try {
-    await promptWithCircuitBreaker(session, effectivePrompt);
-    gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
-
-    // CHE-15: a built-in pin (Explore → anthropic/claude-haiku-4-5) can 401 with
-    // PAID_MODEL_AUTH_REQUIRED while the session-default model still works.
-    // Retry once on the parent model instead of failing the spawn cold.
-    // Skip when the caller already chose options.model, when we were already
-    // on the parent (inherit / unavailable pin), or when output was produced.
-    const authError = !aborted && !options.signal?.aborted
-      ? getLastAssistantError(session)
-      : undefined;
-    const parentModel = ctx.model;
-    const canFallbackToParent =
-      !options.model
-      && !gatedResponseText
-      && !!authError
-      && isModelAuthFailure(authError)
-      && !!configuredModel
-      && !!parentModel
-      && modelKey(model) !== modelKey(parentModel);
-
-    if (canFallbackToParent && parentModel) {
-      logger.warn("Pinned model auth failed; falling back to session-default model", {
-        agentId: options.agentId ?? "unknown",
-        from: modelKey(model),
-        to: modelKey(parentModel),
-        error: authError,
-      });
-      await session.setModel(parentModel);
+    let currentModelForRetry: Model<Api> = model!;
+    let soft: string | undefined;
+    try {
       await promptWithCircuitBreaker(session, effectivePrompt);
       gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+      soft = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
+    } catch (err) {
+      if ((timedOut || aborted || options.signal?.aborted) && isAbortError(err)) {
+        aborted = true;
+        gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+        soft = undefined;
+      } else if (isModelTransportFailure(err) && (!options.model || isFreeModelsOnly()) && !aborted && !timedOut && !options.signal?.aborted) {
+        soft = err instanceof Error ? err.message : String(err);
+        gatedResponseText = "";
+      } else {
+        throw err;
+      }
+    }
+
+    // Generalized fallback (CHE-15 extended): 401/auth, 429/rate-limit,
+    // 403, unavailable, overloaded, quota — retry transparently on a
+    // different model instead of failing the spawn. Tries parent first,
+    // then up to 4 more available models; when free-only is on, only
+    // zero-cost models are considered. Skips when caller pinned options.model
+    // or output was already produced.
+    const shouldFallback = (!options.model || isFreeModelsOnly()) && !gatedResponseText && !!soft && isModelFailureMessage(soft);
+    if (shouldFallback) {
+      const candidates = getFallbackModels(currentModelForRetry, ctx.modelRegistry, ctx.model, isFreeModelsOnly());
+      let lastErr: string | undefined = soft;
+      for (const candidate of candidates) {
+        if (modelKey(candidate) === modelKey(currentModelForRetry)) continue;
+        logger.warn("Model failed; retrying with fallback model", {
+          agentId: options.agentId ?? "unknown",
+          from: modelKey(currentModelForRetry),
+          to: modelKey(candidate),
+          error: lastErr,
+          freeOnly: isFreeModelsOnly(),
+        });
+        try {
+          if (lastErr) await rateLimitBackoff(lastErr);
+          await session.setModel(candidate);
+          currentModelForRetry = candidate;
+          await promptWithCircuitBreaker(session, effectivePrompt, { allowWhenOpen: true });
+          gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+          const nextErr = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
+          if (gatedResponseText || !nextErr || !isModelFailureMessage(nextErr)) {
+            break;
+          }
+          lastErr = nextErr;
+        } catch (err) {
+          if ((timedOut || aborted || options.signal?.aborted) && isAbortError(err)) {
+            aborted = true;
+            break;
+          }
+          if (isModelTransportFailure(err)) {
+            lastErr = err instanceof Error ? err.message : String(err);
+            continue;
+          }
+          throw err;
+        }
+      }
+      if (!gatedResponseText && !aborted && lastErr) exhaustedModelError = lastErr;
+    } else if (!gatedResponseText && soft) {
+      exhaustedModelError = soft;
     }
 
     if (options.hooks) {
@@ -1121,6 +1184,7 @@ ${chefPreflight.systemPromptAddition}`;
           "Your previous output was rejected by a quality gate. Revise and improve it.";
         await promptWithCircuitBreaker(session, revisionPrompt);
         gatedResponseText = collector.getText().trim() || getLastAssistantText(session);
+        if (!getLastAssistantError(session)) exhaustedModelError = undefined;
         attempt++;
       }
     }
@@ -1134,19 +1198,6 @@ ${chefPreflight.systemPromptAddition}`;
       aborted = true;
       // fall through to the graceful return path below
     } else {
-    // End agent span with error status
-    const errDuration = performance.now() - startTime;
-    endAgentSpan(agentSpan, {
-      status: "error",
-      durationMs: errDuration,
-      turns: turnCount,
-      toolCalls: toolCallCount,
-      tokensIn,
-      tokensOut,
-      tokensCacheWrite,
-      error: err instanceof Error ? err.message : String(err),
-    });
-
     options.hooks
       ?.dispatch("subagent:error", options.agentId ?? "unknown", {
         error: err instanceof Error ? err.message : String(err),
@@ -1160,15 +1211,17 @@ ${chefPreflight.systemPromptAddition}`;
     unsubTurns();
     collector.unsubscribe();
     cleanupAbort();
-    // Clean up any dangling turn/tool spans
-    if (currentTurnSpan) { endTurnSpan(currentTurnSpan); currentTurnSpan = undefined; }
-    for (const ts of activeToolSpans.values()) { endToolSpan(ts); }
-    activeToolSpans.clear();
   }
 
   let responseText = gatedResponseText || collector.getText().trim() || getLastAssistantText(session);
+  // Capture the raw-output signal BEFORE the fail-loud end-report substitution
+  // below — the outcome contract (R4) must know whether the agent actually
+  // produced text, not whether diagnostics were synthesized afterwards.
+  const hasRawOutput = responseText.length > 0;
   let runError: string | undefined;
-  const modelError = !aborted && !options.signal?.aborted ? getLastAssistantError(session) : undefined;
+  const modelError = !aborted && !options.signal?.aborted
+    ? (getLastAssistantError(session) ?? exhaustedModelError)
+    : undefined;
   if (!responseText && modelError) {
     // The run produced no text because the model/provider errored on its final
     // turn (e.g. 401 auth, unavailable model). Surface it instead of returning
@@ -1186,6 +1239,30 @@ ${chefPreflight.systemPromptAddition}`;
         logger.debug(`Hook dispatch error: ${hookErr instanceof Error ? hookErr.message : String(hookErr)}`);
       });
   }
+  if (!responseText && !modelError) {
+    // Agent completed without producing text. Surface a machine-readable
+    // end report so get_subagent_result never returns an uninformative
+    // empty result. This covers cases where the agent finished silently
+    // after a soft-limit steer or normal turn end.
+    const durationMs = Math.round(performance.now() - startTime);
+    responseText = `[pi-agent-orchestrator] Agent completed without producing output.\nType: ${type}\nTurns: ${turnCount}\nTool calls: ${toolCallCount}\nDuration: ${durationMs}ms\nStatus: ${aborted ? "aborted" : softLimitReached ? "steered" : "completed"}\n\nIf this was a route-discovery task, prefer direct shell/docs lookup.`;
+    logger.warn("Subagent completed with empty output", {
+      agentId: options.agentId ?? "unknown",
+      type,
+      turns: turnCount,
+      toolCalls: toolCallCount,
+      durationMs,
+    });
+  }
+
+  // Explicit outcome contract (R4): classify how the run ended so callers
+  // never read a budget cut or a silent run as a successful empty result.
+  const derived = deriveAgentOutcome({
+    aborted,
+    abortReason,
+    hasOutput: hasRawOutput,
+    executedWork: toolCallCount > 0 || hasRawOutput,
+  });
   const duration = performance.now() - startTime;
 
   // Structured handoff parsing
@@ -1234,28 +1311,6 @@ ${chefPreflight.systemPromptAddition}`;
     validatorResults: validationResults?.map((r) => ({ passed: r.passed, summary: r.summary })),
   });
 
-  // End OpenTelemetry agent span. `timedOut` implies `aborted`, but we record
-  // the cause in the span so the trace still distinguishes a quota timeout.
-  // A surfaced model/provider error must also land as "error" — never "completed".
-  const finalStatus =
-    runError ? "error"
-    : aborted ? "aborted"
-    : softLimitReached ? "steered"
-    : "completed";
-  endAgentSpan(agentSpan, {
-    status: finalStatus,
-    ...(timedOut ? { error: `Duration quota exceeded (${quotas.maxDurationMs}ms)` }
-    : runError ? { error: runError }
-    : {}),
-    durationMs: duration,
-    turns: turnCount,
-    toolCalls: toolCallCount,
-    tokensIn,
-    tokensOut,
-    tokensCacheWrite,
-    validated,
-  });
-
   const metrics: RunMetrics = {
     durationMs: duration,
     turns: turnCount,
@@ -1266,7 +1321,21 @@ ${chefPreflight.systemPromptAddition}`;
     latencyToFirstTokenMs: latencyToFirstToken,
   };
 
-  return { responseText, session, aborted, timedOut, steered: softLimitReached, validationResults, validated, handoff, metrics, error: runError };
+  return {
+    responseText,
+    session,
+    aborted,
+    timedOut,
+    steered: softLimitReached,
+    validationResults,
+    validated,
+    handoff,
+    metrics,
+    error: runError,
+    abortReason,
+    outcome: derived.outcome,
+    outcomeReason: derived.reason,
+  };
 }
 
 // ============================================================================
