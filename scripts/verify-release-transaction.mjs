@@ -114,11 +114,13 @@ async function verify(parentRef, releaseRef, expectedVersion) {
   // changelog already carries the target heading while npm never received
   // the version. npm is the authority on "published" — if the exact version
   // is absent, a partial re-finalization (e.g. CHANGELOG-only) is allowed
-  // as long as every changed file is within the required/docs set.
-  const parentChangelogForFlag = readAt(parentRef, "CHANGELOG.md");
-  const reRelease =
-    parentChangelogForFlag.includes(`## v${expectedVersion} (`) &&
-    !npmHasVersion(expectedVersion);
+  // as long as every changed file is within the required/docs set. The npm
+  // query only runs when the parent changelog already carries the heading:
+  // it is the sole scenario where a re-release can be legitimate, and it
+  // keeps ordinary commits offline so local gates fail fast.
+  const parentChangelog = readAt(parentRef, "CHANGELOG.md");
+  const parentHasHeading = parentChangelog.includes(`## v${expectedVersion} (`);
+  const reRelease = parentHasHeading && !npmHasVersion(expectedVersion);
   const missingRequired = requiredFiles.filter((path) => !changed.includes(path));
   const disallowed = changed.filter(
     (path) => !requiredFiles.includes(path) && !isAllowedDocumentationPath(path),
@@ -138,7 +140,12 @@ async function verify(parentRef, releaseRef, expectedVersion) {
 
   const parentPackage = JSON.parse(readAt(parentRef, "package.json"));
   const releasePackage = JSON.parse(readAt(releaseRef, "package.json"));
-  if (!reRelease) {
+  // The next-patch transition check runs whenever the version changes —
+  // including re-releases — so a pre-existing changelog heading cannot be
+  // used to jump past the policy (e.g. parent 0.19.2 straight to 0.19.9).
+  // A re-release where the parent package already carries the target
+  // version changes nothing and skips it legitimately.
+  if (parentPackage.version !== expectedVersion) {
     try {
       assertNextPatchTransition(parentPackage.version, expectedVersion, policy);
     } catch (error) {
@@ -176,16 +183,11 @@ async function verify(parentRef, releaseRef, expectedVersion) {
     fail("package-lock changed outside top-level version and packages[''] root metadata");
   }
 
-  const parentChangelog = readAt(parentRef, "CHANGELOG.md");
   const releaseChangelog = readAt(releaseRef, "CHANGELOG.md");
-  if (parentChangelog.includes(`## v${expectedVersion} (`)) {
-    // Re-release: the previous attempt failed at a later gate, so the
-    // parent changelog already carries the heading while npm never
-    // received the version. The reRelease flag above already verified npm
-    // state via npmHasVersion; this is the same scenario.
-    if (!reRelease) {
-      fail(`parent CHANGELOG already contains v${expectedVersion}`);
-    }
+  if (parentHasHeading && !reRelease) {
+    // Parent changelog carries the heading but npm already published the
+    // version — this is a second release, not a re-finalization.
+    fail(`parent CHANGELOG already contains v${expectedVersion}`);
   }
   const historyMarker = "## v0.17.1 ";
   const parentHistory = parentChangelog.indexOf(historyMarker);
