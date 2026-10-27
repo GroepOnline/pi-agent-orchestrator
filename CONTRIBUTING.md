@@ -140,9 +140,13 @@ tests on Windows related to temp directory races. These are
 - A version bump merged to main must be tagged `v<version>` by the release step.
 - Declared version source is root `package.json`. Tag `vX.Y.Z` must equal that
   version and the tag commit must be on `origin/main`.
-- `release.yml` on `v*` packs the npm tarball, writes `SHA256SUMS`, and creates
-  or updates the GitHub Release with those assets. The npm publish job and
-  registry stay unchanged.
+- `release.yml` verifies the reviewed main commit and publishes to npm.
+  `workflow_dispatch` recovers the latest canonical release commit already on
+  main and refuses a caller-supplied SHA.
+- Tag pushes run `release-tag-artifacts.yml` (tags only). That workflow packs
+  the npm tarball, writes `SHA256SUMS`, and attaches both to the GitHub
+  Release. It is separate from `release.yml` because a push filter that sets
+  both `branches` and `tags` never runs.
 - PRs that touch `package.json` fail when that version already has a tag or
   GitHub Release.
 - Don't publish manually.

@@ -26,9 +26,14 @@ export function assertVersionAvailable({ version, tags, releases }) {
   }
 }
 
+function gitRemote() {
+  const configured = process.env.VERSION_REUSE_GIT_REMOTE;
+  return configured && configured.trim() !== "" ? configured.trim() : "origin";
+}
+
 function listRemoteTags(version, { gitBin = "git" } = {}) {
   const tag = `v${version}`;
-  const result = spawnSync(gitBin, ["ls-remote", "--tags", "origin", `refs/tags/${tag}`], {
+  const result = spawnSync(gitBin, ["ls-remote", "--tags", gitRemote(), `refs/tags/${tag}`], {
     cwd: ROOT,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { assertVersionAvailable, versionReuseFailures } from "../scripts/check-version-reuse.mjs";
-import { assertTagMatchesPackage, parseStableTag } from "../scripts/verify-release-tag.mjs";
+import { assertCommitOnOriginMain, assertTagMatchesPackage, parseStableTag } from "../scripts/verify-release-tag.mjs";
 import {
   formatRuntimeIdentity,
   readPackageVersion,
@@ -55,6 +55,13 @@ describe("release tag contract helpers", () => {
     expect(assertTagMatchesPackage("v0.19.2", "0.19.2")).toBe("0.19.2");
     expect(() => parseStableTag("0.19.2")).toThrow(/not vX\.Y\.Z/);
     expect(() => assertTagMatchesPackage("v0.19.2", "0.19.1")).toThrow(/does not match/);
+  });
+
+  it("rejects a tag commit that is not on origin/main", () => {
+    expect(() => assertCommitOnOriginMain({ commitSha: "", ancestorOfMain: true })).toThrow(/missing/);
+    expect(() =>
+      assertCommitOnOriginMain({ commitSha: "abc", ancestorOfMain: false }),
+    ).toThrow(/not on origin\/main/);
   });
 
   it("fails when the package version already has a tag or Release", () => {

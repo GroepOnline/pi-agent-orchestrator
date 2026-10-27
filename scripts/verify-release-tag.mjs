@@ -36,12 +36,27 @@ function git(args, { cwd = ROOT } = {}) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+function fetchOriginMain() {
+  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  const repo = process.env.GITHUB_REPOSITORY;
+  if (token && repo) {
+    git([
+      "fetch",
+      "--no-tags",
+      `https://x-access-token:${token}@github.com/${repo}.git`,
+      "+refs/heads/main:refs/remotes/origin/main",
+    ]);
+    return;
+  }
+  git(["fetch", "--no-tags", "origin", "main"]);
+}
+
 function main() {
   const tagName = process.env.GITHUB_REF_NAME;
   const commitSha = process.env.GITHUB_SHA || git(["rev-parse", "HEAD"]);
   const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8"));
   assertTagMatchesPackage(tagName, pkg.version);
-  git(["fetch", "--no-tags", "origin", "main"]);
+  fetchOriginMain();
   let ancestorOfMain = false;
   try {
     git(["merge-base", "--is-ancestor", commitSha, "origin/main"]);
