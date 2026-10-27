@@ -2,8 +2,10 @@
 //
 // Split out from verify-release-transaction.mjs so the fail-closed rule is
 // unit-testable without spawning npm: a release verifier must never read a
-// transient npm failure as "version absent", because that flips the caller into
-// its re-release bypass and skips the exact-file-set and baseline gates.
+// transient npm failure — or output it cannot explain — as "version absent",
+// because that flips the caller into its re-release bypass and skips the
+// exact-file-set and baseline gates. Only an exact stdout match is "present"
+// and only E404 is "absent"; every other successful response is "unknown".
 
 /**
  * @param {{ status?: number|null, stdout?: string|null, stderr?: string|null, error?: Error|null }} result
@@ -18,7 +20,7 @@ export function classifyNpmViewResult(result, version) {
     const stdout = (result.stdout ?? "").trim();
     return stdout === version
       ? { state: "present" }
-      : { state: "absent", reason: `registry returned "${stdout}"` };
+      : { state: "unknown", reason: `unexpected registry output "${stdout}"` };
   }
   const stderr = `${result?.stderr ?? ""}`;
   if (/\bE404\b|404 Not Found/.test(stderr)) {

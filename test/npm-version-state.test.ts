@@ -10,18 +10,26 @@ describe("classifyNpmViewResult", () => {
     });
   });
 
-  it("treats a clean query for another version as absent", () => {
+  it("fails closed on a clean query for another version", () => {
     const outcome = classifyNpmViewResult(
       { status: 0, stdout: "0.18.0\n", stderr: "" },
       VERSION,
     );
-    expect(outcome.state).toBe("absent");
+    expect(outcome.state).toBe("unknown");
   });
 
-  it("treats an empty clean query as absent", () => {
+  it("fails closed on an empty clean query", () => {
     expect(classifyNpmViewResult({ status: 0, stdout: "\n", stderr: "" }, VERSION).state).toBe(
-      "absent",
+      "unknown",
     );
+  });
+
+  it("fails closed on JSON-quoted output from inherited npm_config_json", () => {
+    const outcome = classifyNpmViewResult(
+      { status: 0, stdout: `"${VERSION}"\n`, stderr: "" },
+      VERSION,
+    );
+    expect(outcome.state).toBe("unknown");
   });
 
   it("treats an E404 as absent", () => {

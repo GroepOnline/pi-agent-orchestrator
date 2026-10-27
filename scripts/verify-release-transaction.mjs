@@ -43,16 +43,19 @@ function readAt(ref, path) {
 }
 
 // npm is the authority on "published". Only a definitive registry answer may be
-// treated as "version absent": a missing version (E404) or a clean query that
-// returns something else. A transient failure (network, auth, missing npm,
-// registry outage) is NOT evidence of absence — treating it as such would flip
-// `reRelease` true and skip the exact-file-set and baseline gates, letting
-// arbitrary changes pass as a legitimate re-release. Fail closed instead.
+// treated as "version absent": a missing version (E404). A transient failure
+// (network, auth, missing npm, registry outage) or output the classifier cannot
+// explain (JSON-quoted, empty, or a different version) is NOT evidence of
+// absence — treating it as such would flip `reRelease` true and skip the
+// exact-file-set and baseline gates, letting arbitrary changes pass as a
+// legitimate re-release. Fail closed instead. `npm_config_json=false` pins the
+// output format so an inherited `--json` cannot reshape stdout.
 function npmHasVersion(version) {
   const result = spawnSync("npm", ["view", `@groeponline/pi-agent-orchestrator@${version}`, "version"], {
     encoding: "utf8",
     timeout: 30_000,
     stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, npm_config_json: "false" },
   });
   const outcome = classifyNpmViewResult(result, version);
   if (outcome.state === "unknown") {
