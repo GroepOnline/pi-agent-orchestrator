@@ -33,7 +33,7 @@ jobs:
   detect:
     name: Detect reviewed release commit
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, heavy]
     permissions:
       contents: read
     outputs:
@@ -96,7 +96,7 @@ jobs:
     name: Verify and build immutable npm artifact
     needs: detect
     if: needs.detect.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, heavy]
     timeout-minutes: 35
     permissions:
       contents: read
@@ -176,7 +176,7 @@ jobs:
   publish:
     name: Publish and verify npm registry artifact
     needs: [detect, verify]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, heavy]
     timeout-minutes: 20
     permissions:
       contents: read
@@ -239,7 +239,7 @@ jobs:
   finalize:
     name: Tag exact source and create GitHub Release
     needs: [detect, publish]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, heavy]
     timeout-minutes: 10
     permissions:
       actions: write
@@ -293,3 +293,4 @@ jobs:
             echo "- Confirm pi.dev shows \`@groeponline/pi-agent-orchestrator\`, not \`@onlinechefgroep\`."
             echo "- Release train remains locked to \`0.19.x\`; \`0.20.0\` is blocked by policy."
           } >> "$GITHUB_STEP_SUMMARY"
+
