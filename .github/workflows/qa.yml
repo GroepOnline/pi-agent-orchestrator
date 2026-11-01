@@ -15,7 +15,7 @@ jobs:
   qa:
     name: Functional QA
     if: github.event_name == 'workflow_dispatch' || (vars.ENABLE_QA_WORKFLOW || 'false') == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
     timeout-minutes: 25
     permissions:
       contents: read
