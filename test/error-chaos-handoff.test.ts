@@ -149,9 +149,9 @@ describe('Handoff - Error Chaos & Resilience', () => {
   });
 
   it('should survive deeply nested JSON structures (DOS prevention)', () => {
-    // Deep nesting with many keys is caught by the key count reviver or parsing limits.
-    // Let's create a deeply nested structure: { a: { b: { c: ... } } } with 1005 levels.
-    // This will have 1005 keys in total, triggering key count limits.
+    // Deep nesting is caught by the depth limit before the key count limit can
+    // fire: each level adds exactly one key, so depth 20 trips long before the
+    // 1000-key ceiling. { a: { b: { c: ... } } } with 1005 levels.
     let nestedJson = '"value"';
     for (let i = 0; i < 1005; i++) {
       nestedJson = `{"level${i}":${nestedJson}}`;
@@ -169,7 +169,7 @@ describe('Handoff - Error Chaos & Resilience', () => {
     const result = parseHandoff(payload);
     expect(result).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('JSON key count exceeds maximum')
+      expect.stringContaining('JSON depth exceeds maximum')
     );
   });
 
