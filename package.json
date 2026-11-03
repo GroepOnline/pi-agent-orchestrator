@@ -88,6 +88,10 @@
     "@sinclair/typebox": "^0.34.52",
     "croner": "^10.0.1"
   },
+  "overrides": {
+    "minimatch": "11.0.3",
+    "undici": "8.12.3"
+  },
   "scripts": {
     "build": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc",
     "dev": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc --watch --preserveWatchOutput",
