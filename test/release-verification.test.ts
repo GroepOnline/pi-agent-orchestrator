@@ -29,6 +29,32 @@ function fileExists(file: string): boolean {
   return existsSync(resolve(root, file));
 }
 
+/**
+ * Release and publish lanes must run on a fleet route, never on a
+ * GitHub-hosted image (hosted minutes are billed and the org routes CI to its
+ * own runners). The admitted fleet routes are the `[self-hosted, ...]` label
+ * sets and the ephemeral OCI label `chefgroep-ci-oci` from
+ * GroepOnline/ci-runners `workflow-routing.json`. Asserting the routing
+ * *policy* rather than one literal label keeps the guarantee when the fleet
+ * migrates a lane to a different admitted runner label.
+ */
+const GITHUB_HOSTED_RUNNER = /\b(?:ubuntu|windows|macos)-[a-z0-9.]+\b/;
+const ADMITTED_FLEET_RUNNER = /^\s*\[(?:[^\]]*\bself-hosted\b[^\]]*|"chefgroep-ci-oci")\]\s*$/;
+
+function expectFleetRunner(job: string, where: string): void {
+  const routes = job.match(/^\s+runs-on:.*$/gm) ?? [];
+  expect(routes, `${where} must declare an explicit runs-on route`).not.toHaveLength(0);
+  for (const route of routes) {
+    const value = route.replace(/^\s*runs-on:\s*/, "").trim();
+    expect(value, `${where} must not use a GitHub-hosted runner`).not.toMatch(
+      GITHUB_HOSTED_RUNNER,
+    );
+    expect(value, `${where} must use an admitted fleet runner route`).toMatch(
+      ADMITTED_FLEET_RUNNER,
+    );
+  }
+}
+
 function runReleasePolicy(...args: string[]) {
   return runReleasePolicyAt(root, ...args);
 }
@@ -466,8 +492,7 @@ describe("transactional release workflow", () => {
     expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'package\.json'/);
     expect(buildJob).toContain("if: github.ref == 'refs/heads/main'");
     expect(buildJob).toContain("actions/setup-node@");
-    expect(buildJob).toMatch(/^\s+runs-on:\s+\[self-hosted, Linux, X64, heavy\]$/m);
-    expect(buildJob).toContain("self-hosted");
+    expectFleetRunner(buildJob, "Deploy Pages build job");
     expect(videoCheck).toContain("dashboard_preview.mp4");
     expect(videoCheck).toContain("product_film.mp4");
     expect(videoCheck).toContain("dashboard_preview.gif");
@@ -495,8 +520,8 @@ describe("transactional release workflow", () => {
     expect(tags).toContain("if: startsWith(github.ref, 'refs/tags/v')");
     expect(tags).toContain("node scripts/verify-release-tag.mjs");
     expect(tags).toContain("SHA256SUMS");
-    expect(tags).toContain("runs-on: [self-hosted, Linux, X64, heavy]");
-    expect(tags).not.toContain("ubuntu-latest");
+    expectFleetRunner(tags, "Release tag artifacts workflow");
+    expect(tags).not.toMatch(GITHUB_HOSTED_RUNNER);
   });
 
   it("legacy publish workflows remain removed", () => {
