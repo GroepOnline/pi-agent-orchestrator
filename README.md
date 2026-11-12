@@ -202,6 +202,31 @@ npm run verify:cloud
 npm run cloud:smoke
 ```
 
+## Devin worker pilot
+
+`scripts/devin-worker.mjs` is a host-side pilot. It is not loaded by the Pi extension, and no workflow starts it. On `bc-scan-2`, check out this repository yourself (those hosts are not fleet update targets) and run the script by hand. Devin, git, and `gh` use the login already on that machine. The script does not take a token and does not write one into the repo.
+
+```bash
+export DEVIN_WORKER_ENABLED=true
+export DEVIN_PILOT_UNTIL_SWE2=2026-11-29
+export DEVIN_PILOT_UNTIL_FLASH=2026-12-03
+export DEVIN_WORKER_MAX_LANES=1
+export DEVIN_WORKER_TIMEOUT_MS=1800000
+export DEVIN_WORKER_WORK_DIR="$HOME/devin-worker"
+
+node scripts/devin-worker.mjs \
+  --issue CHEF-123 \
+  --repo /path/to/target/checkout \
+  --model swe-2-medium \
+  --task "Short assignment"
+```
+
+`DEVIN_WORKER_ENABLED` must be the exact string `true`. The model must be a `swe-2` variant id returned by `devin models list --format json` (`swe-2-medium`, `swe-2-high`, `swe-2-max`, and the `swe-2-flash-*` variants). Any id containing `lightning`, or any id the CLI does not list, is refused. Dates are inclusive calendar days in Europe/Amsterdam. Set the matching `DEVIN_PILOT_UNTIL_*` variable to another `YYYY-MM-DD` to override that deadline, or set it to empty to disable it. `DEVIN_WORKER_MAX_LANES` is 1 through 4 (default 1). The per-task timeout defaults to 30 minutes.
+
+Each accepted task creates a git worktree under `DEVIN_WORKER_WORK_DIR`, runs `devin --model <id> -p "<task>" --sandbox --export <path>`, commits on `devin/<issue-id>-<slug>`, and opens a pull request. The pull request body contains the task, the model id, and the export path. Merging is left to a human or Dev. A run with no file changes does not open a pull request.
+
+Stop the pilot by unsetting `DEVIN_WORKER_ENABLED` or setting it to anything other than `true`. The next start exits without calling `devin`. This repository does not install a service; stop a running process with the supervisor you started it from. After 2026-11-29, SWE-2 ids are refused, and after 2026-12-03, SWE-2 Flash ids are refused, unless those dates were cleared or overridden.
+
 ## Privacy
 
 The extension runs inside the Pi host process. There is no package-owned hosted control plane and no package-owned telemetry backend. Optional telemetry is inert until explicitly configured by the operator.
