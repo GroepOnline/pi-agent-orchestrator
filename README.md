@@ -227,6 +227,12 @@ Each accepted task creates a git worktree under `DEVIN_WORKER_WORK_DIR`, runs `d
 
 Stop the pilot by unsetting `DEVIN_WORKER_ENABLED` or setting it to anything other than `true`. The next start exits without calling `devin`. This repository does not install a service; stop a running process with the supervisor you started it from. After 2026-11-29, SWE-2 ids are refused, and after 2026-12-03, SWE-2 Flash ids are refused, unless those dates were cleared or overridden.
 
+### Alleen CLI, nooit Devin cloud
+
+Joep, 12 november 2026, 10:40: "belangrijk geen devin cloud maar draaien via cli".
+
+The worker only starts the local Devin CLI. The logged path is `local-cli` (headless `devin -p` with `--model`, `--sandbox`, and `--export`) or `herdr-core-lane` (the same binary when `DEVIN_WORKER_ROUTE=herdr-core-lane` or a `HERDR_LANE` / `HERDR_CORE` / `HERDR_SESSION` variable is set). It does not open a Devin Cloud session, call `api.devin.ai` session endpoints, or use Composio `devin_mcp`. `DEVIN_API_KEY`, `--cloud`, and a route of `cloud`, `api`, `remote`, or `devin_mcp` are refused before any `devin` process starts. The key value is not printed and is not passed to the child.
+
 ## Privacy
 
 The extension runs inside the Pi host process. There is no package-owned hosted control plane and no package-owned telemetry backend. Optional telemetry is inert until explicitly configured by the operator.

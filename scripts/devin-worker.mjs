@@ -13,6 +13,11 @@
  * Delete this file, `test/devin-worker.test.ts`, and the README section to
  * remove the pilot. It does not read tokens from the repo or from a config
  * file. Devin, git, and gh use the login already present on the host.
+ *
+ * Local CLI only. Headless `devin -p`, or the same binary inside a
+ * herdr-core lane. Never Devin Cloud, api.devin.ai session endpoints, or
+ * Composio devin_mcp. Joep, 12 Nov 2026 10:40: "belangrijk geen devin cloud
+ * maar draaien via cli".
  */
 
 import { execFile as execFileCb, spawn } from "node:child_process";
@@ -60,7 +65,9 @@ const HELP_TEXT = [
   "DEVIN_WORKER_WORK_DIR    fixed directory for worktrees, exports, and lane locks",
   "DEVIN_WORKER_LANE_WAIT_MS  how long to wait for a free lane, default 15000",
   "DEVIN_BIN                devin executable, default devin",
+  "DEVIN_WORKER_ROUTE       local-cli (default) or herdr-core-lane",
   "",
+  "Only the local Devin CLI. --cloud, DEVIN_API_KEY, api.devin.ai, and Composio devin_mcp are refused.",
   "Exit codes: 0 ok or disabled, 2 refused input, 3 task timeout, 4 execution failure, 5 no changes to commit.",
 ].join("\n");
 
@@ -253,8 +260,171 @@ export function resolveListedModel(requested, catalogIds) {
   return match;
 }
 
+export const LOCAL_CLI_ROUTE = "local-cli";
+export const HERDR_CORE_LANE_ROUTE = "herdr-core-lane";
+
+const BLOCKED_ENV_KEYS = new Set([
+  "DEVIN_API_KEY",
+  "DEVIN_API_TOKEN",
+  "DEVIN_API_URL",
+  "DEVIN_API_BASE",
+  "DEVIN_BASE_URL",
+  "DEVIN_SESSION_TOKEN",
+  "DEVIN_SESSION_ID",
+  "DEVIN_CLOUD",
+  "DEVIN_CLOUD_SESSION",
+  "DEVIN_REMOTE",
+  "DEVIN_MCP",
+  "DEVIN_MCP_URL",
+  "COMPOSIO_DEVIN_MCP",
+]);
+
+const CLOUD_ROUTES = new Set([
+  "cloud",
+  "devin-cloud",
+  "api",
+  "remote",
+  "composio",
+  "devin_mcp",
+  "devin-mcp",
+]);
+
+const WORKER_CLOUD_FLAGS = new Set([
+  "--cloud",
+  "--remote",
+  "--api",
+  "--session",
+  "--devin-mcp",
+  "--composio",
+]);
+
+function isBlockedEnvKey(key) {
+  if (BLOCKED_ENV_KEYS.has(key)) return true;
+  return /DEVIN_API_KEY|DEVIN_API_URL|DEVIN_API_BASE|DEVIN_CLOUD|DEVIN_REMOTE|DEVIN_MCP|DEVIN_SESSION_TOKEN|DEVIN_SESSION_ID|COMPOSIO_DEVIN|devin_mcp/i.test(key);
+}
+
+function isCloudCliArg(arg) {
+  const lower = String(arg).toLowerCase();
+  if (lower === "--cloud" || lower === "--remote" || lower === "cloud" || lower === "connect") return true;
+  if (lower.startsWith("--cloud=") || lower.startsWith("--remote=") || lower.startsWith("--resume=")) return true;
+  if (lower === "--resume" || lower === "-r") return true;
+  return /api\.devin\.ai|mcp\.devin\.ai|app\.devin\.ai\/sessions|devin_mcp/i.test(arg);
+}
+
+function blockedEnvHits(env) {
+  const hits = [];
+  for (const [key, value] of Object.entries(env ?? {})) {
+    if (!isBlockedEnvKey(key)) continue;
+    if (typeof value === "string" && value.trim() !== "") hits.push(key);
+  }
+  const route = String(env?.DEVIN_WORKER_ROUTE ?? "").trim().toLowerCase();
+  if (CLOUD_ROUTES.has(route)) hits.push("DEVIN_WORKER_ROUTE");
+  return hits;
+}
+
+/**
+ * Refuse cloud, API-key, and remote-session configuration before any process starts.
+ * The error names the variables and flags. It does not include their values.
+ */
+export function assertNoCloudRoute(env, argv = []) {
+  const hits = blockedEnvHits(env);
+  for (const arg of argv) {
+    if (typeof arg === "string" && (WORKER_CLOUD_FLAGS.has(arg) || isCloudCliArg(arg))) hits.push(arg);
+  }
+  if (hits.length === 0) return;
+  throw new WorkerError(
+    `Refusing Devin cloud/remote route (${hits.join(", ")}). This worker only runs the local Devin CLI: headless devin -p, or a herdr-core lane. Unset DEVIN_API_KEY and do not pass --cloud. Devin cloud, api.devin.ai sessions, and Composio devin_mcp are not used.`,
+    EXIT.USAGE,
+  );
+}
+
+export function resolveExecutionRoute(env) {
+  assertNoCloudRoute(env);
+  const explicit = String(env?.DEVIN_WORKER_ROUTE ?? "").trim().toLowerCase();
+  if (explicit === LOCAL_CLI_ROUTE || explicit === "cli") return LOCAL_CLI_ROUTE;
+  if (explicit === HERDR_CORE_LANE_ROUTE || explicit === "herdr") return HERDR_CORE_LANE_ROUTE;
+  if (explicit !== "") {
+    throw new WorkerError(
+      `Refusing DEVIN_WORKER_ROUTE ${JSON.stringify(explicit)}. Allowed routes are local-cli and herdr-core-lane.`,
+      EXIT.USAGE,
+    );
+  }
+  const onHerdrLane = ["HERDR_LANE", "HERDR_CORE", "HERDR_SESSION"].some((key) => String(env?.[key] ?? "").trim() !== "");
+  return onHerdrLane ? HERDR_CORE_LANE_ROUTE : LOCAL_CLI_ROUTE;
+}
+
+export function routeLogLine(route) {
+  return `devin-worker: route ${route} (local Devin CLI, headless devin -p; not Devin cloud)`;
+}
+
+const PRINT_FLAGS = new Set(["-p", "--print"]);
+const SKIP_VALUE_FLAGS = new Set(["-p", "--print", "--model", "--export", "--prompt-file"]);
+
+/** Headless local CLI only. The value after -p/--print is the task, not a flag. */
+export function assertLocalCliArgv(argv) {
+  if (!Array.isArray(argv)) {
+    throw new WorkerError("Refusing Devin invocation without an argument list.", EXIT.USAGE);
+  }
+  let sawPrint = false;
+  const checked = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = String(argv[index]);
+    if (PRINT_FLAGS.has(arg)) {
+      sawPrint = true;
+      const next = argv[index + 1];
+      if (typeof next === "string" && !next.startsWith("--")) index += 1;
+      continue;
+    }
+    if (SKIP_VALUE_FLAGS.has(arg)) {
+      index += 1;
+      continue;
+    }
+    checked.push(arg);
+  }
+  if (!sawPrint) {
+    throw new WorkerError(
+      "Refusing Devin invocation without headless -p/--print. Devin cloud and remote sessions are not allowed.",
+      EXIT.USAGE,
+    );
+  }
+  for (const arg of checked) {
+    if (isCloudCliArg(arg)) {
+      throw new WorkerError(
+        `Refusing Devin argument ${JSON.stringify(arg)}. This worker only runs the local CLI (devin -p or a herdr-core lane), never Devin cloud, api.devin.ai, or Composio devin_mcp.`,
+        EXIT.USAGE,
+      );
+    }
+  }
+  return argv;
+}
+
+export function assertCatalogArgv(argv) {
+  const expected = ["models", "list", "--format", "json"];
+  const same = Array.isArray(argv) && argv.length === expected.length && argv.every((arg, index) => arg === expected[index]);
+  if (!same) {
+    throw new WorkerError(
+      "Refusing devin models invocation that is not the local `devin models list --format json`.",
+      EXIT.USAGE,
+    );
+  }
+  return argv;
+}
+
 export function buildDevinArgv({ model, task, exportPath }) {
-  return ["--model", model, "-p", task, "--sandbox", "--export", exportPath];
+  return assertLocalCliArgv(["--model", model, "-p", task, "--sandbox", "--export", exportPath]);
+}
+
+export function cliChildEnv(base) {
+  assertNoCloudRoute(base);
+  const env = {
+    ...base,
+    GIT_TERMINAL_PROMPT: "0",
+    GH_PROMPT_DISABLED: "1",
+  };
+  for (const key of Object.keys(env)) {
+    if (isBlockedEnvKey(key)) delete env[key];
+  }
+  return env;
 }
 
 export function assertIssueId(issue) {
@@ -428,6 +598,12 @@ const TASK_FLAGS = new Set(["tasks", "issue", "repo", "task", "model"]);
 
 function readFlag(argv, index) {
   const arg = argv[index];
+  if (WORKER_CLOUD_FLAGS.has(arg) || isCloudCliArg(arg)) {
+    throw new WorkerError(
+      `Refusing ${JSON.stringify(arg)}: this worker only runs the local Devin CLI (headless devin -p or a herdr-core lane), never Devin cloud, api.devin.ai, or Composio devin_mcp.`,
+      EXIT.USAGE,
+    );
+  }
   if (arg === "--help" || arg === "-h") return { help: true, next: index };
   const key = arg === "--tasks" ? "tasks" : arg.startsWith("--") ? arg.slice(2) : "";
   if (!TASK_FLAGS.has(key)) {
@@ -529,11 +705,7 @@ async function loadTasks(parsed, readFileImpl) {
 }
 
 function commandEnv(base) {
-  return {
-    ...base,
-    GIT_TERMINAL_PROMPT: "0",
-    GH_PROMPT_DISABLED: "1",
-  };
+  return cliChildEnv(base);
 }
 
 function execMessage(error) {
@@ -695,7 +867,8 @@ async function ensureLayout(workRoot) {
 }
 
 async function runDevinSession(ctx, paths, env) {
-  const argv = buildDevinArgv({ model: ctx.model, task: ctx.taskText, exportPath: paths.exportPath });
+  const argv = assertLocalCliArgv(buildDevinArgv({ model: ctx.model, task: ctx.taskText, exportPath: paths.exportPath }));
+  assertNoCloudRoute(env);
   let spawned;
   try {
     spawned = await ctx.spawnCommand(ctx.devinBin, argv, {
@@ -790,7 +963,7 @@ async function publishPullRequest(task, ctx, paths, env) {
 }
 
 async function executeTask(task, ctx) {
-  const env = commandEnv(process.env);
+  const env = ctx.childEnv ?? commandEnv(process.env);
   const { repo, workRoot } = await locateCheckout(task, ctx, env);
   const paths = taskPaths(workRoot, task);
   await ensureLayout(workRoot);
@@ -875,25 +1048,36 @@ export async function runWorker(argv, deps = {}) {
       flashUntil: resolvePilotUntil(env.DEVIN_PILOT_UNTIL_FLASH, DEFAULT_PILOT_UNTIL_FLASH),
     });
   }
+  assertNoCloudRoute(env);
+  const route = resolveExecutionRoute(env);
+  deps.log?.(routeLogLine(route));
   const config = loadWorkerConfig(env, now);
   await mkdir(config.workDir, { recursive: true, mode: 0o700 });
   const execFile = deps.execFile ?? defaultExecFile;
+  const childEnv = commandEnv(env);
+  const catalogArgv = assertCatalogArgv(["models", "list", "--format", "json"]);
   const listed = await run(
     execFile,
     config.devinBin,
-    ["models", "list", "--format", "json"],
-    { cwd: process.cwd(), timeoutMs: 30_000, env: commandEnv(process.env) },
+    catalogArgv,
+    { cwd: process.cwd(), timeoutMs: 30_000, env: childEnv },
   );
   const catalog = parseModelCatalog(listed.stdout);
   const results = await runWithLanes(tasks, config.lanes, (task) => runOne(task, {
     ...config,
     catalog,
+    childEnv,
     execFile,
     spawnCommand: deps.spawnCommand ?? defaultSpawn,
     sleep: deps.sleep,
     isPidAlive: deps.isPidAlive,
   }));
-  return { exitCode: combineExitCodes(results.map((result) => result.exitCode)), results, disabled: false };
+  return {
+    exitCode: combineExitCodes(results.map((result) => result.exitCode)),
+    results,
+    disabled: false,
+    route,
+  };
 }
 
 export async function main(argv = process.argv.slice(2), deps = {}) {
@@ -909,7 +1093,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     return EXIT.OK;
   }
   try {
-    const outcome = await runWorker(argv, deps);
+    const outcome = await runWorker(argv, { ...deps, log });
     for (const result of outcome.results) {
       if (result.url) log(result.url);
       if (result.message) warn(`devin-worker: ${result.message}`);

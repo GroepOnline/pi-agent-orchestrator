@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   acquireLane,
+  assertLocalCliArgv,
+  assertNoCloudRoute,
   assertPilotOpen,
   buildDevinArgv,
   buildPrBody,
@@ -17,15 +19,19 @@ import {
   DEFAULT_PILOT_UNTIL_SWE2,
   DEFAULT_TIMEOUT_MS,
   EXIT,
+  HERDR_CORE_LANE_ROUTE,
   isAllowlistedModelId,
+  LOCAL_CLI_ROUTE,
   main,
   parseModelCatalog,
   redactSecrets,
+  resolveExecutionRoute,
   resolveLaneWaitMs,
   resolveListedModel,
   resolveMaxLanes,
   resolvePilotUntil,
   resolveTimeoutMs,
+  routeLogLine,
   runWithLanes,
   runWorker,
 } from "../scripts/devin-worker.mjs";
@@ -288,6 +294,7 @@ describe("devin command construction", () => {
     });
 
     expect(outcome.exitCode).toBe(EXIT.OK);
+    expect(outcome.route).toBe(LOCAL_CLI_ROUTE);
     expect(execCalls[0]).toEqual({ command: "devin", args: ["models", "list", "--format", "json"] });
     const exportPath = join(work, "exports", "CHEF-123-say-hi-touch-tmp-pwn.json");
     expect(spawnCalls).toEqual([{
@@ -311,6 +318,8 @@ describe("devin command construction", () => {
     expect(body).toContain("swe-2-medium");
     expect(body).toContain(exportPath);
     expect(outcome.results[0]?.url).toBe("https://github.com/example/repo/pull/7");
+    expect(spawnCalls[0]?.args).toContain("-p");
+    expect(spawnCalls[0]?.args).not.toContain("--cloud");
   });
 
   it("does not call devin when the model is lightning or the pilot date has passed", async () => {
@@ -436,5 +445,99 @@ describe("devin command construction", () => {
     expect(outcome.results[0]?.message).toContain("[redacted]");
     expect(redactSecrets("token=sk-live-secret-value")).toBe("token=[redacted]");
     expect(combineExitCodes([EXIT.OK, EXIT.TIMEOUT, EXIT.USAGE])).toBe(EXIT.TIMEOUT);
+  });
+});
+
+describe("local CLI only", () => {
+  it("refuses cloud flags, an API key, and remote routes without starting devin", async () => {
+    const secret = "super-secret-key-value";
+    expect(() => assertNoCloudRoute({ DEVIN_API_KEY: secret })).toThrow(/DEVIN_API_KEY/);
+    expect(() => assertNoCloudRoute({ DEVIN_API_KEY: secret })).not.toThrow(new RegExp(secret));
+    expect(() => assertNoCloudRoute({ DEVIN_WORKER_ROUTE: "cloud" })).toThrow(/cloud\/remote/);
+    expect(() => assertNoCloudRoute({ COMPOSIO_DEVIN_MCP: "1" })).toThrow(/COMPOSIO_DEVIN_MCP/);
+    expect(() => assertLocalCliArgv(["--cloud", "-p", "fix tests"])).toThrow(/--cloud/);
+    expect(() => assertLocalCliArgv(["cloud", "drs", "whoami"])).toThrow(/headless -p/);
+    expect(() => assertLocalCliArgv(["--model", "swe-2-medium", "-p", "mention api.devin.ai in the notes", "--sandbox", "--export", "/tmp/out.json"])).not.toThrow();
+
+    const { repo, work } = await tempDirs();
+    const calls: string[] = [];
+    const boom = async () => {
+      calls.push("called");
+      return { stdout: CATALOG, stderr: "", code: 0, timedOut: false };
+    };
+    const warnings: string[] = [];
+    const code = await main([...taskArgs(repo), "--cloud"], {
+      env: enabledEnv(work),
+      execFile: boom,
+      spawnCommand: boom,
+      log: () => {},
+      warn: (message: string) => warnings.push(message),
+    });
+    expect(code).toBe(EXIT.USAGE);
+    expect(warnings.join("\n")).toMatch(/--cloud/);
+    expect(warnings.join("\n")).not.toContain(secret);
+
+    const keyed = await main(taskArgs(repo), {
+      env: { ...enabledEnv(work), DEVIN_API_KEY: secret, DEVIN_API_URL: "https://api.devin.ai" },
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      execFile: boom,
+      spawnCommand: boom,
+      log: () => {},
+      warn: (message: string) => warnings.push(message),
+    });
+    expect(keyed).toBe(EXIT.USAGE);
+    expect(warnings.join("\n")).toMatch(/DEVIN_API_KEY/);
+    expect(warnings.join("\n")).toMatch(/DEVIN_API_URL/);
+    expect(warnings.join("\n")).not.toContain(secret);
+    expect(warnings.join("\n")).not.toContain("https://api.devin.ai");
+    expect(calls).toEqual([]);
+  });
+
+  it("runs the local CLI route and a herdr-core lane on the same headless argv", async () => {
+    const logs: string[] = [];
+    const seenEnv: Record<string, string | undefined>[] = [];
+    async function run(routeEnv: Record<string, string>) {
+      const { repo, work } = await tempDirs();
+      const spawnArgs: string[][] = [];
+      const outcome = await runWorker(taskArgs(repo), {
+        env: { ...enabledEnv(work), ...routeEnv },
+        now: () => new Date("2026-11-12T12:00:00.000Z"),
+        log: (line: string) => logs.push(line),
+        execFile: async (command: string, args: string[]) => {
+          if (command === "devin") return { stdout: CATALOG, stderr: "" };
+          if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+          if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+          if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+          if (command === "gh") return { stdout: "https://github.com/example/repo/pull/9\n", stderr: "" };
+          return { stdout: "", stderr: "" };
+        },
+        spawnCommand: async (_command: string, args: string[], options: { env?: Record<string, string | undefined> }) => {
+          spawnArgs.push([...args]);
+          seenEnv.push(options.env ?? {});
+          return { code: 0, signal: null, timedOut: false };
+        },
+      });
+      return { outcome, spawnArgs };
+    }
+
+    const cli = await run({});
+    expect(cli.outcome.route).toBe(LOCAL_CLI_ROUTE);
+    expect(cli.outcome.exitCode).toBe(EXIT.OK);
+    expect(cli.spawnArgs[0]).toContain("-p");
+    expect(cli.spawnArgs[0]).not.toContain("--cloud");
+    expect(logs).toContain(routeLogLine(LOCAL_CLI_ROUTE));
+
+    const herdr = await run({ DEVIN_WORKER_ROUTE: HERDR_CORE_LANE_ROUTE, HERDR_LANE: "lane-1" });
+    expect(herdr.outcome.route).toBe(HERDR_CORE_LANE_ROUTE);
+    expect(resolveExecutionRoute({ HERDR_CORE: "1" })).toBe(HERDR_CORE_LANE_ROUTE);
+    expect(herdr.spawnArgs[0]?.slice(0, -1)).toEqual(cli.spawnArgs[0]?.slice(0, -1));
+    expect(herdr.spawnArgs[0]?.slice(0, 2)).toEqual(["--model", "swe-2-medium"]);
+    expect(herdr.spawnArgs[0]).toContain("-p");
+    expect(herdr.spawnArgs[0]).not.toContain("--cloud");
+    expect(logs).toContain(routeLogLine(HERDR_CORE_LANE_ROUTE));
+    for (const env of seenEnv) {
+      expect(env.DEVIN_API_KEY).toBeUndefined();
+      expect(env.DEVIN_API_URL).toBeUndefined();
+    }
   });
 });
