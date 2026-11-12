@@ -8,14 +8,16 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   qa:
     name: Functional QA
     if: github.event_name == 'workflow_dispatch' || (vars.ENABLE_QA_WORKFLOW || 'false') == 'true'
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["self-hosted","Linux","X64","pr-isolated"]') || fromJSON('["self-hosted","Linux","X64","heavy"]') }}
+    # ImageMagick and the droid CLI are installed in the job. Nothing here
+    # needs a fleet path, a preinstalled local tool, or the tailnet.
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
       contents: read

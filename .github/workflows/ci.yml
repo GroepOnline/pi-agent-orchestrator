@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -21,8 +21,9 @@ env:
 jobs:
   quality:
     name: Quality gate
-    # PR → pr-isolated (no docker/secrets). Push to main → trusted-heavy.
-    runs-on: ["chefgroep-ci-oci"]
+    # Public repo: GitHub-hosted runners are free. This job only needs
+    # Node from setup-node; no fleet path, local tool, or tailnet.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -139,12 +140,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # BILLING_QUARANTINE 2026-08-12: GitHub-hosted macOS/Windows matrix legs removed until GroepOnline Actions spending restored.
-          - label: Linux (fleet)
-            runs-on: ["chefgroep-ci-oci"]
+          # Public repo: GitHub-hosted Linux minutes are free. macOS/Windows
+          # stay out of the matrix; Windows schedule tests are known-flaky
+          # and those images are not required for this package.
+          - label: Linux
+            runs-on: ubuntu-latest
             node: 24
-          - label: Linux (fleet)
-            runs-on: ["chefgroep-ci-oci"]
+          - label: Linux
+            runs-on: ubuntu-latest
             node: 22
     steps:
       - name: Checkout
@@ -178,7 +181,7 @@ jobs:
 
   lowest-peer-dependencies:
     name: Lowest supported peer dependencies
-    runs-on: ["chefgroep-ci-oci"]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -246,7 +249,7 @@ jobs:
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
-    runs-on: ["chefgroep-ci-oci"]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     # GroepOnline transfer: Dependency graph / GHAS is often still off. Probe
     # first and skip the action when unsupported so the check is green (not a
@@ -295,7 +298,7 @@ jobs:
     name: Render benchmarks
     # This job has an independent checkout, install, and threshold check. Start
     # it with the other gates; required-gate still waits for both jobs.
-    runs-on: ["chefgroep-ci-oci"]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -330,7 +333,7 @@ jobs:
       - lowest-peer-dependencies
       - dependency-review
       - benchmarks
-    runs-on: ["chefgroep-ci-oci"]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Verify required jobs
@@ -357,7 +360,7 @@ jobs:
       - lowest-peer-dependencies
       - dependency-review
       - benchmarks
-    runs-on: ["chefgroep-ci-oci"]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Create Linear issue

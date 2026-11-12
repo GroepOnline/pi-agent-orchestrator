@@ -50,14 +50,34 @@ describe("Node runtime workflow contract", () => {
   });
 });
 
-describe("fleet runner workflow contract", () => {
-  it("forbids GitHub-hosted runner labels under .github/workflows", () => {
+describe("runner and concurrency workflow contract", () => {
+  const hostedCiWorkflows = new Set([
+    "ci.yml",
+    "design-system-contract.yml",
+    "linter.yml",
+    "qa.yml",
+  ]);
+  const standardConcurrency = [
+    "group: $" + "{{ github.workflow }}-$" + "{{ github.ref }}",
+    "cancel-in-progress: true",
+  ];
+
+  it("runs public CI, test, and lint on ubuntu-latest and cancels superseded runs", () => {
     const dir = resolve(root, ".github/workflows");
     const files = readdirSync(dir).filter(name => name.endsWith(".yml") || name.endsWith(".yaml"));
     expect(files.length).toBeGreaterThan(0);
-    const forbidden = /\b(ubuntu-latest|macos-latest|windows-latest)\b/;
+    const hosted = /\b(ubuntu-latest|macos-latest|windows-latest)\b/;
     for (const name of files) {
-      expect(readRoot(`.github/workflows/${name}`), name).not.toMatch(forbidden);
+      const content = readRoot(`.github/workflows/${name}`);
+      if (hostedCiWorkflows.has(name)) {
+        expect(content, name).toContain("ubuntu-latest");
+        expect(content, name).not.toMatch(/\b(macos-latest|windows-latest|self-hosted|chefgroep-ci-oci)\b/);
+        for (const line of standardConcurrency) {
+          expect(content, name).toContain(line);
+        }
+        continue;
+      }
+      expect(content, name).not.toMatch(hosted);
     }
   });
 });
