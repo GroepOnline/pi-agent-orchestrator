@@ -424,26 +424,34 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
   }
 }
 
+const TASK_FLAGS = new Set(["tasks", "issue", "repo", "task", "model"]);
+
+function readFlag(argv, index) {
+  const arg = argv[index];
+  if (arg === "--help" || arg === "-h") return { help: true, next: index };
+  const key = arg === "--tasks" ? "tasks" : arg.startsWith("--") ? arg.slice(2) : "";
+  if (!TASK_FLAGS.has(key)) {
+    throw new WorkerError(`Unknown argument ${JSON.stringify(arg)}.`, EXIT.USAGE);
+  }
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new WorkerError(`Missing value for --${key}.`, EXIT.USAGE);
+  }
+  return { key, value, next: index + 1 };
+}
+
 export function parseArgs(argv) {
   const parsed = { help: false, tasksPath: null, task: null };
   const flags = { issue: null, repo: null, task: null, model: null };
   for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--help" || arg === "-h") {
+    const step = readFlag(argv, index);
+    index = step.next;
+    if (step.help) {
       parsed.help = true;
       continue;
     }
-    const key = arg === "--tasks" ? "tasks" : arg.startsWith("--") ? arg.slice(2) : "";
-    if (!["tasks", "issue", "repo", "task", "model"].includes(key)) {
-      throw new WorkerError(`Unknown argument ${JSON.stringify(arg)}.`, EXIT.USAGE);
-    }
-    const value = argv[index + 1];
-    if (!value || value.startsWith("--")) {
-      throw new WorkerError(`Missing value for --${key}.`, EXIT.USAGE);
-    }
-    index += 1;
-    if (key === "tasks") parsed.tasksPath = value;
-    else flags[key] = value;
+    if (step.key === "tasks") parsed.tasksPath = step.value;
+    else flags[step.key] = step.value;
   }
   const hasSingle = Object.values(flags).some((value) => value !== null);
   if (parsed.tasksPath && hasSingle) {
@@ -646,141 +654,161 @@ function failureResult(error) {
   return { exitCode, message };
 }
 
-async function executeTask(task, ctx) {
+async function locateCheckout(task, ctx, env) {
   const repoInfo = await stat(task.repo);
   if (!repoInfo.isDirectory()) {
     throw new WorkerError(`Repo is not a directory: ${task.repo}`, EXIT.USAGE);
   }
   const repo = await realpath(task.repo);
-  const env = commandEnv(process.env);
-  const execFile = ctx.execFile;
-  await run(execFile, "git", ["rev-parse", "--is-inside-work-tree"], { cwd: repo, timeoutMs: 15_000, env });
-  const top = await run(execFile, "git", ["rev-parse", "--show-toplevel"], { cwd: repo, timeoutMs: 15_000, env });
+  await run(ctx.execFile, "git", ["rev-parse", "--is-inside-work-tree"], { cwd: repo, timeoutMs: 15_000, env });
+  const top = await run(ctx.execFile, "git", ["rev-parse", "--show-toplevel"], { cwd: repo, timeoutMs: 15_000, env });
   const repoRoot = await realpath(top.stdout.trim());
   const workRoot = await realpath(ctx.workDir);
   if (isPathInside(repoRoot, workRoot)) {
     throw new WorkerError("DEVIN_WORKER_WORK_DIR must be outside the target repository.", EXIT.USAGE);
   }
+  return { repo, workRoot };
+}
 
+function taskPaths(workRoot, task) {
   const branch = buildBranchName(task.issue, task.task);
   const dirName = branch.slice("devin/".length);
-  const worktreePath = join(workRoot, "worktrees", dirName);
-  const exportPath = join(workRoot, "exports", `${dirName}.json`);
-  const stdoutPath = join(workRoot, "logs", `${dirName}.stdout`);
-  const stderrPath = join(workRoot, "logs", `${dirName}.stderr`);
-  const messagePath = join(workRoot, "messages", `${dirName}.txt`);
-  const bodyPath = join(workRoot, "pr-bodies", `${dirName}.md`);
-  if (!isPathInside(workRoot, worktreePath) || !isPathInside(workRoot, exportPath)) {
+  const paths = {
+    branch,
+    worktreePath: join(workRoot, "worktrees", dirName),
+    exportPath: join(workRoot, "exports", `${dirName}.json`),
+    stdoutPath: join(workRoot, "logs", `${dirName}.stdout`),
+    stderrPath: join(workRoot, "logs", `${dirName}.stderr`),
+    messagePath: join(workRoot, "messages", `${dirName}.txt`),
+    bodyPath: join(workRoot, "pr-bodies", `${dirName}.md`),
+  };
+  if (!isPathInside(workRoot, paths.worktreePath) || !isPathInside(workRoot, paths.exportPath)) {
     throw new WorkerError("Refusing to create a worktree outside the work directory.", EXIT.FAILED);
   }
-  await mkdir(join(workRoot, "worktrees"), { recursive: true, mode: 0o700 });
-  await mkdir(join(workRoot, "exports"), { recursive: true, mode: 0o700 });
-  await mkdir(join(workRoot, "logs"), { recursive: true, mode: 0o700 });
-  await mkdir(join(workRoot, "messages"), { recursive: true, mode: 0o700 });
-  await mkdir(join(workRoot, "pr-bodies"), { recursive: true, mode: 0o700 });
+  return paths;
+}
 
-  await run(execFile, "git", ["check-ref-format", "--branch", branch], { cwd: repo, timeoutMs: 15_000, env });
-  await run(
-    execFile,
-    "git",
-    ["worktree", "add", "-b", branch, "--", worktreePath, "HEAD"],
-    { cwd: repo, timeoutMs: 60_000, env },
-  );
+async function ensureLayout(workRoot) {
+  for (const name of ["worktrees", "exports", "logs", "messages", "pr-bodies"]) {
+    await mkdir(join(workRoot, name), { recursive: true, mode: 0o700 });
+  }
+}
 
-  const argv = buildDevinArgv({ model: task.model, task: task.task, exportPath });
+async function runDevinSession(ctx, paths, env) {
+  const argv = buildDevinArgv({ model: ctx.model, task: ctx.taskText, exportPath: paths.exportPath });
   let spawned;
   try {
     spawned = await ctx.spawnCommand(ctx.devinBin, argv, {
-      cwd: worktreePath,
+      cwd: paths.worktreePath,
       timeoutMs: ctx.timeoutMs,
-      stdoutPath,
-      stderrPath,
+      stdoutPath: paths.stdoutPath,
+      stderrPath: paths.stderrPath,
       env,
       shell: false,
     });
   } catch (error) {
     if (error instanceof WorkerError) throw error;
     throw new WorkerError(
-      `Devin failed to start: ${redactSecrets(error instanceof Error ? error.message : String(error))}. Worktree kept at ${worktreePath}.`,
+      `Devin failed to start: ${redactSecrets(error instanceof Error ? error.message : String(error))}. Worktree kept at ${paths.worktreePath}.`,
       EXIT.FAILED,
     );
   }
   if (spawned?.timedOut) {
     throw new WorkerError(
-      `Devin timed out after ${ctx.timeoutMs}ms. Worktree kept at ${worktreePath}. Export path: ${exportPath}.`,
+      `Devin timed out after ${ctx.timeoutMs}ms. Worktree kept at ${paths.worktreePath}. Export path: ${paths.exportPath}.`,
       EXIT.TIMEOUT,
     );
   }
   if (spawned?.code !== 0) {
     throw new WorkerError(
-      `Devin exited ${spawned?.code ?? "unknown"}. Worktree kept at ${worktreePath}. Export path: ${exportPath}.`,
+      `Devin exited ${spawned?.code ?? "unknown"}. Worktree kept at ${paths.worktreePath}. Export path: ${paths.exportPath}.`,
       EXIT.FAILED,
     );
   }
+}
 
-  const status = await run(execFile, "git", ["status", "--porcelain=v1", "-uall"], {
-    cwd: worktreePath,
-    timeoutMs: 30_000,
-    env,
-  });
-  const paths = porcelainPaths(status.stdout);
-  if (paths.length === 0) {
+function assertCommittable(statusText, issue, paths) {
+  const changed = porcelainPaths(statusText);
+  if (changed.length === 0) {
     throw new WorkerError(
-      `Devin made no changes for ${task.issue}. No pull request opened. Worktree kept at ${worktreePath}. Export path: ${exportPath}.`,
+      `Devin made no changes for ${issue}. No pull request opened. Worktree kept at ${paths.worktreePath}. Export path: ${paths.exportPath}.`,
       EXIT.NO_CHANGES,
     );
   }
-  for (const filePath of paths) {
+  for (const filePath of changed) {
     if (filePath.startsWith("\"") || filePath.includes("\n")) {
       throw new WorkerError("Refusing to commit a quoted or multiline git path. Worktree kept.", EXIT.FAILED);
     }
     if (isSensitivePath(filePath)) {
       throw new WorkerError(
-        `Refusing to commit likely secret file ${JSON.stringify(filePath)}. Worktree kept at ${worktreePath}.`,
+        `Refusing to commit likely secret file ${JSON.stringify(filePath)}. Worktree kept at ${paths.worktreePath}.`,
         EXIT.FAILED,
       );
     }
   }
+}
 
+async function publishPullRequest(task, ctx, paths, env) {
   const slug = slugFromTask(task.task);
-  await writeFile(messagePath, `devin(${task.issue}): ${slug}\n\nModel: ${task.model}\n`, { mode: 0o600 });
-  await run(execFile, "git", ["add", "-A"], { cwd: worktreePath, timeoutMs: 30_000, env });
-  await run(execFile, "git", ["commit", "-F", messagePath], { cwd: worktreePath, timeoutMs: 30_000, env });
-  await run(execFile, "git", ["push", "--set-upstream", "origin", branch], {
-    cwd: worktreePath,
+  await writeFile(paths.messagePath, `devin(${task.issue}): ${slug}\n\nModel: ${task.model}\n`, { mode: 0o600 });
+  await run(ctx.execFile, "git", ["add", "-A"], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
+  await run(ctx.execFile, "git", ["commit", "-F", paths.messagePath], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
+  await run(ctx.execFile, "git", ["push", "--set-upstream", "origin", paths.branch], {
+    cwd: paths.worktreePath,
     timeoutMs: 60_000,
     env,
   });
-
-  const base = await resolveBaseBranch(repo, execFile, env);
+  const base = await resolveBaseBranch(ctx.repo, ctx.execFile, env);
   const body = buildPrBody({
     issue: task.issue,
     task: task.task,
     modelId: task.model,
-    transcriptPath: exportPath,
+    transcriptPath: paths.exportPath,
   });
-  await writeFile(bodyPath, body, { mode: 0o600 });
+  await writeFile(paths.bodyPath, body, { mode: 0o600 });
   const created = await run(
-    execFile,
+    ctx.execFile,
     "gh",
-    ["pr", "create", "--base", base, "--head", branch, "--title", buildPrTitle(task.issue, slug), "--body-file", bodyPath],
-    { cwd: worktreePath, timeoutMs: 60_000, env },
+    ["pr", "create", "--base", base, "--head", paths.branch, "--title", buildPrTitle(task.issue, slug), "--body-file", paths.bodyPath],
+    { cwd: paths.worktreePath, timeoutMs: 60_000, env },
   );
   const url = created.stdout.trim().split("\n").filter(Boolean).at(-1) ?? "";
   if (!/^https:\/\/\S+$/.test(url)) {
     throw new WorkerError(
-      `Pull request command did not return a URL. Branch ${branch} is pushed. Body: ${bodyPath}.`,
+      `Pull request command did not return a URL. Branch ${paths.branch} is pushed. Body: ${paths.bodyPath}.`,
       EXIT.FAILED,
     );
   }
-  await run(execFile, "git", ["worktree", "remove", "--force", "--", worktreePath], {
-    cwd: repo,
+  await run(ctx.execFile, "git", ["worktree", "remove", "--force", "--", paths.worktreePath], {
+    cwd: ctx.repo,
     timeoutMs: 30_000,
     env,
   }).catch(() => {
     // The branch and pull request already exist. A leftover worktree is recoverable.
   });
-  return { exitCode: EXIT.OK, url, branch, transcriptPath: exportPath };
+  return { exitCode: EXIT.OK, url, branch: paths.branch, transcriptPath: paths.exportPath };
+}
+
+async function executeTask(task, ctx) {
+  const env = commandEnv(process.env);
+  const { repo, workRoot } = await locateCheckout(task, ctx, env);
+  const paths = taskPaths(workRoot, task);
+  await ensureLayout(workRoot);
+  await run(ctx.execFile, "git", ["check-ref-format", "--branch", paths.branch], { cwd: repo, timeoutMs: 15_000, env });
+  await run(
+    ctx.execFile,
+    "git",
+    ["worktree", "add", "-b", paths.branch, "--", paths.worktreePath, "HEAD"],
+    { cwd: repo, timeoutMs: 60_000, env },
+  );
+  await runDevinSession({ ...ctx, model: task.model, taskText: task.task }, paths, env);
+  const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall"], {
+    cwd: paths.worktreePath,
+    timeoutMs: 30_000,
+    env,
+  });
+  assertCommittable(status.stdout, task.issue, paths);
+  return publishPullRequest(task, { ...ctx, repo }, paths, env);
 }
 
 async function resolveBaseBranch(repo, execFile, env) {
