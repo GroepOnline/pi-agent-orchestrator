@@ -9,18 +9,12 @@ name: Release
 # Release decisions live in tested scripts under scripts/*.mjs. Workflow steps
 # only orchestrate those scripts — no inline npm/gh decision heredocs.
 #
-# workflow_dispatch recovers the latest canonical release commit already on
-# main. It does not accept a caller-supplied SHA. Tag artifact upload lives in
-# release-tag-artifacts.yml: a push filter cannot list both branches and tags,
-# or GitHub skips the workflow for every event.
+# Publishing runs on explicit workflow_dispatch only: a merged release PR on
+# main never starts the publisher by itself. The dispatch recovers the latest
+# canonical release commit already on main. It does not accept a
+# caller-supplied SHA. Tag artifact upload lives in release-tag-artifacts.yml.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - CHANGELOG.md
-      - package.json
-      - package-lock.json
   workflow_dispatch:
 
 permissions: {}

@@ -6,9 +6,9 @@ Do not create tags manually and do not add a second npm or GitHub Packages publi
 ## Release architecture
 
 1. `.github/workflows/prepare-release.yml` prepares an exact reviewed patch release on `main`.
-2. `.github/workflows/release.yml` publishes only the exact reviewed release commit after merge.
+2. `.github/workflows/release.yml` publishes only the exact reviewed release commit after merge, on manual `workflow_dispatch`.
 
-The preparation path verifies policy, source freshness, npm version absence, build, typecheck, lint, tests, package metadata, Pi package contract, Remotion promo data and the packed npm artifact. It then creates `release/v<VERSION>` and a reviewable PR. Publication starts only from the matching squash commit on `main`, then creates the npm package, immutable Git tag and GitHub Release for the same SHA.
+The preparation path verifies policy, source freshness, npm version absence, build, typecheck, lint, tests, package metadata, Pi package contract, Remotion promo data and the packed npm artifact. It then creates `release/v<VERSION>` and a reviewable PR that never auto-merges. After a maintainer merges that PR, the Release workflow is dispatched manually on `main`; publication starts only from the matching squash commit, then creates the npm package, immutable Git tag and GitHub Release for the same SHA.
 
 ## Current policy
 
@@ -43,7 +43,7 @@ Preferred target is npm trusted publishing for GitHub Actions (`GroepOnline/pi-a
 3. Run the guarded preparation flow for `0.19.1` from `main` with confirmation `RELEASE 0.19.1`.
 4. Review the generated release PR and required checks. Do not bypass a genuine failed gate.
 5. After approval and green checks, squash-merge with subject `chore(release): v0.19.1`.
-6. `release.yml` verifies the exact transaction, publishes npm with provenance, creates `v0.19.1`, and creates the matching GitHub Release.
+6. Dispatch `release.yml` on `main` (`workflow_dispatch`); it verifies the exact transaction, publishes npm with provenance, creates `v0.19.1`, and creates the matching GitHub Release.
 
 ## Post-release verification
 
