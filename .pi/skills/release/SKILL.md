@@ -5,7 +5,7 @@ description: Cut a release of @groeponline/pi-agent-orchestrator to npmjs.org an
 
 # Release — pi-agent-orchestrator
 
-Canonical path: **Prepare Release** button → reviewed PR → `.github/workflows/release.yml` on `main`.
+Canonical path: **Prepare Release** button → reviewed PR → manual squash merge → **Release** dispatch on `main`.
 
 Do not `git tag` locally. Do not add a second npm or GitHub Packages publisher. Duplicate tag triggers can publish only part of a release.
 
@@ -15,14 +15,14 @@ Operator detail lives in [`.github/NPM_SETUP.md`](../../../.github/NPM_SETUP.md)
 
 1. Before running the button for the next valid patch release (currently `0.19.1`), advance the pinned release workflow and policy in a dedicated reviewed change: the current source is `0.19.0`; the reviewed policy is pinned to the next patch before preparation.
 2. Run the newly pinned **Prepare Release** workflow on `main` with its exact confirmation value. The workflow writes `package.json`, both lockfile root versions, `CHANGELOG.md`, and `showcase/remotion/public/promo-data.json`, then opens the matching release branch.
-3. After that PR squash-merges, `release.yml` matches subject `chore(release): v$VERSION`.
+3. After that PR squash-merges, dispatch `release.yml` on `main`; it matches subject `chore(release): v$VERSION`.
 4. It re-runs the immutable gate, publishes the packed tarball with provenance, then creates tag `v$VERSION` and the GitHub Release.
 
 ```text
 prepare-release.yml (button on main)
 → reviewed PR with CHANGELOG.md + package.json + package-lock.json + showcase/remotion/public/promo-data.json
-→ squash merge to main
-→ release.yml verify → npm publish --provenance → tag + GitHub Release
+→ manual squash merge to main
+→ dispatch release.yml → verify → npm publish --provenance → tag + GitHub Release
 → pages.yml (package.json/CHANGELOG.md path filters) republishes pi.video
 ```
 

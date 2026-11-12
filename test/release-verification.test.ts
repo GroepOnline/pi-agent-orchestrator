@@ -365,7 +365,7 @@ describe("transactional release workflow", () => {
     expect(content).toContain("gh pr create");
     expect(content).toContain("gh workflow run ci.yml");
     expect(content).toContain("gh workflow run linter.yml");
-    expect(content).toContain("--auto --squash");
+    expect(content).not.toContain("gh pr merge");
     expect(content).not.toMatch(/npm publish/);
     expect(content).toContain("node scripts/release-recovery.mjs assert-absent");
     expect(content).not.toMatch(
@@ -378,9 +378,10 @@ describe("transactional release workflow", () => {
     expect(fileExists("scripts/verify-release-transaction.mjs")).toBe(true);
     const content = readRoot(".github/workflows/release.yml");
     const verifier = readRoot("scripts/verify-release-transaction.mjs");
-    expect(content).toMatch(/branches:\s*\[main\]/);
-    // A push filter that sets both branches and tags never runs. Tag artifacts
-    // live in the tags-only workflow instead.
+    // Publishing is dispatch-only: a push to main never starts the publisher,
+    // so a merged release PR always waits for an explicit release dispatch.
+    expect(content).not.toMatch(/^ {2}push:/m);
+    // Tag artifacts live in the tags-only workflow instead.
     expect(content).not.toMatch(/tags:\s*\n/);
     expect(content).toMatch(/workflow_dispatch:/);
     expect(content).toContain("release_sha:");
