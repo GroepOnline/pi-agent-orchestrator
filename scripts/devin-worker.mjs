@@ -54,6 +54,8 @@ const HELP_TEXT = [
   "  node scripts/devin-worker.mjs --issue CHEF-123 --repo /path/to/checkout --model swe-2-medium --task \"short assignment\"",
   "  node scripts/devin-worker.mjs --tasks tasks.json",
   "",
+  "Both --flag value and --flag=value are accepted. Use --task=--value when the",
+  "value itself starts with \"--\".",
   "Requires DEVIN_WORKER_ENABLED=true. Any other value exits 0 and does not call devin.",
   "Models come from `devin models list --format json`. Only swe-2 variant ids are accepted.",
   "Any id containing \"lightning\" is refused. SWE-2 runs through DEVIN_PILOT_UNTIL_SWE2",
@@ -311,6 +313,16 @@ function isCloudCliArg(arg) {
   return /api\.devin\.ai|mcp\.devin\.ai|app\.devin\.ai\/sessions|devin_mcp/i.test(arg);
 }
 
+/**
+ * Name the flag, never its value: `--cloud=<value>` and cloud URLs must not
+ * reach an error message. Only an explicit flag token is echoed; anything else
+ * becomes a generic label.
+ */
+function cloudFlagLabel(arg) {
+  const head = String(arg).split("=", 1)[0].trim();
+  return /^--?[A-Za-z0-9][\w-]*$/.test(head) ? head : "a Devin cloud argument";
+}
+
 function blockedEnvHits(env) {
   const hits = [];
   for (const [key, value] of Object.entries(env ?? {})) {
@@ -329,7 +341,7 @@ function blockedEnvHits(env) {
 export function assertNoCloudRoute(env, argv = []) {
   const hits = blockedEnvHits(env);
   for (const arg of argv) {
-    if (typeof arg === "string" && (WORKER_CLOUD_FLAGS.has(arg) || isCloudCliArg(arg))) hits.push(arg);
+    if (typeof arg === "string" && (WORKER_CLOUD_FLAGS.has(arg) || isCloudCliArg(arg))) hits.push(cloudFlagLabel(arg));
   }
   if (hits.length === 0) return;
   throw new WorkerError(
@@ -390,7 +402,7 @@ export function assertLocalCliArgv(argv) {
   for (const arg of checked) {
     if (isCloudCliArg(arg)) {
       throw new WorkerError(
-        `Refusing Devin argument ${JSON.stringify(arg)}. This worker only runs the local CLI (devin -p or a herdr-core lane), never Devin cloud, api.devin.ai, or Composio devin_mcp.`,
+        `Refusing Devin argument ${cloudFlagLabel(arg)}. This worker only runs the local CLI (devin -p or a herdr-core lane), never Devin cloud, api.devin.ai, or Composio devin_mcp.`,
         EXIT.USAGE,
       );
     }
@@ -600,14 +612,23 @@ function readFlag(argv, index) {
   const arg = argv[index];
   if (WORKER_CLOUD_FLAGS.has(arg) || isCloudCliArg(arg)) {
     throw new WorkerError(
-      `Refusing ${JSON.stringify(arg)}: this worker only runs the local Devin CLI (headless devin -p or a herdr-core lane), never Devin cloud, api.devin.ai, or Composio devin_mcp.`,
+      `Refusing ${cloudFlagLabel(arg)}: this worker only runs the local Devin CLI (headless devin -p or a herdr-core lane), never Devin cloud, api.devin.ai, or Composio devin_mcp.`,
       EXIT.USAGE,
     );
   }
   if (arg === "--help" || arg === "-h") return { help: true, next: index };
-  const key = arg === "--tasks" ? "tasks" : arg.startsWith("--") ? arg.slice(2) : "";
+  const name = arg.startsWith("--") ? arg.slice(2) : "";
+  const equals = name.indexOf("=");
+  const key = equals === -1 ? name : name.slice(0, equals);
   if (!TASK_FLAGS.has(key)) {
-    throw new WorkerError(`Unknown argument ${JSON.stringify(arg)}.`, EXIT.USAGE);
+    throw new WorkerError(`Unknown argument ${JSON.stringify(key ? `--${key}` : arg)}.`, EXIT.USAGE);
+  }
+  if (equals !== -1) {
+    // Explicit form: --task=--not-a-flag reaches any value, including one that
+    // starts with "--". Only the flag name is echoed on refusal.
+    const inline = name.slice(equals + 1);
+    if (inline === "") throw new WorkerError(`Missing value for --${key}.`, EXIT.USAGE);
+    return { key, value: inline, next: index };
   }
   const value = argv[index + 1];
   if (!value || value.startsWith("--")) {
