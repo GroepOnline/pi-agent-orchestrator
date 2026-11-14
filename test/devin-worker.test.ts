@@ -2,7 +2,7 @@
  * devin-worker policy and command construction. The devin binary is mocked.
  */
 
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -244,6 +244,101 @@ describe("lanes and timeout", () => {
     const stolen = await acquireLane(work, 1, { waitMs: 0, isPidAlive: () => false });
     await stolen.release();
   });
+
+  it("publishes the lane file in one step and leaves another owner's lane alone", async () => {
+    const { work } = await tempDirs();
+    const laneFile = join(work, "lanes", "0");
+    const mine = await acquireLane(work, 1, { waitMs: 0, pid: 111 });
+    // The claim is visible with its full content: no zero-byte window that reads
+    // as pid 0, and the temp file used for the atomic link is gone.
+    expect(await readFile(laneFile, "utf8")).toBe("111\n");
+    expect(await readdir(join(work, "lanes"))).toEqual(["0"]);
+
+    // Another worker reclaimed the lane after this pid "died".
+    await writeFile(laneFile, "222\n");
+    await mine.release();
+    expect(await readFile(laneFile, "utf8")).toBe("222\n");
+    await expect(acquireLane(work, 1, { waitMs: 0, isPidAlive: () => true })).rejects.toThrow(/busy/);
+    expect(await readFile(laneFile, "utf8")).toBe("222\n");
+  });
+});
+
+describe("argument parsing", () => {
+  const boom = async () => ({ stdout: CATALOG, stderr: "" });
+
+  it("accepts --task=value for a value that starts with --", async () => {
+    const { repo, work } = await tempDirs();
+    const spawnArgs: string[][] = [];
+    const outcome = await runWorker(
+      ["--issue", "CHEF-123", "--repo", repo, "--model", "swe-2-medium", "--task=--fix the race"],
+      {
+        env: enabledEnv(work),
+        now: () => new Date("2026-11-12T12:00:00.000Z"),
+        execFile: async (command: string, args: string[]) => {
+          if (command === "devin") return { stdout: CATALOG, stderr: "" };
+          if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+          if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+          if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+          if (command === "gh") return { stdout: "https://github.com/example/repo/pull/12\n", stderr: "" };
+          return { stdout: "", stderr: "" };
+        },
+        spawnCommand: async (_command: string, args: string[]) => {
+          spawnArgs.push([...args]);
+          return { code: 0, signal: null, timedOut: false };
+        },
+      },
+    );
+    expect(outcome.exitCode).toBe(EXIT.OK);
+    expect(spawnArgs[0]).toContain("-p");
+    expect(spawnArgs[0]).toContain("--fix the race");
+  });
+
+  it("refuses a bare flag with no operand and an unknown key", async () => {
+    const { repo, work } = await tempDirs();
+    const warnings: string[] = [];
+    const warn = (message: string) => warnings.push(message);
+    const bare = await main(["--issue", "CHEF-123", "--repo", repo, "--model", "swe-2-medium", "--task"], {
+      env: enabledEnv(work),
+      execFile: boom,
+      spawnCommand: boom,
+      log: () => {},
+      warn,
+    });
+    expect(bare).toBe(EXIT.USAGE);
+    expect(warnings.join("\n")).toMatch(/Missing value for --task/);
+
+    warnings.length = 0;
+    const unknown = await main([...taskArgs(repo), "--nope=1"], {
+      env: enabledEnv(work),
+      execFile: boom,
+      spawnCommand: boom,
+      log: () => {},
+      warn,
+    });
+    expect(unknown).toBe(EXIT.USAGE);
+    expect(warnings.join("\n")).toMatch(/Unknown argument "--nope"/);
+  });
+
+  it("names a refused flag without echoing its value", async () => {
+    const value = "cloud-session-value-abc";
+    expect(() => assertNoCloudRoute({}, [`--cloud=${value}`])).toThrow(/\(--cloud\)/);
+    expect(() => assertNoCloudRoute({}, [`--cloud=${value}`])).not.toThrow(new RegExp(value));
+    expect(() => assertNoCloudRoute({}, ["https://api.devin.ai/sessions?token=abc123"])).toThrow(/a Devin cloud argument/);
+    expect(() => assertNoCloudRoute({}, ["https://api.devin.ai/sessions?token=abc123"])).not.toThrow(/token=abc123/);
+
+    const { repo, work } = await tempDirs();
+    const warnings: string[] = [];
+    const code = await main([...taskArgs(repo), `--cloud=${value}`], {
+      env: enabledEnv(work),
+      execFile: boom,
+      spawnCommand: boom,
+      log: () => {},
+      warn: (message: string) => warnings.push(message),
+    });
+    expect(code).toBe(EXIT.USAGE);
+    expect(warnings.join("\n")).toMatch(/--cloud/);
+    expect(warnings.join("\n")).not.toContain(value);
+  });
 });
 
 describe("devin command construction", () => {
@@ -413,6 +508,7 @@ describe("devin command construction", () => {
           commands.push(args[0] ?? command);
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+          if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
           if (args[0] === "status") return { stdout: item.status, stderr: "" };
           return { stdout: "", stderr: "" };
         },
@@ -445,6 +541,69 @@ describe("devin command construction", () => {
     expect(outcome.results[0]?.message).toContain("[redacted]");
     expect(redactSecrets("token=sk-live-secret-value")).toBe("token=[redacted]");
     expect(combineExitCodes([EXIT.OK, EXIT.TIMEOUT, EXIT.USAGE])).toBe(EXIT.TIMEOUT);
+  });
+
+  it("refuses a commit Devin already made with a sensitive path", async () => {
+    const { repo, work } = await tempDirs();
+    const commands: string[] = [];
+    let diffArgs: string[] = [];
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      execFile: async (command: string, args: string[]) => {
+        commands.push(args[0] ?? command);
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+        if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "diff") {
+          diffArgs = [...args];
+          return { stdout: "src/app.ts\n.env\n", stderr: "" };
+        }
+        if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+        return { stdout: "", stderr: "" };
+      },
+      spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+    });
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    expect(outcome.results[0]?.message).toMatch(/likely secret file "\.env"/);
+    expect(diffArgs).toEqual(["diff", "--name-only", "--no-renames", "origin/main..HEAD"]);
+    for (const forbidden of ["add", "commit", "push", "pr"]) {
+      expect(commands, forbidden).not.toContain(forbidden);
+    }
+  });
+
+  it("reuses its own leftover worktree on a retry and refuses a foreign one", async () => {
+    const { repo, work } = await tempDirs();
+    const worktreePath = join(work, "worktrees", "CHEF-123-fix-the-race");
+    await mkdir(worktreePath, { recursive: true });
+
+    async function attempt(headBranch: string) {
+      const commands: string[][] = [];
+      const outcome = await runWorker(taskArgs(repo), {
+        env: enabledEnv(work),
+        now: () => new Date("2026-11-12T12:00:00.000Z"),
+        execFile: async (command: string, args: string[]) => {
+          commands.push([command, ...args]);
+          if (command === "devin") return { stdout: CATALOG, stderr: "" };
+          if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+          if (args.includes("--abbrev-ref") && args.includes("origin/HEAD")) return { stdout: "origin/main\n", stderr: "" };
+          if (args[0] === "rev-parse" && args.includes("HEAD")) return { stdout: `${headBranch}\n`, stderr: "" };
+          if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+          if (command === "gh") return { stdout: "https://github.com/example/repo/pull/13\n", stderr: "" };
+          return { stdout: "", stderr: "" };
+        },
+        spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+      });
+      return { outcome, commands };
+    }
+
+    const reused = await attempt("devin/CHEF-123-fix-the-race");
+    expect(reused.outcome.exitCode).toBe(EXIT.OK);
+    expect(reused.commands.filter((call) => call[1] === "worktree" && call[2] === "add")).toEqual([]);
+
+    const foreign = await attempt("devin/other-issue-other-slug");
+    expect(foreign.outcome.exitCode).toBe(EXIT.FAILED);
+    expect(foreign.outcome.results[0]?.message).toMatch(/not checked out on devin\/CHEF-123-fix-the-race/);
   });
 });
 
