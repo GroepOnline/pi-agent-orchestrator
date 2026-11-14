@@ -962,6 +962,7 @@ function assertCommittable(statusText, issue, paths) {
 
 async function publishPullRequest(task, ctx, paths, env) {
   const slug = slugFromTask(task.task);
+  const base = ctx.base;
   await writeFile(paths.messagePath, `devin(${task.issue}): ${slug}\n\nModel: ${task.model}\n`, { mode: 0o600 });
   await run(ctx.execFile, "git", ["add", "-A"], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
   await run(ctx.execFile, "git", ["commit", "-F", paths.messagePath], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
@@ -970,7 +971,6 @@ async function publishPullRequest(task, ctx, paths, env) {
     timeoutMs: 60_000,
     env,
   });
-  const base = await resolveBaseBranch(ctx.repo, ctx.execFile, env);
   const body = buildPrBody({
     issue: task.issue,
     task: task.task,
@@ -1001,18 +1001,69 @@ async function publishPullRequest(task, ctx, paths, env) {
   return { exitCode: EXIT.OK, url, branch: paths.branch, transcriptPath: paths.exportPath };
 }
 
+async function refExists(execFile, repo, ref, env) {
+  try {
+    await run(execFile, "git", ["show-ref", "--verify", "--quiet", ref], { cwd: repo, timeoutMs: 15_000, env });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A retry of the same issue+slug finds its own leftovers from the failed run:
+ * the branch survives a failure and a timed-out run leaves its worktree in
+ * place. Reuse them, so one issue keeps one branch and one pull request.
+ * Unique branch names per attempt would open a second pull request and orphan
+ * the first.
+ */
+async function ensureWorktree(repo, paths, base, execFile, env) {
+  const existing = await stat(paths.worktreePath).then((info) => info.isDirectory(), () => false);
+  if (existing) {
+    const current = await run(execFile, "git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: paths.worktreePath,
+      timeoutMs: 15_000,
+      env,
+    });
+    if (current.stdout.trim() !== paths.branch) {
+      throw new WorkerError(
+        `Refusing to reuse ${paths.worktreePath}: it is not checked out on ${paths.branch}. Remove it and retry.`,
+        EXIT.FAILED,
+      );
+    }
+    return;
+  }
+  if (await refExists(execFile, repo, `refs/heads/${paths.branch}`, env)) {
+    await run(execFile, "git", ["worktree", "add", "--", paths.worktreePath, paths.branch], {
+      cwd: repo,
+      timeoutMs: 60_000,
+      env,
+    });
+    return;
+  }
+  await run(
+    execFile,
+    "git",
+    ["worktree", "add", "-b", paths.branch, "--", paths.worktreePath, `origin/${base}`],
+    { cwd: repo, timeoutMs: 60_000, env },
+  );
+}
+
 async function executeTask(task, ctx) {
   const env = ctx.childEnv ?? commandEnv(process.env);
   const { repo, workRoot } = await locateCheckout(task, ctx, env);
   const paths = taskPaths(workRoot, task);
   await ensureLayout(workRoot);
   await run(ctx.execFile, "git", ["check-ref-format", "--branch", paths.branch], { cwd: repo, timeoutMs: 15_000, env });
-  await run(
-    ctx.execFile,
-    "git",
-    ["worktree", "add", "-b", paths.branch, "--", paths.worktreePath, "HEAD"],
-    { cwd: repo, timeoutMs: 60_000, env },
-  );
+  // Resolve and fetch the base before any work starts: the worktree must branch
+  // off origin/<base>, and the pull request needs the same base later.
+  const base = await resolveBaseBranch(repo, ctx.execFile, env);
+  await run(ctx.execFile, "git", ["fetch", "--no-tags", "origin", base], {
+    cwd: repo,
+    timeoutMs: 120_000,
+    env,
+  });
+  await ensureWorktree(repo, paths, base, ctx.execFile, env);
   await runDevinSession({ ...ctx, model: task.model, taskText: task.task }, paths, env);
   const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall"], {
     cwd: paths.worktreePath,
@@ -1020,7 +1071,7 @@ async function executeTask(task, ctx) {
     env,
   });
   assertCommittable(status.stdout, task.issue, paths);
-  return publishPullRequest(task, { ...ctx, repo }, paths, env);
+  return publishPullRequest(task, { ...ctx, repo, base }, paths, env);
 }
 
 async function resolveBaseBranch(repo, execFile, env) {
