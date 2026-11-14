@@ -960,6 +960,38 @@ function assertCommittable(statusText, issue, paths) {
   }
 }
 
+/**
+ * A Devin session may commit its own work with the host git config.
+ * `git status --porcelain` only sees the working tree, so the pushed commits
+ * are diffed against the base branch and refused before anything leaves the
+ * machine.
+ */
+export function assertNoSensitiveCommits(diffText, issue, paths) {
+  for (const line of String(diffText).split("\n")) {
+    const filePath = line.trim();
+    if (filePath === "") continue;
+    if (filePath.startsWith("\"")) {
+      throw new WorkerError("Refusing to push a quoted git path. Nothing was pushed.", EXIT.FAILED);
+    }
+    if (isSensitivePath(filePath)) {
+      throw new WorkerError(
+        `Refusing to push ${issue}: a Devin commit touches likely secret file ${JSON.stringify(filePath)}. Nothing was pushed. Worktree kept at ${paths.worktreePath}.`,
+        EXIT.FAILED,
+      );
+    }
+  }
+}
+
+async function refuseSensitiveCommits(ctx, paths, task, base, env) {
+  const committed = await run(
+    ctx.execFile,
+    "git",
+    ["diff", "--name-only", "--no-renames", `origin/${base}..HEAD`],
+    { cwd: paths.worktreePath, timeoutMs: 30_000, env },
+  );
+  assertNoSensitiveCommits(committed.stdout, task.issue, paths);
+}
+
 async function publishPullRequest(task, ctx, paths, env) {
   const slug = slugFromTask(task.task);
   const base = ctx.base;
@@ -1065,6 +1097,7 @@ async function executeTask(task, ctx) {
   });
   await ensureWorktree(repo, paths, base, ctx.execFile, env);
   await runDevinSession({ ...ctx, model: task.model, taskText: task.task }, paths, env);
+  await refuseSensitiveCommits(ctx, paths, task, base, env);
   const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall"], {
     cwd: paths.worktreePath,
     timeoutMs: 30_000,
