@@ -493,7 +493,9 @@ describe("transactional release workflow", () => {
     expect(pages).toMatch(/paths:\n(?:\s+- .+\n)*\s+- 'package\.json'/);
     expect(buildJob).toContain("if: github.ref == 'refs/heads/main'");
     expect(buildJob).toContain("actions/setup-node@");
-    expectFleetRunner(buildJob, "Deploy Pages build job");
+    // #129: the Pages build runs on GitHub-hosted runners because this public
+    // repository cannot reach the group-25 ARC scale set.
+    expect(buildJob).toContain('runs-on: ["ubuntu-latest"]');
     expect(videoCheck).toContain("dashboard_preview.mp4");
     expect(videoCheck).toContain("product_film.mp4");
     expect(videoCheck).toContain("dashboard_preview.gif");
