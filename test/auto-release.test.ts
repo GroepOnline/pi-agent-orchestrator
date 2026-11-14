@@ -14,9 +14,10 @@ describe("automatic patch release", () => {
     expect(() => nextPatchVersion("0.20.0", policy)).toThrow();
   });
 
-  it("dispatches guarded preparation after main advances", () => {
+  it("dispatches guarded preparation only on explicit dispatch", () => {
     const workflow = read(".github/workflows/auto-release.yml");
-    expect(workflow).toContain("branches: [main]");
+    // A push to main must never start release preparation by itself.
+    expect(workflow).not.toMatch(/^ {2}push:/m);
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).not.toContain("workflow_run:");
     expect(workflow).toContain("node scripts/plan-auto-release.mjs");
@@ -33,6 +34,8 @@ describe("automatic patch release", () => {
     expect(workflow).toContain("Refreshing existing release PR");
     expect(workflow).toContain("--force-with-lease");
     expect(workflow).toContain("gh pr edit");
-    expect(workflow).toContain("--auto --squash");
+    // Release PRs wait for a manual maintainer merge — no auto-merge.
+    expect(workflow).not.toContain("gh pr merge");
+    expect(workflow).not.toContain("enablePullRequestAutoMerge");
   });
 });

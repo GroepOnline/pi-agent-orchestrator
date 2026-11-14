@@ -11,7 +11,7 @@ packages are the host platform and are **peer deps only** — never direct depen
 
 ## Dev environment
 
-- **Node.js 22+** (LTS). CI runs on GroepOnline fleet runners (self-hosted Linux); hosted OS matrix disabled until Actions billing restored.
+- **Node.js 22+** (LTS). Public CI, test, and lint use GitHub-hosted `ubuntu-latest` (free on a public repo). Deploy, release, and publish stay on the GroepOnline fleet. macOS/Windows CI legs stay out of the matrix.
 - Install once after clone: `npm install`
 - Optional local git hooks (biome + tsc on commit, full tests on push):
   `npm run setup:hooks` (copies `scripts/git-hooks/` → `.git/hooks/`).

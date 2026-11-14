@@ -161,10 +161,10 @@ jobs:
           - Synchronizes all package-lock root metadata from `package.json`.
           - Finalizes the v__RELEASE_VERSION__ changelog date and deterministic Remotion promo metadata.
           - Contains no runtime or workflow changes.
-          - Auto-merge is enabled immediately; publishing starts when required checks and repository review policy are satisfied.
+          - Auto-merge is intentionally disabled: a maintainer reviews the required checks and merges this PR manually.
           - The publisher rejects every version outside the currently unlocked release policy.
 
-          After merge, `.github/workflows/release.yml` validates the exact squash commit, publishes npm with provenance, creates `v__RELEASE_VERSION__` on that commit, and creates the matching GitHub Release.
+          After merge, dispatch `.github/workflows/release.yml` (`workflow_dispatch` on `main`) to validate the exact squash commit, publish npm with provenance, create `v__RELEASE_VERSION__` on that commit, and create the matching GitHub Release.
           EOF
           sed -i "s/__RELEASE_VERSION__/$RELEASE_VERSION/g" release-pr.md
           if [ -n "${EXISTING_RELEASE_PR:-}" ]; then
@@ -185,14 +185,3 @@ jobs:
           set -euo pipefail
           gh workflow run ci.yml --ref "$RELEASE_BRANCH"
           gh workflow run linter.yml --ref "$RELEASE_BRANCH"
-
-      - name: Enable auto-merge after required gates
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_URL: ${{ steps.pr.outputs.url }}
-        run: |
-          set -euo pipefail
-          gh pr merge "$PR_URL" --auto --squash \
-            --subject "$RELEASE_TITLE" \
-            --body "Prepared by the guarded v$RELEASE_VERSION release workflow."
