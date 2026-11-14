@@ -61,6 +61,11 @@ describe("runner and concurrency workflow contract", () => {
     "group: $" + "{{ github.workflow }}-$" + "{{ github.ref }}",
     "cancel-in-progress: true",
   ];
+  // Workflows that must run on GitHub-hosted runners: this public repository
+  // cannot reach the group-25 ARC scale set, so a fleet label leaves the job
+  // queued forever (#127, #129). They keep their own concurrency semantics,
+  // so they are exempt from the hosted-CI concurrency contract above.
+  const hostedOnlyWorkflows = new Set(["pages.yml", "contributor-triage.yml"]);
 
   it("runs public CI, test, and lint on ubuntu-latest and cancels superseded runs", () => {
     const dir = resolve(root, ".github/workflows");
@@ -75,6 +80,10 @@ describe("runner and concurrency workflow contract", () => {
         for (const line of standardConcurrency) {
           expect(content, name).toContain(line);
         }
+        continue;
+      }
+      if (hostedOnlyWorkflows.has(name)) {
+        expect(content, name).toContain("ubuntu-latest");
         continue;
       }
       expect(content, name).not.toMatch(hosted);
