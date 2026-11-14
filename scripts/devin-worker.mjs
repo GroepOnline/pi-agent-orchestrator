@@ -22,7 +22,7 @@
 
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { finished } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
@@ -558,6 +558,7 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
   const rmImpl = options.rm ?? rm;
   const writeFileImpl = options.writeFile ?? writeFile;
   const readFileImpl = options.readFile ?? readFile;
+  const linkImpl = options.link ?? link;
   const alive = options.isPidAlive ?? isPidAlive;
   const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
   const now = options.now ?? Date.now;
@@ -567,10 +568,27 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
   await mkdirImpl(lanesDir, { recursive: true });
   const deadline = now() + waitMs;
 
+  /**
+   * Atomic claim: write the owner pid to a unique temp file, hard-link it to
+   * the lane name, then drop the temp file. link() fails with EEXIST when the
+   * lane is taken, and the lane file is never observable empty or half-written
+   * - the whole content appears in one step, so a reader can never mistake a
+   * claim in progress for pid 0 and steal a live lane.
+   */
   async function claim(file) {
-    await writeFileImpl(file, `${pid}\n`, { flag: "wx", mode: 0o600 });
+    const temp = `${file}.claim-${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
+    await writeFileImpl(temp, `${pid}\n`, { mode: 0o600 });
+    try {
+      await linkImpl(temp, file);
+    } finally {
+      await rmImpl(temp, { force: true });
+    }
     return {
       release: async () => {
+        const current = await readFileImpl(file, "utf8").catch(() => null);
+        // Only the recorded owner may release. Another process may have
+        // reclaimed the lane after this pid died and restarted.
+        if (current === null || current.trim() !== String(pid)) return;
         await rmImpl(file, { force: true });
       },
     };
