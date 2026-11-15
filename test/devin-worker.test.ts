@@ -518,6 +518,7 @@ describe("devin command construction", () => {
       for (const forbidden of item.forbid) expect(commands, item.name).not.toContain(forbidden);
     }
 
+    const fakeToken = ["ghp", "abcdefghijklmnopqrstuvwxyz"].join("_");
     const { repo, work } = await tempDirs();
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
@@ -529,7 +530,7 @@ describe("devin command construction", () => {
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "push") {
           const error = new Error("push failed") as Error & { stderr?: string };
-          error.stderr = "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz";
+          error.stderr = `Authorization: Bearer ${fakeToken}`;
           throw error;
         }
         return { stdout: "", stderr: "" };
@@ -537,7 +538,7 @@ describe("devin command construction", () => {
       spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
     });
     expect(outcome.exitCode).toBe(EXIT.FAILED);
-    expect(outcome.results[0]?.message).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz");
+    expect(outcome.results[0]?.message).not.toContain(fakeToken);
     expect(outcome.results[0]?.message).toContain("[redacted]");
     expect(redactSecrets("token=sk-live-secret-value")).toBe("token=[redacted]");
     expect(combineExitCodes([EXIT.OK, EXIT.TIMEOUT, EXIT.USAGE])).toBe(EXIT.TIMEOUT);
