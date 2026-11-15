@@ -11,7 +11,10 @@ job*_log.txt
 droid-wiki/
 
 # Dependencies
-node_modules/
+# No trailing slash: a `node_modules` symlink (a worktree sharing another
+# checkout's dependencies) is not a directory to git and slipped past the old
+# `node_modules/` rule.
+node_modules
 node_modules/.vite/
 
 # Build outputs
