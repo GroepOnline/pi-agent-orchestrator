@@ -997,7 +997,14 @@ async function publishPullRequest(task, ctx, paths, env) {
   const base = ctx.base;
   await writeFile(paths.messagePath, `devin(${task.issue}): ${slug}\n\nModel: ${task.model}\n`, { mode: 0o600 });
   await run(ctx.execFile, "git", ["add", "-A"], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
-  await run(ctx.execFile, "git", ["commit", "-F", paths.messagePath], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
+  const staged = await run(ctx.execFile, "git", ["status", "--porcelain=v1"], {
+    cwd: paths.worktreePath,
+    timeoutMs: 30_000,
+    env,
+  });
+  if (staged.stdout.trim() !== "") {
+    await run(ctx.execFile, "git", ["commit", "-F", paths.messagePath], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
+  }
   await run(ctx.execFile, "git", ["push", "--set-upstream", "origin", paths.branch], {
     cwd: paths.worktreePath,
     timeoutMs: 60_000,

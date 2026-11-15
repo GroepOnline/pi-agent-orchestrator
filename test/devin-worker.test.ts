@@ -592,6 +592,7 @@ describe("devin command construction", () => {
       spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
     });
     expect(outcome.exitCode).toBe(EXIT.OK);
+    expect(calls.some(([command, ...args]) => command === "git" && args[0] === "commit")).toBe(false);
     expect(calls.some(([command, ...args]) => command === "git" && args[0] === "push")).toBe(true);
     expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(true);
   });
