@@ -544,10 +544,10 @@ describe("devin command construction", () => {
     expect(combineExitCodes([EXIT.OK, EXIT.TIMEOUT, EXIT.USAGE])).toBe(EXIT.TIMEOUT);
   });
 
-  it("refuses a commit Devin already made with a sensitive path", async () => {
+  it("refuses a sensitive path present in committed history", async () => {
     const { repo, work } = await tempDirs();
     const commands: string[] = [];
-    let diffArgs: string[] = [];
+    let logArgs: string[] = [];
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
@@ -556,9 +556,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
-        if (args[0] === "diff") {
-          diffArgs = [...args];
-          return { stdout: "src/app.ts\n.env\n", stderr: "" };
+        if (args[0] === "log") {
+          logArgs = [...args];
+          return { stdout: ".env\nsrc/app.ts\n", stderr: "" };
         }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         return { stdout: "", stderr: "" };
@@ -567,7 +567,7 @@ describe("devin command construction", () => {
     });
     expect(outcome.exitCode).toBe(EXIT.FAILED);
     expect(outcome.results[0]?.message).toMatch(/likely secret file "\.env"/);
-    expect(diffArgs).toEqual(["diff", "--name-only", "--no-renames", "origin/main..HEAD"]);
+    expect(logArgs).toEqual(["log", "--format=", "--name-only", "--no-renames", "origin/main..HEAD"]);
     for (const forbidden of ["add", "commit", "push", "pr"]) {
       expect(commands, forbidden).not.toContain(forbidden);
     }
