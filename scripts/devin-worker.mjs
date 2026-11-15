@@ -986,7 +986,7 @@ async function refuseSensitiveCommits(ctx, paths, task, base, env) {
   const committed = await run(
     ctx.execFile,
     "git",
-    ["log", "--format=", "--name-only", "--no-renames", `origin/${base}..HEAD`],
+    ["log", "-m", "--format=", "--name-only", "--no-renames", `origin/${base}..HEAD`],
     { cwd: paths.worktreePath, timeoutMs: 30_000, env },
   );
   assertNoSensitiveCommits(committed.stdout, task.issue, paths);

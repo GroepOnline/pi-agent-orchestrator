@@ -567,7 +567,7 @@ describe("devin command construction", () => {
     });
     expect(outcome.exitCode).toBe(EXIT.FAILED);
     expect(outcome.results[0]?.message).toMatch(/likely secret file "\.env"/);
-    expect(logArgs).toEqual(["log", "--format=", "--name-only", "--no-renames", "origin/main..HEAD"]);
+    expect(logArgs).toEqual(["log", "-m", "--format=", "--name-only", "--no-renames", "origin/main..HEAD"]);
     for (const forbidden of ["add", "commit", "push", "pr"]) {
       expect(commands, forbidden).not.toContain(forbidden);
     }
