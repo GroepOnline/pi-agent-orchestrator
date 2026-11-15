@@ -544,7 +544,7 @@ describe("devin command construction", () => {
     expect(combineExitCodes([EXIT.OK, EXIT.TIMEOUT, EXIT.USAGE])).toBe(EXIT.TIMEOUT);
   });
 
-  it("refuses a sensitive path present in committed history", async () => {
+  it("refuses a sensitive path introduced only by merge history", async () => {
     const { repo, work } = await tempDirs();
     const commands: string[] = [];
     let logArgs: string[] = [];
@@ -558,7 +558,8 @@ describe("devin command construction", () => {
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
         if (args[0] === "log") {
           logArgs = [...args];
-          return { stdout: ".env\nsrc/app.ts\n", stderr: "" };
+          const mergeOnlyPaths = args.includes("-m") ? ".env\n" : "";
+          return { stdout: `${mergeOnlyPaths}src/app.ts\n`, stderr: "" };
         }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         return { stdout: "", stderr: "" };
