@@ -573,6 +573,29 @@ describe("devin command construction", () => {
     }
   });
 
+  it("opens a pull request for work Devin already committed", async () => {
+    const { repo, work } = await tempDirs();
+    const calls: string[][] = [];
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      execFile: async (command: string, args: string[]) => {
+        calls.push([command, ...args]);
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+        if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-list") return { stdout: "1\n", stderr: "" };
+        if (args[0] === "status") return { stdout: "", stderr: "" };
+        if (command === "gh") return { stdout: "https://github.com/example/repo/pull/13\n", stderr: "" };
+        return { stdout: "", stderr: "" };
+      },
+      spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+    });
+    expect(outcome.exitCode).toBe(EXIT.OK);
+    expect(calls.some(([command, ...args]) => command === "git" && args[0] === "push")).toBe(true);
+    expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(true);
+  });
+
   it("reuses its own leftover worktree on a retry and refuses a foreign one", async () => {
     const { repo, work } = await tempDirs();
     const worktreePath = join(work, "worktrees", "CHEF-123-fix-the-race");

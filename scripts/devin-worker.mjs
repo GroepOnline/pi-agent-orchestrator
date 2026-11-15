@@ -939,9 +939,9 @@ async function runDevinSession(ctx, paths, env) {
   }
 }
 
-function assertCommittable(statusText, issue, paths) {
+function assertCommittable(statusText, issue, paths, hasCommittedChanges = false) {
   const changed = porcelainPaths(statusText);
-  if (changed.length === 0) {
+  if (changed.length === 0 && !hasCommittedChanges) {
     throw new WorkerError(
       `Devin made no changes for ${issue}. No pull request opened. Worktree kept at ${paths.worktreePath}. Export path: ${paths.exportPath}.`,
       EXIT.NO_CHANGES,
@@ -1103,7 +1103,12 @@ async function executeTask(task, ctx) {
     timeoutMs: 30_000,
     env,
   });
-  assertCommittable(status.stdout, task.issue, paths);
+  const ahead = await run(ctx.execFile, "git", ["rev-list", "--count", `origin/${base}..HEAD`], {
+    cwd: paths.worktreePath,
+    timeoutMs: 30_000,
+    env,
+  });
+  assertCommittable(status.stdout, task.issue, paths, Number(ahead.stdout.trim()) > 0);
   return publishPullRequest(task, { ...ctx, repo, base }, paths, env);
 }
 
