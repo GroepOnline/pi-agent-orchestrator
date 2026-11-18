@@ -577,7 +577,7 @@ async function waitForMutationLock(lockDir, ownerPath, deadline, options) {
   await options.sleep(10);
 }
 
-async function acquireMutationLock(lockDir, ownerPath, token, deadline, options) {
+async function acquireMutationLock({ lockDir, ownerPath, token, deadline, options }) {
   for (;;) {
     let acquired = false;
     try {
@@ -617,7 +617,7 @@ async function withMutationLock(workDir, operation, options = {}) {
   const token = `${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
   const deadline = now() + (options.mutationWaitMs ?? 15_000);
   await lockOptions.mkdirImpl(join(workDir, "locks"), { recursive: true, mode: 0o700 });
-  await acquireMutationLock(lockDir, ownerPath, token, deadline, lockOptions);
+  await acquireMutationLock({ lockDir, ownerPath, token, deadline, options: lockOptions });
   try {
     return await operation();
   } finally {
@@ -942,6 +942,15 @@ function signalTree(child, signal) {
   }
 }
 
+function attachChildStreamErrorHandlers(child, fail) {
+  child.stdout?.on("error", (error) => {
+    fail(new WorkerError(`Could not read Devin stdout stream (${error?.code ?? "I/O error"}).`, EXIT.FAILED));
+  });
+  child.stderr?.on("error", (error) => {
+    fail(new WorkerError(`Could not read Devin stderr stream (${error?.code ?? "I/O error"}).`, EXIT.FAILED));
+  });
+}
+
 const activeChildren = new Map();
 
 export function installSignalForwarding(signalTarget = process, children = activeChildren) {
@@ -1008,7 +1017,7 @@ export function defaultSpawn(command, args, options) {
     stderrStream.on("error", (error) => {
       fail(new WorkerError(`Could not write Devin stderr log (${error?.code ?? "I/O error"}).`, EXIT.FAILED));
     });
-    child = spawn(command, args, {
+    child = (options.spawnImpl ?? spawn)(command, args, {
       cwd: options.cwd,
       env: options.env,
       detached: process.platform !== "win32",
@@ -1017,6 +1026,7 @@ export function defaultSpawn(command, args, options) {
       windowsHide: true,
     });
     activeChildren.set(child, stop);
+    attachChildStreamErrorHandlers(child, fail);
     child.stdout?.pipe(stdoutStream);
     child.stderr?.pipe(stderrStream);
     let timedOut = false;
@@ -1181,7 +1191,7 @@ export function assertNoSensitiveCommits(diffText, issue, paths) {
   }
 }
 
-async function refuseSensitiveCommits(ctx, paths, task, base, env) {
+async function refuseSensitiveCommits({ ctx, paths, task, base, env }) {
   const committed = await run(
     ctx.execFile,
     "git",
@@ -1255,7 +1265,7 @@ async function refExists(execFile, repo, ref, env) {
  * Unique branch names per attempt would open a second pull request and orphan
  * the first.
  */
-async function ensureWorktree(repo, repoRoot, paths, base, execFile, env) {
+async function ensureWorktree({ repo, repoRoot, paths, base, execFile, env }) {
   const existing = await stat(paths.worktreePath).then((info) => info.isDirectory(), () => false);
   if (existing) {
     const current = await run(execFile, "git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -1319,9 +1329,9 @@ async function executeTask(task, ctx) {
       timeoutMs: 120_000,
       env,
     });
-    await ensureWorktree(repo, repoRoot, paths, base, ctx.execFile, env);
+    await ensureWorktree({ repo, repoRoot, paths, base, execFile: ctx.execFile, env });
     await runDevinSession({ ...ctx, model: task.model, taskText: task.task }, paths, env);
-    await refuseSensitiveCommits(ctx, paths, task, base, env);
+    await refuseSensitiveCommits({ ctx, paths, task, base, env });
     const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall"], {
       cwd: paths.worktreePath,
       timeoutMs: 30_000,

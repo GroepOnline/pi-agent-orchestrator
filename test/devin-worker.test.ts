@@ -7,6 +7,7 @@ import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   acquireLane,
@@ -342,6 +343,35 @@ describe("child output", () => {
         timeoutMs: 10_000,
       },
     )).rejects.toThrow(/Could not write Devin stdout log/);
+  });
+
+  it("terminates Devin if a child output stream errors", async () => {
+    const { root } = await tempDirs();
+    const child = new EventEmitter();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const signals: string[] = [];
+    Object.assign(child, {
+      pid: 2_147_483_647,
+      stdout,
+      stderr,
+      kill: (signal: string) => {
+        signals.push(signal);
+        queueMicrotask(() => child.emit("close", null, signal));
+        return true;
+      },
+    });
+    const outcome = defaultSpawn("devin", [], {
+      cwd: root,
+      env: process.env,
+      stdoutPath: join(root, "stdout.log"),
+      stderrPath: join(root, "stderr.log"),
+      timeoutMs: 10_000,
+      spawnImpl: () => child,
+    });
+    stdout.emit("error", Object.assign(new Error("source stream failed"), { code: "EIO" }));
+    await expect(outcome).rejects.toThrow(/Could not read Devin stdout stream/);
+    expect(signals).toEqual(["SIGTERM"]);
   });
 });
 
