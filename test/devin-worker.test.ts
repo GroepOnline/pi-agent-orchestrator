@@ -288,6 +288,34 @@ describe("lanes and timeout", () => {
       if (result.status === "fulfilled") await result.value.release();
     }
   });
+
+  it("does not publish an ownerless mutation lock after metadata write failure", async () => {
+    const { work } = await tempDirs();
+    await mkdir(join(work, "lanes"), { recursive: true });
+    await writeFile(join(work, "lanes", "0"), "424242\nstale-token\n");
+    let failOwnerWrite = true;
+    const writeFileImpl = async (
+      filePath: string,
+      contents: string,
+      options?: { mode?: number },
+    ) => {
+      if (filePath.endsWith("/owner.json") && failOwnerWrite) {
+        failOwnerWrite = false;
+        throw Object.assign(new Error("simulated metadata write failure"), { code: "EIO" });
+      }
+      return writeFile(filePath, contents, options);
+    };
+
+    await expect(acquireLane(work, 1, {
+      waitMs: 0,
+      isPidAlive: () => false,
+      writeFile: writeFileImpl,
+    })).rejects.toThrow(/simulated metadata write failure/);
+    expect(await readdir(join(work, "locks"))).not.toContain("mutation");
+
+    const recovered = await acquireLane(work, 1, { waitMs: 0, isPidAlive: () => false });
+    await recovered.release();
+  });
 });
 
 describe("task identity locks", () => {

@@ -23,7 +23,7 @@
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { link, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { finished } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
@@ -602,15 +602,14 @@ async function waitForMutationLock(lockDir, ownerPath, deadline, options) {
 
 async function acquireMutationLock({ lockDir, ownerPath, token, deadline, options }) {
   for (;;) {
-    let acquired = false;
+    const staging = await options.mkdtempImpl(join(parse(lockDir).dir, ".mutation-claim-"));
     try {
-      await options.mkdirImpl(lockDir, { mode: 0o700 });
-      acquired = true;
-      await options.writeFileImpl(ownerPath, JSON.stringify({ pid: options.pid, token }), { mode: 0o600 });
+      await options.writeFileImpl(join(staging, "owner.json"), JSON.stringify({ pid: options.pid, token }), { mode: 0o600 });
+      await options.renameImpl(staging, lockDir);
       return;
     } catch (error) {
-      if (acquired) await options.rmImpl(lockDir, { recursive: true, force: true });
-      if (error?.code !== "EEXIST") throw error;
+      await options.rmImpl(staging, { recursive: true, force: true });
+      if (!["EEXIST", "ENOTEMPTY"].includes(error?.code)) throw error;
       await waitForMutationLock(lockDir, ownerPath, deadline, options);
     }
   }
@@ -629,6 +628,8 @@ async function withMutationLock(workDir, operation, options = {}) {
   const ownerPath = join(lockDir, "owner.json");
   const lockOptions = {
     mkdirImpl: options.mkdir ?? mkdir,
+    mkdtempImpl: options.mkdtemp ?? mkdtemp,
+    renameImpl: options.rename ?? rename,
     rmImpl: options.rm ?? rm,
     readFileImpl: options.readFile ?? readFile,
     writeFileImpl: options.writeFile ?? writeFile,
