@@ -204,7 +204,7 @@ npm run cloud:smoke
 
 ## Devin worker pilot
 
-`scripts/devin-worker.mjs` is a host-side pilot. It is not loaded by the Pi extension, and no workflow starts it. On `bc-scan-2`, check out this repository yourself (those hosts are not fleet update targets) and run the script by hand. Devin, git, and `gh` use the login already on that machine. The script does not take a token and does not write one into the repo.
+`scripts/devin-worker.mjs` is a host-side pilot. It is not loaded by the Pi extension, and no workflow starts it. On an explicitly selected host, check out this repository and run the script by hand. Devin, git, and `gh` use the login already on that machine. The script does not take a token and does not write one into the repo.
 
 ```bash
 export DEVIN_WORKER_ENABLED=true
@@ -228,8 +228,6 @@ Each accepted task resolves the base branch, fetches it from `origin`, and creat
 Stop the pilot by unsetting `DEVIN_WORKER_ENABLED` or setting it to anything other than `true`. The next start exits without calling `devin`. This repository does not install a service; stop a running process with the supervisor you started it from. After 2026-11-29, SWE-2 ids are refused, and after 2026-12-03, SWE-2 Flash ids are refused, unless those dates were cleared or overridden.
 
 ### Alleen CLI, nooit Devin cloud
-
-Joep, 12 november 2026, 10:40: "belangrijk geen devin cloud maar draaien via cli".
 
 The worker only starts the local Devin CLI. The logged path is `local-cli` (headless `devin -p` with `--model`, `--sandbox`, and `--export`) or `herdr-core-lane` (the same binary when `DEVIN_WORKER_ROUTE=herdr-core-lane` or a `HERDR_LANE` / `HERDR_CORE` / `HERDR_SESSION` variable is set). It does not open a Devin Cloud session, call `api.devin.ai` session endpoints, or use Composio `devin_mcp`. `DEVIN_API_KEY`, `--cloud`, and a route of `cloud`, `api`, `remote`, or `devin_mcp` are refused before any `devin` process starts. The key value is not printed and is not passed to the child.
 
