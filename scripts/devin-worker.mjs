@@ -1070,9 +1070,25 @@ export function installSignalForwarding(signalTarget = process, children = activ
   };
 }
 
+const LOG_STREAM_CLOSE_TIMEOUT_MS = 5_000;
+
 async function closeStream(stream) {
   if (!stream.writableEnded && !stream.destroyed) stream.end();
-  await finished(stream);
+  let timer;
+  try {
+    await Promise.race([
+      finished(stream),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          stream.destroy();
+          reject(Object.assign(new Error("Timed out closing Devin log stream."), { code: "ETIMEDOUT" }));
+        }, LOG_STREAM_CLOSE_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function defaultExecFile(command, args, options = {}) {
@@ -1145,6 +1161,14 @@ export function defaultSpawn(command, args, options) {
     child.stderr?.pipe(stderrStream);
     let timedOut = false;
     timer = setTimeout(() => {
+      const leaderExited = (
+        (child?.exitCode !== null && child?.exitCode !== undefined)
+        || (child?.signalCode !== null && child?.signalCode !== undefined)
+      );
+      if (leaderExited) {
+        void finish(child.exitCode, child.signalCode).catch(rejectPromise);
+        return;
+      }
       timedOut = true;
       stop("SIGTERM");
     }, options.timeoutMs);
@@ -1181,6 +1205,9 @@ export function defaultSpawn(command, args, options) {
         return;
       }
       fail(error instanceof Error ? error : new WorkerError(String(error), EXIT.FAILED));
+    });
+    child.once("exit", (code, signal) => {
+      void finish(code, signal).catch(rejectPromise);
     });
     child.once("close", (code, signal) => {
       void finish(code, signal).catch(rejectPromise);

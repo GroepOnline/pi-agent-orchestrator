@@ -513,6 +513,57 @@ describe("child output", () => {
     if (!processGroupId) throw new Error("Expected Devin process group id.");
     expect(() => process.kill(-processGroupId, 0)).toThrow();
   });
+
+  it("does not time out after Devin exits while a descendant holds its log pipes", async () => {
+    if (process.platform === "win32") return;
+    const { root } = await tempDirs();
+    let processGroupId: number | undefined;
+    const result = await defaultSpawn(
+      process.execPath,
+      [
+        "-e",
+        "const { spawn } = require('node:child_process'); spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' }); process.exit(0);",
+      ],
+      {
+        cwd: root,
+        env: process.env,
+        stdoutPath: join(root, "stdout.log"),
+        stderrPath: join(root, "stderr.log"),
+        timeoutMs: 1_000,
+        spawnImpl: (command: string, args: string[], options: Parameters<typeof spawnChild>[2]) => {
+          const child = spawnChild(command, args, options);
+          processGroupId = child.pid;
+          return child;
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ code: 0, signal: null, timedOut: false });
+    if (!processGroupId) throw new Error("Expected Devin process group id.");
+    expect(() => process.kill(-processGroupId, 0)).toThrow();
+  });
+
+  it("bounds the wait for a Devin log stream to close", async () => {
+    const { root } = await tempDirs();
+    const blockedLog = new Writable({
+      write() {},
+    });
+
+    await expect(defaultSpawn(
+      process.execPath,
+      ["-e", "process.stdout.write('blocked'); process.exit(0);"],
+      {
+        cwd: root,
+        env: process.env,
+        stdoutPath: join(root, "stdout.log"),
+        stderrPath: join(root, "stderr.log"),
+        timeoutMs: 10_000,
+        createWriteStreamImpl: (path: string) => path.endsWith("stdout.log")
+          ? blockedLog
+          : new Writable({ write(_chunk, _encoding, callback) { callback(); } }),
+      },
+    )).rejects.toThrow(/ETIMEDOUT/);
+  }, 10_000);
 });
 
 describe("argument parsing", () => {
