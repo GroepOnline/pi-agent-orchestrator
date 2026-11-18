@@ -554,65 +554,74 @@ function isPidAlive(pid) {
   }
 }
 
-async function withMutationLock(workDir, operation, options = {}) {
-  const mkdirImpl = options.mkdir ?? mkdir;
-  const rmImpl = options.rm ?? rm;
-  const readFileImpl = options.readFile ?? readFile;
-  const writeFileImpl = options.writeFile ?? writeFile;
-  const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
-  const now = options.now ?? Date.now;
-  const pid = options.pid ?? process.pid;
-  const alive = options.isPidAlive ?? isPidAlive;
-  const waitMs = options.mutationWaitMs ?? 15_000;
-  const lockDir = join(workDir, "locks", "mutation");
-  const ownerPath = join(lockDir, "owner.json");
-  const token = `${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
-  const deadline = now() + waitMs;
-  await mkdirImpl(join(workDir, "locks"), { recursive: true, mode: 0o700 });
+function parseLockOwner(raw) {
+  try {
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
+async function waitForMutationLock(lockDir, ownerPath, deadline, options) {
+  const raw = await options.readFileImpl(ownerPath, "utf8").catch(() => null);
+  const owner = parseLockOwner(raw);
+  if (Number.isInteger(owner?.pid) && owner.pid > 0 && !options.alive(owner.pid)) {
+    throw new WorkerError(
+      `Found an abandoned worker mutation lock at ${lockDir}; verify no worker is active before removing it.`,
+      EXIT.FAILED,
+    );
+  }
+  if (options.now() >= deadline) {
+    throw new WorkerError(`Timed out waiting for worker mutation lock at ${lockDir}.`, EXIT.FAILED);
+  }
+  await options.sleep(10);
+}
+
+async function acquireMutationLock(lockDir, ownerPath, token, deadline, options) {
   for (;;) {
     let acquired = false;
     try {
-      await mkdirImpl(lockDir, { mode: 0o700 });
+      await options.mkdirImpl(lockDir, { mode: 0o700 });
       acquired = true;
-      await writeFileImpl(ownerPath, JSON.stringify({ pid, token }), { mode: 0o600 });
-      break;
+      await options.writeFileImpl(ownerPath, JSON.stringify({ pid: options.pid, token }), { mode: 0o600 });
+      return;
     } catch (error) {
-      if (acquired) await rmImpl(lockDir, { recursive: true, force: true });
+      if (acquired) await options.rmImpl(lockDir, { recursive: true, force: true });
       if (error?.code !== "EEXIST") throw error;
-
-      const raw = await readFileImpl(ownerPath, "utf8").catch(() => null);
-      if (raw) {
-        try {
-          const owner = JSON.parse(raw);
-          if (Number.isInteger(owner.pid) && owner.pid > 0 && !alive(owner.pid)) {
-            throw new WorkerError(
-              `Found an abandoned worker mutation lock at ${lockDir}; verify no worker is active before removing it.`,
-              EXIT.FAILED,
-            );
-          }
-        } catch (ownerError) {
-          if (ownerError instanceof WorkerError) throw ownerError;
-        }
-      }
-      if (now() >= deadline) {
-        throw new WorkerError(`Timed out waiting for worker mutation lock at ${lockDir}.`, EXIT.FAILED);
-      }
-      await sleep(10);
+      await waitForMutationLock(lockDir, ownerPath, deadline, options);
     }
   }
+}
 
+async function releaseMutationLock(lockDir, ownerPath, token, options) {
+  const raw = await options.readFileImpl(ownerPath, "utf8").catch(() => null);
+  const owner = parseLockOwner(raw);
+  if (owner?.token === token) await options.rmImpl(lockDir, { recursive: true, force: true });
+}
+
+async function withMutationLock(workDir, operation, options = {}) {
+  const now = options.now ?? Date.now;
+  const pid = options.pid ?? process.pid;
+  const lockDir = join(workDir, "locks", "mutation");
+  const ownerPath = join(lockDir, "owner.json");
+  const lockOptions = {
+    mkdirImpl: options.mkdir ?? mkdir,
+    rmImpl: options.rm ?? rm,
+    readFileImpl: options.readFile ?? readFile,
+    writeFileImpl: options.writeFile ?? writeFile,
+    sleep: options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms))),
+    now,
+    pid,
+    alive: options.isPidAlive ?? isPidAlive,
+  };
+  const token = `${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
+  const deadline = now() + (options.mutationWaitMs ?? 15_000);
+  await lockOptions.mkdirImpl(join(workDir, "locks"), { recursive: true, mode: 0o700 });
+  await acquireMutationLock(lockDir, ownerPath, token, deadline, lockOptions);
   try {
     return await operation();
   } finally {
-    const raw = await readFileImpl(ownerPath, "utf8").catch(() => null);
-    let owner;
-    try {
-      owner = raw ? JSON.parse(raw) : null;
-    } catch {
-      owner = null;
-    }
-    if (owner?.token === token) await rmImpl(lockDir, { recursive: true, force: true });
+    await releaseMutationLock(lockDir, ownerPath, token, lockOptions);
   }
 }
 
