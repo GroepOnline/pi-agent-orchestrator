@@ -796,7 +796,13 @@ const TASK_FLAGS = new Set(["tasks", "issue", "repo", "task", "model"]);
 
 function readFlag(argv, index) {
   const arg = argv[index];
-  if (WORKER_CLOUD_FLAGS.has(arg) || isCloudCliArg(arg)) {
+  const flagName = arg.split("=", 1)[0];
+  if (
+    WORKER_CLOUD_FLAGS.has(arg)
+    || WORKER_CLOUD_FLAGS.has(flagName)
+    || isCloudCliArg(flagName)
+    || (!arg.startsWith("-") && isCloudCliArg(arg))
+  ) {
     throw new WorkerError(
       `Refusing ${cloudFlagLabel(arg)}: this worker only runs the local Devin CLI (headless devin -p or a herdr-core lane), never Devin cloud, api.devin.ai, or Composio devin_mcp.`,
       EXIT.USAGE,

@@ -382,11 +382,12 @@ describe("child output", () => {
 describe("argument parsing", () => {
   const boom = async () => ({ stdout: CATALOG, stderr: "" });
 
-  it("accepts --task=value for a value that starts with --", async () => {
+  it("accepts inline task text that starts with -- and mentions a cloud host", async () => {
     const { repo, work } = await tempDirs();
     const spawnArgs: string[][] = [];
+    const task = "--fix the race and mention api.devin.ai in the docs";
     const outcome = await runWorker(
-      ["--issue", "CHEF-123", "--repo", repo, "--model", "swe-2-medium", "--task=--fix the race"],
+      ["--issue", "CHEF-123", "--repo", repo, "--model", "swe-2-medium", `--task=${task}`],
       {
         env: enabledEnv(work),
         now: () => new Date("2026-11-12T12:00:00.000Z"),
@@ -405,7 +406,7 @@ describe("argument parsing", () => {
       },
     );
     expect(outcome.exitCode).toBe(EXIT.OK);
-    expect(spawnArgs[0]).toContain("--print=--fix the race");
+    expect(spawnArgs[0]).toContain(`--print=${task}`);
   });
 
   it("refuses a bare flag with no operand and an unknown key", async () => {
