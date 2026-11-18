@@ -998,6 +998,35 @@ describe("devin command construction", () => {
     expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(false);
   });
 
+  it("returns the opened PR if lane cleanup fails", async () => {
+    const { repo, work } = await tempDirs();
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      acquireLane: async () => ({
+        slot: 0,
+        release: async () => {
+          throw new Error("simulated lane cleanup failure");
+        },
+      }),
+      execFile: async (command: string, args: string[]) => {
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+        if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+        if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
+        if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
+        if (command === "gh") return { stdout: "https://github.com/example/repo/pull/14\n", stderr: "" };
+        return { stdout: "", stderr: "" };
+      },
+      spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+    });
+
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    expect(outcome.results[0]?.url).toBe("https://github.com/example/repo/pull/14");
+    expect(outcome.results[0]?.message).toMatch(/Pull request .* was opened.*Lane release failed/);
+  });
+
   it("reuses its own leftover worktree on a retry and refuses a foreign one", async () => {
     const { root, repo, work } = await tempDirs();
     const repoIdentity = createHash("sha256").update(repo).digest("hex");

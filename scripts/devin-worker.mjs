@@ -1510,6 +1510,7 @@ async function resolveBaseBranch(repo, execFile, env) {
 
 async function runOne(task, ctx) {
   let release = async () => {};
+  let result;
   try {
     const model = resolveListedModel(task.model, ctx.catalog);
     assertPilotOpen({
@@ -1518,18 +1519,32 @@ async function runOne(task, ctx) {
       swe2Until: ctx.swe2Until,
       flashUntil: ctx.flashUntil,
     });
-    const lane = await acquireLane(ctx.workDir, ctx.lanes, {
+    const lane = await (ctx.acquireLane ?? acquireLane)(ctx.workDir, ctx.lanes, {
       waitMs: ctx.laneWaitMs,
       sleep: ctx.sleep,
       isPidAlive: ctx.isPidAlive,
     });
     release = lane.release;
-    return await executeTask({ ...task, model }, ctx);
+    result = await executeTask({ ...task, model }, ctx);
   } catch (error) {
-    return failureResult(error);
-  } finally {
-    await release();
+    result = failureResult(error);
   }
+  try {
+    await release();
+  } catch (error) {
+    const failure = failureResult(error);
+    const prefix = result?.url
+      ? `Pull request ${result.url} was opened. `
+      : result?.message
+        ? `${result.message} `
+        : "";
+    result = {
+      ...result,
+      exitCode: EXIT.FAILED,
+      message: `${prefix}Lane release failed: ${failure.message}`,
+    };
+  }
+  return result;
 }
 
 export async function runWorker(argv, deps = {}) {
@@ -1579,6 +1594,7 @@ export async function runWorker(argv, deps = {}) {
         spawnCommand: deps.spawnCommand ?? defaultSpawn,
         sleep: deps.sleep,
         isPidAlive: deps.isPidAlive,
+        acquireLane: deps.acquireLane,
         shutdownSignal: () => signalForwarder.signal,
         onShutdownSignal: signalForwarder.onSignal,
       });
