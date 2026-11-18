@@ -1258,11 +1258,12 @@ export function assertNoSensitiveCommits(diffText, issue, paths) {
   }
 }
 
-async function refuseSensitiveCommits({ ctx, paths, task, base, env }) {
+async function refuseSensitiveCommits({ ctx, paths, task, base, env, headRef }) {
+  const target = headRef ?? `refs/heads/${paths.branch}`;
   const committed = await run(
     ctx.execFile,
     "git",
-    ["log", "-m", "--format=", "--name-only", "--no-renames", `origin/${base}..HEAD`],
+    ["log", "--diff-merges=separate", "--format=", "--name-only", "--no-renames", `origin/${base}..${target}`],
     { cwd: paths.worktreePath, timeoutMs: 30_000, env },
   );
   assertNoSensitiveCommits(committed.stdout, task.issue, paths);
@@ -1289,7 +1290,19 @@ async function publishPullRequest(task, ctx, paths, env) {
     await run(ctx.execFile, "git", ["commit", "-F", paths.messagePath], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
   }
   assertRunning();
-  await runCancelable(ctx, "git", ["push", "--set-upstream", "origin", paths.branch], {
+  const branchHead = await run(ctx.execFile, "git", ["rev-parse", `refs/heads/${paths.branch}`], {
+    cwd: paths.worktreePath,
+    timeoutMs: 15_000,
+    env,
+  });
+  const pinnedHead = branchHead.stdout.trim();
+  await refuseSensitiveCommits({ ctx, paths, task, base, env, headRef: pinnedHead });
+  await runCancelable(ctx, "git", [
+    "push",
+    "--set-upstream",
+    "origin",
+    `${pinnedHead}:refs/heads/${paths.branch}`,
+  ], {
     cwd: paths.worktreePath,
     timeoutMs: 60_000,
     env,
@@ -1426,7 +1439,7 @@ async function executeTask(task, ctx) {
       "diff",
       "--name-only",
       "--no-renames",
-      `origin/${base}...HEAD`,
+      `origin/${base}...refs/heads/${paths.branch}`,
     ], {
       cwd: paths.worktreePath,
       timeoutMs: 30_000,

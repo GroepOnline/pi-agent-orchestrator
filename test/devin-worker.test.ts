@@ -803,7 +803,7 @@ describe("devin command construction", () => {
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
         if (args[0] === "log") {
           logArgs = [...args];
-          const mergeOnlyPaths = args.includes("-m") ? ".env\n" : "";
+          const mergeOnlyPaths = args.includes("--diff-merges=separate") ? ".env\n" : "";
           return { stdout: `${mergeOnlyPaths}src/app.ts\n`, stderr: "" };
         }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
@@ -813,7 +813,14 @@ describe("devin command construction", () => {
     });
     expect(outcome.exitCode).toBe(EXIT.FAILED);
     expect(outcome.results[0]?.message).toMatch(/likely secret file "\.env"/);
-    expect(logArgs).toEqual(["log", "-m", "--format=", "--name-only", "--no-renames", "origin/main..HEAD"]);
+    expect(logArgs).toEqual([
+      "log",
+      "--diff-merges=separate",
+      "--format=",
+      "--name-only",
+      "--no-renames",
+      "origin/main..refs/heads/devin/CHEF-123-fix-the-race",
+    ]);
     for (const forbidden of ["add", "commit", "push", "pr"]) {
       expect(commands, forbidden).not.toContain(forbidden);
     }
@@ -830,6 +837,7 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "diff" && args[1] === "--cached") return { stdout: "", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "status") return { stdout: "", stderr: "" };
         if (command === "gh") return { stdout: "https://github.com/example/repo/pull/13\n", stderr: "" };
