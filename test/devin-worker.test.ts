@@ -361,6 +361,37 @@ describe("lanes and timeout", () => {
     }
   });
 
+  it("does not reclaim a dead worker lane while its Devin process group is active", async () => {
+    const { work } = await tempDirs();
+    const owner = await acquireLane(work, 1, { waitMs: 0, pid: 111 });
+    await owner.markProcessGroupStarting();
+
+    await expect(acquireLane(work, 1, {
+      waitMs: 0,
+      pid: 222,
+      isPidAlive: () => false,
+      isProcessGroupAlive: () => false,
+    })).rejects.toThrow(/lanes are busy/);
+
+    await owner.setProcessGroupId(333);
+    let processGroupAlive = true;
+    await expect(acquireLane(work, 1, {
+      waitMs: 0,
+      pid: 222,
+      isPidAlive: () => false,
+      isProcessGroupAlive: (processGroupId: number) => processGroupAlive && processGroupId === 333,
+    })).rejects.toThrow(/lanes are busy/);
+
+    processGroupAlive = false;
+    const recovered = await acquireLane(work, 1, {
+      waitMs: 0,
+      pid: 222,
+      isPidAlive: () => false,
+      isProcessGroupAlive: () => false,
+    });
+    await recovered.release();
+  });
+
   it("does not publish an ownerless mutation lock after metadata write failure", async () => {
     const { work } = await tempDirs();
     await mkdir(join(work, "lanes"), { recursive: true });
@@ -425,6 +456,28 @@ describe("task identity locks", () => {
     await expect(release()).rejects.toThrow(/temporary read failure/);
     await release();
     await expect(readFile(taskLock, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("does not reclaim a dead task lock while its Devin process group is active", async () => {
+    const { work } = await tempDirs();
+    const branch = "devin/CHEF-123-fix-the-race";
+    const release = await acquireTaskLock(work, "/repos/one", branch, { pid: 111 });
+    await release.markProcessGroupStarting();
+    await release.setProcessGroupId(444);
+
+    await expect(acquireTaskLock(work, "/repos/one", branch, {
+      pid: 222,
+      isPidAlive: () => false,
+      isProcessGroupAlive: (processGroupId: number) => processGroupId === 444,
+    })).rejects.toThrow(/already owns this task/);
+
+    const reclaim = await acquireTaskLock(work, "/repos/one", branch, {
+      pid: 222,
+      isPidAlive: () => false,
+      isProcessGroupAlive: () => false,
+    });
+    await reclaim();
+    await release();
   });
 
   it("releases the mutation lock atomically while another task claims it", async () => {
@@ -673,6 +726,30 @@ describe("child output", () => {
       },
     )).rejects.toThrow(/ETIMEDOUT/);
   }, 10_000);
+
+  it("records the detached Devin process-group id before completing", async () => {
+    const { root } = await tempDirs();
+    const processGroupIds: number[] = [];
+
+    const result = await defaultSpawn(
+      process.execPath,
+      ["-e", "setTimeout(() => process.exit(0), 25)"],
+      {
+        cwd: root,
+        env: process.env,
+        stdoutPath: join(root, "stdout.log"),
+        stderrPath: join(root, "stderr.log"),
+        timeoutMs: 1_000,
+        onProcessGroup: async (processGroupId: number) => {
+          processGroupIds.push(processGroupId);
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ code: 0, timedOut: false });
+    expect(processGroupIds).toHaveLength(1);
+    expect(processGroupIds[0]).toBeGreaterThan(0);
+  });
 });
 
 describe("argument parsing", () => {

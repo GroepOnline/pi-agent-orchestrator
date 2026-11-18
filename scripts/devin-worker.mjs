@@ -577,6 +577,42 @@ function isPidAlive(pid) {
   }
 }
 
+function processGroupMarkerPaths(lockPath, token) {
+  return {
+    starting: `${lockPath}.starting-${token}`,
+    processGroup: `${lockPath}.process-group-${token}`,
+  };
+}
+
+async function readOptionalFile(path, readFileImpl) {
+  try {
+    return await readFileImpl(path, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function processGroupIsActive(lockPath, token, readFileImpl, isProcessGroupAliveImpl) {
+  const markers = processGroupMarkerPaths(lockPath, token);
+  const [starting, rawProcessGroupId] = await Promise.all([
+    readOptionalFile(markers.starting, readFileImpl),
+    readOptionalFile(markers.processGroup, readFileImpl),
+  ]);
+  if (rawProcessGroupId === null) return starting !== null;
+  const processGroupId = Number(rawProcessGroupId.trim());
+  if (!Number.isInteger(processGroupId) || processGroupId <= 0) return true;
+  return isProcessGroupAliveImpl(processGroupId);
+}
+
+async function clearProcessGroupMarkers(lockPath, token, rmImpl) {
+  const markers = processGroupMarkerPaths(lockPath, token);
+  await Promise.all([
+    rmImpl(markers.starting, { force: true }),
+    rmImpl(markers.processGroup, { force: true }),
+  ]);
+}
+
 function parseLockOwner(raw) {
   try {
     return raw ? JSON.parse(raw) : null;
@@ -660,6 +696,7 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
   const readFileImpl = options.readFile ?? readFile;
   const linkImpl = options.link ?? link;
   const alive = options.isPidAlive ?? isPidAlive;
+  const processGroupAlive = options.isProcessGroupAlive ?? isProcessGroupAlive;
   const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
   const now = options.now ?? Date.now;
   const assertRunning = () => {
@@ -694,6 +731,29 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
         const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
         if (owner !== String(pid) || ownerToken !== token) return;
         await rmImpl(file, { force: true });
+        await clearProcessGroupMarkers(file, token, rmImpl);
+      }, options),
+      markProcessGroupStarting: () => withMutationLock(workDir, async () => {
+        const current = await readOptionalFile(file, readFileImpl);
+        const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
+        if (owner !== String(pid) || ownerToken !== token) {
+          throw new WorkerError(`Lane lock at ${file} changed before Devin started.`, EXIT.FAILED);
+        }
+        const marker = processGroupMarkerPaths(file, token).starting;
+        await writeFileImpl(marker, "starting\n", { mode: 0o600, flag: "wx" });
+      }, options),
+      setProcessGroupId: (processGroupId) => withMutationLock(workDir, async () => {
+        if (!Number.isInteger(processGroupId) || processGroupId <= 0) {
+          throw new WorkerError("Devin did not provide a valid process-group id.", EXIT.FAILED);
+        }
+        const current = await readOptionalFile(file, readFileImpl);
+        const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
+        if (owner !== String(pid) || ownerToken !== token) {
+          throw new WorkerError(`Lane lock at ${file} changed before Devin started.`, EXIT.FAILED);
+        }
+        const markers = processGroupMarkerPaths(file, token);
+        await writeFileImpl(markers.processGroup, `${processGroupId}\n`, { mode: 0o600, flag: "wx" });
+        await rmImpl(markers.starting, { force: true });
       }, options),
     };
   }
@@ -719,19 +779,30 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
         }
       }
       const owner = Number(String(current).trim().split(/\s+/)[0]);
+      const ownerToken = String(current).trim().split(/\s+/)[1];
       if (!Number.isInteger(owner) || owner <= 0) {
         throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
       }
-      if (owner === pid || alive(owner)) return null;
+      if (
+        owner === pid
+        || alive(owner)
+        || (ownerToken && await processGroupIsActive(file, ownerToken, readFileImpl, processGroupAlive))
+      ) return null;
       await withMutationLock(workDir, async () => {
         const current = await readFileImpl(file, "utf8").catch(() => null);
-        const currentOwner = Number(String(current ?? "").trim().split(/\s+/)[0]);
+        const [currentOwnerText, currentToken] = String(current ?? "").trim().split(/\s+/);
+        const currentOwner = Number(currentOwnerText);
         if (current === null) return;
         if (!Number.isInteger(currentOwner) || currentOwner <= 0) {
           throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
         }
-        if (currentOwner === pid || alive(currentOwner)) return;
+        if (
+          currentOwner === pid
+          || alive(currentOwner)
+          || (currentToken && await processGroupIsActive(file, currentToken, readFileImpl, processGroupAlive))
+        ) return;
         await rmImpl(file, { force: true });
+        if (currentToken) await clearProcessGroupMarkers(file, currentToken, rmImpl);
       }, options);
       try {
         return await claim(file);
@@ -753,7 +824,12 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
           await acquired.release();
           throw error;
         }
-        return { slot, release: acquired.release };
+        return {
+          slot,
+          release: acquired.release,
+          markProcessGroupStarting: acquired.markProcessGroupStarting,
+          setProcessGroupId: acquired.setProcessGroupId,
+        };
       }
     }
     if (now() >= deadline) {
@@ -776,6 +852,7 @@ export async function acquireTaskLock(workDir, repoRoot, branch, options = {}) {
   const linkImpl = options.link ?? link;
   const pid = options.pid ?? process.pid;
   const alive = options.isPidAlive ?? isPidAlive;
+  const processGroupAlive = options.isProcessGroupAlive ?? isProcessGroupAlive;
   const file = taskLockPath(workDir, repoRoot, branch);
   const token = `${pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -792,10 +869,15 @@ export async function acquireTaskLock(workDir, repoRoot, branch, options = {}) {
       if (!Number.isInteger(owner.pid) || owner.pid <= 0 || typeof owner.token !== "string") {
         throw new WorkerError(`Task lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
       }
-      if (owner.pid === pid || alive(owner.pid)) {
+      if (
+        owner.pid === pid
+        || alive(owner.pid)
+        || await processGroupIsActive(file, owner.token, readFileImpl, processGroupAlive)
+      ) {
         throw new WorkerError(`A worker already owns this task in ${repoRoot}.`, EXIT.FAILED);
       }
       await rmImpl(file, { force: true });
+      await clearProcessGroupMarkers(file, owner.token, rmImpl);
     }
 
     const temp = `${file}.claim-${token}`;
@@ -808,7 +890,7 @@ export async function acquireTaskLock(workDir, repoRoot, branch, options = {}) {
   }, options);
 
   let released = false;
-  return async () => {
+  const release = async () => {
     if (released) return;
     await withMutationLock(workDir, async () => {
       let current;
@@ -832,9 +914,33 @@ export async function acquireTaskLock(workDir, repoRoot, branch, options = {}) {
         return;
       }
       await rmImpl(file, { force: true });
+      await clearProcessGroupMarkers(file, token, rmImpl);
       released = true;
     }, options);
   };
+  release.markProcessGroupStarting = () => withMutationLock(workDir, async () => {
+    const current = await readOptionalFile(file, readFileImpl);
+    const owner = parseLockOwner(current);
+    if (owner?.token !== token) {
+      throw new WorkerError(`Task lock at ${file} changed before Devin started.`, EXIT.FAILED);
+    }
+    const marker = processGroupMarkerPaths(file, token).starting;
+    await writeFileImpl(marker, "starting\n", { mode: 0o600, flag: "wx" });
+  }, options);
+  release.setProcessGroupId = (processGroupId) => withMutationLock(workDir, async () => {
+    if (!Number.isInteger(processGroupId) || processGroupId <= 0) {
+      throw new WorkerError("Devin did not provide a valid process-group id.", EXIT.FAILED);
+    }
+    const current = await readOptionalFile(file, readFileImpl);
+    const owner = parseLockOwner(current);
+    if (owner?.token !== token) {
+      throw new WorkerError(`Task lock at ${file} changed before Devin started.`, EXIT.FAILED);
+    }
+    const markers = processGroupMarkerPaths(file, token);
+    await writeFileImpl(markers.processGroup, `${processGroupId}\n`, { mode: 0o600, flag: "wx" });
+    await rmImpl(markers.starting, { force: true });
+  }, options);
+  return release;
 }
 
 const TASK_FLAGS = new Set(["tasks", "issue", "repo", "task", "model"]);
@@ -1024,9 +1130,9 @@ function signalTree(child, signal) {
 }
 
 function isProcessGroupAlive(pid) {
-  if (process.platform === "win32" || !pid) return false;
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
-    process.kill(-pid, 0);
+    process.kill(process.platform === "win32" ? pid : -pid, 0);
     return true;
   } catch (error) {
     return error?.code === "EPERM";
@@ -1143,6 +1249,7 @@ export function defaultSpawn(command, args, options) {
     let timer;
     let killTimer;
     let child;
+    let processGroupRegistration = Promise.resolve();
     const stop = (signal) => {
       if (!child?.pid || settled) return;
       signalTree(child, signal);
@@ -1174,6 +1281,21 @@ export function defaultSpawn(command, args, options) {
     });
     activeChildren.set(child, stop);
     attachChildStreamErrorHandlers(child, fail);
+    if (child.pid && options.onProcessGroup) {
+      try {
+        processGroupRegistration = Promise.resolve(options.onProcessGroup(child.pid)).catch((error) => {
+          fail(new WorkerError(
+            `Could not record Devin process group (${error?.code ?? "I/O error"}).`,
+            EXIT.FAILED,
+          ));
+        });
+      } catch (error) {
+        fail(new WorkerError(
+          `Could not record Devin process group (${error?.code ?? "I/O error"}).`,
+          EXIT.FAILED,
+        ));
+      }
+    }
     child.stdout?.pipe(stdoutStream);
     child.stderr?.pipe(stderrStream);
     let timedOut = false;
@@ -1196,6 +1318,7 @@ export function defaultSpawn(command, args, options) {
       if (!(await waitForProcessGroup(child?.pid, stop))) {
         fail(new WorkerError("Devin process group did not stop after termination.", EXIT.FAILED));
       }
+      await processGroupRegistration;
       const logStreams = [
         ["stdout", stdoutStream],
         ["stderr", stderrStream],
@@ -1294,6 +1417,7 @@ async function runDevinSession(ctx, paths, env) {
   assertNoCloudRoute(env);
   let spawned;
   try {
+    await ctx.markProcessGroupStarting?.();
     spawned = await ctx.spawnCommand(ctx.devinBin, argv, {
       cwd: paths.worktreePath,
       timeoutMs: ctx.timeoutMs,
@@ -1301,6 +1425,7 @@ async function runDevinSession(ctx, paths, env) {
       stderrPath: paths.stderrPath,
       env,
       shell: false,
+      onProcessGroup: (processGroupId) => ctx.setProcessGroupId?.(processGroupId),
     });
   } catch (error) {
     if (error instanceof WorkerError) throw error;
@@ -1526,6 +1651,14 @@ async function executeTask(task, ctx) {
     isPidAlive: ctx.isPidAlive,
     sleep: ctx.sleep,
   });
+  const markProcessGroupStarting = async () => {
+    await releaseTask.markProcessGroupStarting();
+    await ctx.markLaneProcessGroupStarting?.();
+  };
+  const setProcessGroupId = async (processGroupId) => {
+    await releaseTask.setProcessGroupId(processGroupId);
+    await ctx.setLaneProcessGroupId?.(processGroupId);
+  };
   try {
     // Resolve and fetch the base before any work starts: the worktree must branch
     // off origin/<base>, and the pull request needs the same base later.
@@ -1536,7 +1669,13 @@ async function executeTask(task, ctx) {
       env,
     });
     await ensureWorktree({ repo, repoRoot, paths, base, execFile: ctx.execFile, env });
-    await runDevinSession({ ...ctx, model: task.model, taskText: task.task }, paths, env);
+    await runDevinSession({
+      ...ctx,
+      model: task.model,
+      taskText: task.task,
+      markProcessGroupStarting,
+      setProcessGroupId,
+    }, paths, env);
     await refuseSensitiveCommits({ ctx, paths, task, base, env });
     const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall", "-z"], {
       cwd: paths.worktreePath,
@@ -1606,7 +1745,12 @@ async function runOne(task, ctx) {
       shutdownSignal: ctx.shutdownSignal,
     });
     release = lane.release;
-    result = await executeTask({ ...task, model }, ctx);
+    result = await executeTask({
+      ...task,
+      model,
+      markLaneProcessGroupStarting: lane.markProcessGroupStarting,
+      setLaneProcessGroupId: lane.setProcessGroupId,
+    }, ctx);
   } catch (error) {
     result = failureResult(error);
   }
