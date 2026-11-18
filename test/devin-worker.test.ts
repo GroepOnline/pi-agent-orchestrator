@@ -5,7 +5,7 @@
 import { execFileSync, spawn as spawnChild } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { link, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
@@ -385,6 +385,75 @@ describe("task identity locks", () => {
     await expect(release()).rejects.toThrow(/temporary read failure/);
     await release();
     await expect(readFile(taskLock, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("releases the mutation lock atomically while another task claims it", async () => {
+    const { work } = await tempDirs();
+    const lockDir = join(work, "locks", "mutation");
+    let releaseWindow = false;
+    let notifyReleaseStarted = () => {};
+    const releaseStarted = new Promise<void>((resolve) => {
+      notifyReleaseStarted = resolve;
+    });
+    let notifyContenderClaimed = () => {};
+    const contenderClaimed = new Promise<void>((resolve) => {
+      notifyContenderClaimed = resolve;
+    });
+    const rmImpl = async (
+      path: string,
+      options?: { force?: boolean; recursive?: boolean },
+    ) => {
+      if (path === lockDir) {
+        await rm(join(lockDir, "owner.json"), { force: true });
+        releaseWindow = true;
+        notifyReleaseStarted();
+        await contenderClaimed;
+        throw Object.assign(new Error("mutation directory was replaced"), { code: "ENOTEMPTY" });
+      }
+      if (path.startsWith(join(work, "locks", ".mutation-release-"))) {
+        releaseWindow = true;
+        notifyReleaseStarted();
+        await contenderClaimed;
+      }
+      return rm(path, options);
+    };
+    const renameImpl = async (source: string, destination: string) => {
+      try {
+        await rename(source, destination);
+      } catch (error) {
+        if (
+          releaseWindow
+          && destination === lockDir
+          && error instanceof Error
+          && "code" in error
+          && error.code === "ENOTEMPTY"
+        ) {
+          await rm(destination, { recursive: true, force: true });
+          await rename(source, destination);
+        } else {
+          throw error;
+        }
+      }
+      if (releaseWindow && destination === lockDir) notifyContenderClaimed();
+    };
+    const commonOptions = { rename: renameImpl, rm: rmImpl };
+
+    const first = acquireTaskLock(work, "/repos/one", "task-one", {
+      ...commonOptions,
+      pid: 111,
+      isPidAlive: () => false,
+    });
+    await releaseStarted;
+    const second = acquireTaskLock(work, "/repos/one", "task-two", {
+      ...commonOptions,
+      pid: 222,
+      isPidAlive: () => false,
+    });
+    const results = await Promise.allSettled([first, second]);
+
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
+    const releases = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    await Promise.all(releases.map((release) => release()));
   });
 
   it("namespaces worktree and artifact paths by repository", async () => {

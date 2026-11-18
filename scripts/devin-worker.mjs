@@ -618,7 +618,11 @@ async function acquireMutationLock({ lockDir, ownerPath, token, deadline, option
 async function releaseMutationLock(lockDir, ownerPath, token, options) {
   const raw = await options.readFileImpl(ownerPath, "utf8").catch(() => null);
   const owner = parseLockOwner(raw);
-  if (owner?.token === token) await options.rmImpl(lockDir, { recursive: true, force: true });
+  if (owner?.token === token) {
+    const releasedDir = join(parse(lockDir).dir, `.mutation-release-${token}`);
+    await options.renameImpl(lockDir, releasedDir);
+    await options.rmImpl(releasedDir, { recursive: true, force: true });
+  }
 }
 
 async function withMutationLock(workDir, operation, options = {}) {
