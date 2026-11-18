@@ -1030,7 +1030,7 @@ describe("devin command construction", () => {
         if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "push") {
-          return new Promise((resolve, reject) => {
+          return new Promise((_resolve, reject) => {
             const abort = () => {
               const error = new Error("push aborted");
               error.name = "AbortError";
