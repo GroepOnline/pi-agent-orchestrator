@@ -21,6 +21,7 @@
  */
 
 import { execFile as execFileCb, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { link, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, parse, relative, resolve, sep } from "node:path";
@@ -553,6 +554,68 @@ function isPidAlive(pid) {
   }
 }
 
+async function withMutationLock(workDir, operation, options = {}) {
+  const mkdirImpl = options.mkdir ?? mkdir;
+  const rmImpl = options.rm ?? rm;
+  const readFileImpl = options.readFile ?? readFile;
+  const writeFileImpl = options.writeFile ?? writeFile;
+  const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
+  const now = options.now ?? Date.now;
+  const pid = options.pid ?? process.pid;
+  const alive = options.isPidAlive ?? isPidAlive;
+  const waitMs = options.mutationWaitMs ?? 15_000;
+  const lockDir = join(workDir, "locks", "mutation");
+  const ownerPath = join(lockDir, "owner.json");
+  const token = `${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
+  const deadline = now() + waitMs;
+  await mkdirImpl(join(workDir, "locks"), { recursive: true, mode: 0o700 });
+
+  for (;;) {
+    let acquired = false;
+    try {
+      await mkdirImpl(lockDir, { mode: 0o700 });
+      acquired = true;
+      await writeFileImpl(ownerPath, JSON.stringify({ pid, token }), { mode: 0o600 });
+      break;
+    } catch (error) {
+      if (acquired) await rmImpl(lockDir, { recursive: true, force: true });
+      if (error?.code !== "EEXIST") throw error;
+
+      const raw = await readFileImpl(ownerPath, "utf8").catch(() => null);
+      if (raw) {
+        try {
+          const owner = JSON.parse(raw);
+          if (Number.isInteger(owner.pid) && owner.pid > 0 && !alive(owner.pid)) {
+            throw new WorkerError(
+              `Found an abandoned worker mutation lock at ${lockDir}; verify no worker is active before removing it.`,
+              EXIT.FAILED,
+            );
+          }
+        } catch (ownerError) {
+          if (ownerError instanceof WorkerError) throw ownerError;
+        }
+      }
+      if (now() >= deadline) {
+        throw new WorkerError(`Timed out waiting for worker mutation lock at ${lockDir}.`, EXIT.FAILED);
+      }
+      await sleep(10);
+    }
+  }
+
+  try {
+    return await operation();
+  } finally {
+    const raw = await readFileImpl(ownerPath, "utf8").catch(() => null);
+    let owner;
+    try {
+      owner = raw ? JSON.parse(raw) : null;
+    } catch {
+      owner = null;
+    }
+    if (owner?.token === token) await rmImpl(lockDir, { recursive: true, force: true });
+  }
+}
+
 export async function acquireLane(workDir, maxLanes, options = {}) {
   const mkdirImpl = options.mkdir ?? mkdir;
   const rmImpl = options.rm ?? rm;
@@ -576,21 +639,21 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
    * claim in progress for pid 0 and steal a live lane.
    */
   async function claim(file) {
+    const token = `${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
     const temp = `${file}.claim-${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
-    await writeFileImpl(temp, `${pid}\n`, { mode: 0o600 });
+    await writeFileImpl(temp, `${pid}\n${token}\n`, { mode: 0o600 });
     try {
       await linkImpl(temp, file);
     } finally {
       await rmImpl(temp, { force: true });
     }
     return {
-      release: async () => {
+      release: () => withMutationLock(workDir, async () => {
         const current = await readFileImpl(file, "utf8").catch(() => null);
-        // Only the recorded owner may release. Another process may have
-        // reclaimed the lane after this pid died and restarted.
-        if (current === null || current.trim() !== String(pid)) return;
+        const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
+        if (owner !== String(pid) || ownerToken !== token) return;
         await rmImpl(file, { force: true });
-      },
+      }, options),
     };
   }
 
@@ -600,9 +663,21 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
       return await claim(file);
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
-      const owner = Number(String(await readFileImpl(file, "utf8").catch(() => "")).trim());
+      const owner = Number(String(await readFileImpl(file, "utf8").catch(() => "")).trim().split(/\s+/)[0]);
+      if (!Number.isInteger(owner) || owner <= 0) {
+        throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
+      }
       if (owner === pid || alive(owner)) return null;
-      await rmImpl(file, { force: true });
+      await withMutationLock(workDir, async () => {
+        const current = await readFileImpl(file, "utf8").catch(() => null);
+        const currentOwner = Number(String(current ?? "").trim().split(/\s+/)[0]);
+        if (current === null) return;
+        if (!Number.isInteger(currentOwner) || currentOwner <= 0) {
+          throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
+        }
+        if (currentOwner === pid || alive(currentOwner)) return;
+        await rmImpl(file, { force: true });
+      }, options);
       try {
         return await claim(file);
       } catch (retryError) {
@@ -622,6 +697,67 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
     }
     await sleep(50);
   }
+}
+
+function taskLockPath(workDir, repoRoot, branch) {
+  const identity = createHash("sha256").update(`${repoRoot}\0${branch}`).digest("hex");
+  return join(workDir, "task-locks", `${identity}.json`);
+}
+
+export async function acquireTaskLock(workDir, repoRoot, branch, options = {}) {
+  const mkdirImpl = options.mkdir ?? mkdir;
+  const rmImpl = options.rm ?? rm;
+  const readFileImpl = options.readFile ?? readFile;
+  const writeFileImpl = options.writeFile ?? writeFile;
+  const linkImpl = options.link ?? link;
+  const pid = options.pid ?? process.pid;
+  const alive = options.isPidAlive ?? isPidAlive;
+  const file = taskLockPath(workDir, repoRoot, branch);
+  const token = `${pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  await withMutationLock(workDir, async () => {
+    await mkdirImpl(join(workDir, "task-locks"), { recursive: true, mode: 0o700 });
+    const current = await readFileImpl(file, "utf8").catch(() => null);
+    if (current !== null) {
+      let owner;
+      try {
+        owner = JSON.parse(current);
+      } catch {
+        throw new WorkerError(`Task lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
+      }
+      if (!Number.isInteger(owner.pid) || owner.pid <= 0 || typeof owner.token !== "string") {
+        throw new WorkerError(`Task lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
+      }
+      if (owner.pid === pid || alive(owner.pid)) {
+        throw new WorkerError(`A worker already owns this task in ${repoRoot}.`, EXIT.FAILED);
+      }
+      await rmImpl(file, { force: true });
+    }
+
+    const temp = `${file}.claim-${token}`;
+    await writeFileImpl(temp, JSON.stringify({ pid, token }), { mode: 0o600 });
+    try {
+      await linkImpl(temp, file);
+    } finally {
+      await rmImpl(temp, { force: true });
+    }
+  }, options);
+
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    await withMutationLock(workDir, async () => {
+      const current = await readFileImpl(file, "utf8").catch(() => null);
+      let owner;
+      try {
+        owner = current ? JSON.parse(current) : null;
+      } catch {
+        owner = null;
+      }
+      if (owner?.token === token) await rmImpl(file, { force: true });
+    }, options);
+  };
 }
 
 const TASK_FLAGS = new Set(["tasks", "issue", "repo", "task", "model"]);
@@ -797,6 +933,29 @@ function signalTree(child, signal) {
   }
 }
 
+const activeChildren = new Map();
+
+export function installSignalForwarding(signalTarget = process, children = activeChildren) {
+  let signal = null;
+  const forward = (received) => {
+    signal ??= received;
+    for (const stop of children.values()) stop(received);
+  };
+  const onInterrupt = () => forward("SIGINT");
+  const onTerminate = () => forward("SIGTERM");
+  signalTarget.on("SIGINT", onInterrupt);
+  signalTarget.on("SIGTERM", onTerminate);
+  return {
+    get signal() {
+      return signal;
+    },
+    dispose() {
+      signalTarget.removeListener("SIGINT", onInterrupt);
+      signalTarget.removeListener("SIGTERM", onTerminate);
+    },
+  };
+}
+
 async function closeStream(stream) {
   if (!stream.closed) stream.end();
   try {
@@ -815,7 +974,32 @@ export function defaultSpawn(command, args, options) {
     const stdoutStream = createWriteStream(options.stdoutPath, { flags: "w", mode: 0o600 });
     const stderrStream = createWriteStream(options.stderrPath, { flags: "w", mode: 0o600 });
     let settled = false;
-    const child = spawn(command, args, {
+    let failure = null;
+    let timer;
+    let killTimer;
+    let child;
+    const stop = (signal) => {
+      if (!child?.pid || settled) return;
+      signalTree(child, signal);
+      if (!killTimer) {
+        killTimer = setTimeout(() => signalTree(child, "SIGKILL"), 5000);
+        killTimer.unref?.();
+      }
+    };
+    const fail = (error) => {
+      if (settled || failure) return;
+      failure = error;
+      child?.stdout?.unpipe(stdoutStream);
+      child?.stderr?.unpipe(stderrStream);
+      stop("SIGTERM");
+    };
+    stdoutStream.on("error", (error) => {
+      fail(new WorkerError(`Could not write Devin stdout log (${error?.code ?? "I/O error"}).`, EXIT.FAILED));
+    });
+    stderrStream.on("error", (error) => {
+      fail(new WorkerError(`Could not write Devin stderr log (${error?.code ?? "I/O error"}).`, EXIT.FAILED));
+    });
+    child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       detached: process.platform !== "win32",
@@ -823,38 +1007,33 @@ export function defaultSpawn(command, args, options) {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
+    activeChildren.set(child, stop);
     child.stdout?.pipe(stdoutStream);
     child.stderr?.pipe(stderrStream);
     let timedOut = false;
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       timedOut = true;
-      signalTree(child, "SIGTERM");
-      const killer = setTimeout(() => signalTree(child, "SIGKILL"), 5000);
-      killer.unref?.();
+      stop("SIGTERM");
     }, options.timeoutMs);
-    const rejectOnce = (error) => {
+    const finish = async (code, signal) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      Promise.all([closeStream(stdoutStream), closeStream(stderrStream)]).finally(() => {
-        rejectPromise(error);
-      });
+      clearTimeout(killTimer);
+      activeChildren.delete(child);
+      await Promise.all([closeStream(stdoutStream), closeStream(stderrStream)]);
+      if (failure) rejectPromise(failure);
+      else resolvePromise({ code: code ?? 1, signal, timedOut });
     };
     child.once("error", (error) => {
       if (error?.code === "ENOENT") {
-        rejectOnce(new WorkerError(`Devin executable not found: ${command}.`, EXIT.FAILED));
+        fail(new WorkerError(`Devin executable not found: ${command}.`, EXIT.FAILED));
         return;
       }
-      rejectOnce(error instanceof Error ? error : new WorkerError(String(error), EXIT.FAILED));
+      fail(error instanceof Error ? error : new WorkerError(String(error), EXIT.FAILED));
     });
     child.once("close", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      Promise.all([closeStream(stdoutStream), closeStream(stderrStream)]).then(
-        () => resolvePromise({ code: code ?? 1, signal, timedOut }),
-        rejectPromise,
-      );
+      void finish(code, signal).catch(rejectPromise);
     });
   });
 }
@@ -878,20 +1057,22 @@ async function locateCheckout(task, ctx, env) {
   if (isPathInside(repoRoot, workRoot)) {
     throw new WorkerError("DEVIN_WORKER_WORK_DIR must be outside the target repository.", EXIT.USAGE);
   }
-  return { repo, workRoot };
+  return { repo, repoRoot, workRoot };
 }
 
-function taskPaths(workRoot, task) {
+export function taskPaths(workRoot, task, repoRoot) {
   const branch = buildBranchName(task.issue, task.task);
   const dirName = branch.slice("devin/".length);
+  const repoIdentity = createHash("sha256").update(repoRoot).digest("hex");
+  const artifactName = `${repoIdentity}-${dirName}`;
   const paths = {
     branch,
-    worktreePath: join(workRoot, "worktrees", dirName),
-    exportPath: join(workRoot, "exports", `${dirName}.json`),
-    stdoutPath: join(workRoot, "logs", `${dirName}.stdout`),
-    stderrPath: join(workRoot, "logs", `${dirName}.stderr`),
-    messagePath: join(workRoot, "messages", `${dirName}.txt`),
-    bodyPath: join(workRoot, "pr-bodies", `${dirName}.md`),
+    worktreePath: join(workRoot, "worktrees", artifactName),
+    exportPath: join(workRoot, "exports", `${artifactName}.json`),
+    stdoutPath: join(workRoot, "logs", `${artifactName}.stdout`),
+    stderrPath: join(workRoot, "logs", `${artifactName}.stderr`),
+    messagePath: join(workRoot, "messages", `${artifactName}.txt`),
+    bodyPath: join(workRoot, "pr-bodies", `${artifactName}.md`),
   };
   if (!isPathInside(workRoot, paths.worktreePath) || !isPathInside(workRoot, paths.exportPath)) {
     throw new WorkerError("Refusing to create a worktree outside the work directory.", EXIT.FAILED);
@@ -900,12 +1081,21 @@ function taskPaths(workRoot, task) {
 }
 
 async function ensureLayout(workRoot) {
-  for (const name of ["worktrees", "exports", "logs", "messages", "pr-bodies"]) {
+  for (const name of ["worktrees", "exports", "logs", "messages", "pr-bodies", "task-locks", "locks"]) {
     await mkdir(join(workRoot, name), { recursive: true, mode: 0o700 });
   }
 }
 
 async function runDevinSession(ctx, paths, env) {
+  if (ctx.shutdownSignal?.()) {
+    throw new WorkerError(`Worker stopping after ${ctx.shutdownSignal()}.`, EXIT.FAILED);
+  }
+  assertPilotOpen({
+    modelId: ctx.model,
+    now: typeof ctx.now === "function" ? ctx.now() : ctx.now,
+    swe2Until: ctx.swe2Until,
+    flashUntil: ctx.flashUntil,
+  });
   const argv = assertLocalCliArgv(buildDevinArgv({ model: ctx.model, task: ctx.taskText, exportPath: paths.exportPath }));
   assertNoCloudRoute(env);
   let spawned;
@@ -1056,7 +1246,7 @@ async function refExists(execFile, repo, ref, env) {
  * Unique branch names per attempt would open a second pull request and orphan
  * the first.
  */
-async function ensureWorktree(repo, paths, base, execFile, env) {
+async function ensureWorktree(repo, repoRoot, paths, base, execFile, env) {
   const existing = await stat(paths.worktreePath).then((info) => info.isDirectory(), () => false);
   if (existing) {
     const current = await run(execFile, "git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -1067,6 +1257,18 @@ async function ensureWorktree(repo, paths, base, execFile, env) {
     if (current.stdout.trim() !== paths.branch) {
       throw new WorkerError(
         `Refusing to reuse ${paths.worktreePath}: it is not checked out on ${paths.branch}. Remove it and retry.`,
+        EXIT.FAILED,
+      );
+    }
+    const currentRoot = await run(execFile, "git", ["rev-parse", "--show-toplevel"], {
+      cwd: paths.worktreePath,
+      timeoutMs: 15_000,
+      env,
+    });
+    const existingRoot = await realpath(currentRoot.stdout.trim());
+    if (existingRoot !== repoRoot) {
+      throw new WorkerError(
+        `Refusing to reuse ${paths.worktreePath}: it belongs to a different repository.`,
         EXIT.FAILED,
       );
     }
@@ -1090,33 +1292,45 @@ async function ensureWorktree(repo, paths, base, execFile, env) {
 
 async function executeTask(task, ctx) {
   const env = ctx.childEnv ?? commandEnv(process.env);
-  const { repo, workRoot } = await locateCheckout(task, ctx, env);
-  const paths = taskPaths(workRoot, task);
+  const { repo, repoRoot, workRoot } = await locateCheckout(task, ctx, env);
+  const paths = taskPaths(workRoot, task, repoRoot);
   await ensureLayout(workRoot);
   await run(ctx.execFile, "git", ["check-ref-format", "--branch", paths.branch], { cwd: repo, timeoutMs: 15_000, env });
-  // Resolve and fetch the base before any work starts: the worktree must branch
-  // off origin/<base>, and the pull request needs the same base later.
-  const base = await resolveBaseBranch(repo, ctx.execFile, env);
-  await run(ctx.execFile, "git", ["fetch", "--no-tags", "origin", base], {
-    cwd: repo,
-    timeoutMs: 120_000,
-    env,
+  const releaseTask = await acquireTaskLock(workRoot, repoRoot, paths.branch, {
+    pid: ctx.pid,
+    isPidAlive: ctx.isPidAlive,
+    sleep: ctx.sleep,
   });
-  await ensureWorktree(repo, paths, base, ctx.execFile, env);
-  await runDevinSession({ ...ctx, model: task.model, taskText: task.task }, paths, env);
-  await refuseSensitiveCommits(ctx, paths, task, base, env);
-  const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall"], {
-    cwd: paths.worktreePath,
-    timeoutMs: 30_000,
-    env,
-  });
-  const ahead = await run(ctx.execFile, "git", ["rev-list", "--count", `origin/${base}..HEAD`], {
-    cwd: paths.worktreePath,
-    timeoutMs: 30_000,
-    env,
-  });
-  assertCommittable(status.stdout, task.issue, paths, Number(ahead.stdout.trim()) > 0);
-  return publishPullRequest(task, { ...ctx, repo, base }, paths, env);
+  try {
+    // Resolve and fetch the base before any work starts: the worktree must branch
+    // off origin/<base>, and the pull request needs the same base later.
+    const base = await resolveBaseBranch(repo, ctx.execFile, env);
+    await run(ctx.execFile, "git", ["fetch", "--no-tags", "origin", base], {
+      cwd: repo,
+      timeoutMs: 120_000,
+      env,
+    });
+    await ensureWorktree(repo, repoRoot, paths, base, ctx.execFile, env);
+    await runDevinSession({ ...ctx, model: task.model, taskText: task.task }, paths, env);
+    await refuseSensitiveCommits(ctx, paths, task, base, env);
+    const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall"], {
+      cwd: paths.worktreePath,
+      timeoutMs: 30_000,
+      env,
+    });
+    const ahead = await run(ctx.execFile, "git", ["rev-list", "--count", `origin/${base}..HEAD`], {
+      cwd: paths.worktreePath,
+      timeoutMs: 30_000,
+      env,
+    });
+    assertCommittable(status.stdout, task.issue, paths, Number(ahead.stdout.trim()) > 0);
+    if (ctx.shutdownSignal?.()) {
+      throw new WorkerError(`Worker stopping after ${ctx.shutdownSignal()}.`, EXIT.FAILED);
+    }
+    return await publishPullRequest(task, { ...ctx, repo, base }, paths, env);
+  } finally {
+    await releaseTask();
+  }
 }
 
 async function resolveBaseBranch(repo, execFile, env) {
@@ -1150,7 +1364,7 @@ async function runOne(task, ctx) {
     const model = resolveListedModel(task.model, ctx.catalog);
     assertPilotOpen({
       modelId: model,
-      now: ctx.now,
+      now: typeof ctx.now === "function" ? ctx.now() : ctx.now,
       swe2Until: ctx.swe2Until,
       flashUntil: ctx.flashUntil,
     });
@@ -1171,7 +1385,8 @@ async function runOne(task, ctx) {
 export async function runWorker(argv, deps = {}) {
   const env = deps.env ?? process.env;
   if (!isWorkerEnabled(env)) return { exitCode: EXIT.OK, results: [], disabled: true };
-  const now = deps.now ? deps.now() : new Date();
+  const clock = deps.now ?? (() => new Date());
+  const now = clock();
   const parsed = parseArgs(argv);
   const tasks = await loadTasks(parsed, deps.readFile ?? readFile);
   for (const task of tasks) {
@@ -1198,15 +1413,28 @@ export async function runWorker(argv, deps = {}) {
     { cwd: process.cwd(), timeoutMs: 30_000, env: childEnv },
   );
   const catalog = parseModelCatalog(listed.stdout);
-  const results = await runWithLanes(tasks, config.lanes, (task) => runOne(task, {
-    ...config,
-    catalog,
-    childEnv,
-    execFile,
-    spawnCommand: deps.spawnCommand ?? defaultSpawn,
-    sleep: deps.sleep,
-    isPidAlive: deps.isPidAlive,
-  }));
+  const signalForwarder = installSignalForwarding();
+  let results;
+  try {
+    results = await runWithLanes(tasks, config.lanes, (task) => {
+      if (signalForwarder.signal) {
+        return Promise.resolve(failureResult(new WorkerError(`Worker stopping after ${signalForwarder.signal}.`, EXIT.FAILED)));
+      }
+      return runOne(task, {
+        ...config,
+        now: clock,
+        catalog,
+        childEnv,
+        execFile,
+        spawnCommand: deps.spawnCommand ?? defaultSpawn,
+        sleep: deps.sleep,
+        isPidAlive: deps.isPidAlive,
+        shutdownSignal: () => signalForwarder.signal,
+      });
+    });
+  } finally {
+    signalForwarder.dispose();
+  }
   return {
     exitCode: combineExitCodes(results.map((result) => result.exitCode)),
     results,
