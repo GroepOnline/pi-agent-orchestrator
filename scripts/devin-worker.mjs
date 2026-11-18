@@ -1366,12 +1366,17 @@ async function executeTask(task, ctx) {
       timeoutMs: 30_000,
       env,
     });
-    const ahead = await run(ctx.execFile, "git", ["rev-list", "--count", `origin/${base}..HEAD`], {
+    const committedChanges = await run(ctx.execFile, "git", [
+      "diff",
+      "--name-only",
+      "--no-renames",
+      `origin/${base}...HEAD`,
+    ], {
       cwd: paths.worktreePath,
       timeoutMs: 30_000,
       env,
     });
-    assertCommittable(status.stdout, task.issue, paths, Number(ahead.stdout.trim()) > 0);
+    assertCommittable(status.stdout, task.issue, paths, committedChanges.stdout.trim() !== "");
     if (ctx.shutdownSignal?.()) {
       throw new WorkerError(`Worker stopping after ${ctx.shutdownSignal()}.`, EXIT.FAILED);
     }
