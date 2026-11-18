@@ -2,7 +2,7 @@
  * devin-worker policy and command construction. The devin binary is mocked.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn as spawnChild } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { link, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -484,6 +484,34 @@ describe("child output", () => {
           : new Writable({ write(_chunk, _encoding, callback) { callback(); } }),
       },
     )).rejects.toThrow(/Could not write Devin stdout log/);
+  });
+
+  it("stops detached grandchildren before releasing Devin's process group", async () => {
+    if (process.platform === "win32") return;
+    const { root } = await tempDirs();
+    let processGroupId: number | undefined;
+    await expect(defaultSpawn(
+      process.execPath,
+      [
+        "-e",
+        "const { spawn } = require('node:child_process'); spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); process.exit(0);",
+      ],
+      {
+        cwd: root,
+        env: process.env,
+        stdoutPath: join(root, "stdout.log"),
+        stderrPath: join(root, "stderr.log"),
+        timeoutMs: 10_000,
+        spawnImpl: (command: string, args: string[], options: Parameters<typeof spawnChild>[2]) => {
+          const child = spawnChild(command, args, options);
+          processGroupId = child.pid;
+          return child;
+        },
+      },
+    )).resolves.toMatchObject({ code: 0 });
+
+    if (!processGroupId) throw new Error("Expected Devin process group id.");
+    expect(() => process.kill(-processGroupId, 0)).toThrow();
   });
 });
 

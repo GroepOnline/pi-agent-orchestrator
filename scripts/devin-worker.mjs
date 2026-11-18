@@ -1006,6 +1006,27 @@ function signalTree(child, signal) {
   }
 }
 
+function isProcessGroupAlive(pid) {
+  if (process.platform === "win32" || !pid) return false;
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+async function waitForProcessGroup(pid, stop) {
+  if (!isProcessGroupAlive(pid)) return true;
+  stop("SIGTERM");
+  const deadline = Date.now() + 6000;
+  while (Date.now() < deadline) {
+    if (!isProcessGroupAlive(pid)) return true;
+    await new Promise((done) => setTimeout(done, 25));
+  }
+  return !isProcessGroupAlive(pid);
+}
+
 function attachChildStreamErrorHandlers(child, fail) {
   child.stdout?.on("error", (error) => {
     fail(new WorkerError(`Could not read Devin stdout stream (${error?.code ?? "I/O error"}).`, EXIT.FAILED));
@@ -1131,6 +1152,9 @@ export function defaultSpawn(command, args, options) {
       if (settled || finishing) return;
       finishing = true;
       clearTimeout(timer);
+      if (!(await waitForProcessGroup(child?.pid, stop))) {
+        fail(new WorkerError("Devin process group did not stop after termination.", EXIT.FAILED));
+      }
       const logStreams = [
         ["stdout", stdoutStream],
         ["stderr", stderrStream],
