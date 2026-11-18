@@ -935,6 +935,7 @@ async function run(execFile, command, args, options) {
       maxBuffer: 4 * 1024 * 1024,
       encoding: "utf8",
       env: options.env,
+      signal: options.signal,
       windowsHide: true,
       killSignal: "SIGKILL",
     });
@@ -944,6 +945,12 @@ async function run(execFile, command, args, options) {
     };
   } catch (error) {
     if (error instanceof WorkerError) throw error;
+    if (options.signal?.aborted) {
+      throw new WorkerError(
+        `Worker stopping after ${String(options.signal.reason ?? "termination signal")}.`,
+        EXIT.FAILED,
+      );
+    }
     if (error?.killed === true || error?.code === "ETIMEDOUT") {
       throw new WorkerError(`${command} timed out.`, EXIT.FAILED);
     }
@@ -984,9 +991,11 @@ const activeChildren = new Map();
 
 export function installSignalForwarding(signalTarget = process, children = activeChildren) {
   let signal = null;
+  const listeners = new Set();
   const forward = (received) => {
     signal ??= received;
     for (const stop of children.values()) stop(received);
+    for (const listener of listeners) listener(signal);
   };
   const onInterrupt = () => forward("SIGINT");
   const onTerminate = () => forward("SIGTERM");
@@ -996,9 +1005,18 @@ export function installSignalForwarding(signalTarget = process, children = activ
     get signal() {
       return signal;
     },
+    onSignal(listener) {
+      if (signal) {
+        listener(signal);
+        return () => {};
+      }
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     dispose() {
       signalTarget.removeListener("SIGINT", onInterrupt);
       signalTarget.removeListener("SIGTERM", onTerminate);
+      listeners.clear();
     },
   };
 }
@@ -1014,6 +1032,26 @@ async function closeStream(stream) {
 
 export function defaultExecFile(command, args, options = {}) {
   return execFileAsync(command, args, options);
+}
+
+async function runCancelable(ctx, command, args, options) {
+  const alreadyStopping = ctx.shutdownSignal?.();
+  if (alreadyStopping) {
+    throw new WorkerError(`Worker stopping after ${alreadyStopping}.`, EXIT.FAILED);
+  }
+  const controller = new AbortController();
+  const unsubscribe = ctx.onShutdownSignal?.((signal) => controller.abort(signal));
+  const signal = ctx.shutdownSignal?.();
+  if (signal) {
+    controller.abort(signal);
+    unsubscribe?.();
+    throw new WorkerError(`Worker stopping after ${signal}.`, EXIT.FAILED);
+  }
+  try {
+    return await run(ctx.execFile, command, args, { ...options, signal: controller.signal });
+  } finally {
+    unsubscribe?.();
+  }
 }
 
 export function defaultSpawn(command, args, options) {
@@ -1233,21 +1271,30 @@ async function refuseSensitiveCommits({ ctx, paths, task, base, env }) {
 async function publishPullRequest(task, ctx, paths, env) {
   const slug = slugFromTask(task.task);
   const base = ctx.base;
+  const assertRunning = () => {
+    const signal = ctx.shutdownSignal?.();
+    if (signal) throw new WorkerError(`Worker stopping after ${signal}.`, EXIT.FAILED);
+  };
+  assertRunning();
   await writeFile(paths.messagePath, `devin(${task.issue}): ${slug}\n\nModel: ${task.model}\n`, { mode: 0o600 });
   await run(ctx.execFile, "git", ["add", "-A"], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
-  const staged = await run(ctx.execFile, "git", ["status", "--porcelain=v1"], {
+  const staged = await run(ctx.execFile, "git", ["diff", "--cached", "--name-only", "--no-renames"], {
     cwd: paths.worktreePath,
     timeoutMs: 30_000,
     env,
   });
+  assertNoSensitiveCommits(staged.stdout, task.issue, paths);
   if (staged.stdout.trim() !== "") {
+    assertRunning();
     await run(ctx.execFile, "git", ["commit", "-F", paths.messagePath], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
   }
-  await run(ctx.execFile, "git", ["push", "--set-upstream", "origin", paths.branch], {
+  assertRunning();
+  await runCancelable(ctx, "git", ["push", "--set-upstream", "origin", paths.branch], {
     cwd: paths.worktreePath,
     timeoutMs: 60_000,
     env,
   });
+  assertRunning();
   const body = buildPrBody({
     issue: task.issue,
     task: task.task,
@@ -1255,8 +1302,9 @@ async function publishPullRequest(task, ctx, paths, env) {
     transcriptPath: paths.exportPath,
   });
   await writeFile(paths.bodyPath, body, { mode: 0o600 });
-  const created = await run(
-    ctx.execFile,
+  assertRunning();
+  const created = await runCancelable(
+    ctx,
     "gh",
     ["pr", "create", "--base", base, "--head", paths.branch, "--title", buildPrTitle(task.issue, slug), "--body-file", paths.bodyPath],
     { cwd: paths.worktreePath, timeoutMs: 60_000, env },
@@ -1474,7 +1522,7 @@ export async function runWorker(argv, deps = {}) {
     { cwd: process.cwd(), timeoutMs: 30_000, env: childEnv },
   );
   const catalog = parseModelCatalog(listed.stdout);
-  const signalForwarder = installSignalForwarding();
+  const signalForwarder = installSignalForwarding(deps.signalTarget ?? process);
   let results;
   try {
     results = await runWithLanes(tasks, config.lanes, (task) => {
@@ -1491,6 +1539,7 @@ export async function runWorker(argv, deps = {}) {
         sleep: deps.sleep,
         isPidAlive: deps.isPidAlive,
         shutdownSignal: () => signalForwarder.signal,
+        onShutdownSignal: signalForwarder.onSignal,
       });
     });
   } finally {
