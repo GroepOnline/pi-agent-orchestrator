@@ -870,6 +870,7 @@ describe("devin command construction", () => {
     const repoIdentity = createHash("sha256").update(repo).digest("hex");
     const worktreePath = join(work, "worktrees", `${repoIdentity}-CHEF-123-fix-the-race`);
     const otherRepo = await realpath(await mkdir(join(root, "other-repo")).then(() => join(root, "other-repo")));
+    await Promise.all([mkdir(join(repo, ".git")), mkdir(join(otherRepo, ".git"))]);
     await mkdir(worktreePath, { recursive: true });
 
     async function attempt(headBranch: string, worktreeRepo = repo) {
@@ -882,6 +883,10 @@ describe("devin command construction", () => {
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (args.includes("--show-toplevel")) {
             return { stdout: `${options.cwd === worktreePath ? worktreeRepo : repo}\n`, stderr: "" };
+          }
+          if (args[0] === "rev-parse" && args[1] === "--git-common-dir") {
+            const gitRoot = options.cwd === worktreePath ? worktreeRepo : repo;
+            return { stdout: `${gitRoot}/.git\n`, stderr: "" };
           }
           if (args.includes("--abbrev-ref") && args.includes("origin/HEAD")) return { stdout: "origin/main\n", stderr: "" };
           if (args[0] === "rev-parse" && args.includes("HEAD")) return { stdout: `${headBranch}\n`, stderr: "" };

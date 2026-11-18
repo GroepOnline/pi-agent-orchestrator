@@ -1308,13 +1308,21 @@ async function ensureWorktree({ repo, repoRoot, paths, base, execFile, env }) {
         EXIT.FAILED,
       );
     }
-    const currentRoot = await run(execFile, "git", ["rev-parse", "--show-toplevel"], {
+    const existingCommonDir = await run(execFile, "git", ["rev-parse", "--git-common-dir"], {
       cwd: paths.worktreePath,
       timeoutMs: 15_000,
       env,
     });
-    const existingRoot = await realpath(currentRoot.stdout.trim());
-    if (existingRoot !== repoRoot) {
+    const repoCommonDir = await run(execFile, "git", ["rev-parse", "--git-common-dir"], {
+      cwd: repoRoot,
+      timeoutMs: 15_000,
+      env,
+    });
+    const [existingGitDir, repoGitDir] = await Promise.all([
+      realpath(resolve(paths.worktreePath, existingCommonDir.stdout.trim())),
+      realpath(resolve(repoRoot, repoCommonDir.stdout.trim())),
+    ]);
+    if (existingGitDir !== repoGitDir) {
       throw new WorkerError(
         `Refusing to reuse ${paths.worktreePath}: it belongs to a different repository.`,
         EXIT.FAILED,
