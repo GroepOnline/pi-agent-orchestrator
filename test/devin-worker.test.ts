@@ -1317,6 +1317,38 @@ describe("devin command construction", () => {
     expect(outcome.results[0]?.message).toMatch(/Pull request .* was opened.*Lane release failed/);
   });
 
+  it("preserves the opened PR URL if task-lock cleanup fails", async () => {
+    const { repo, work } = await tempDirs();
+    const branch = "devin/CHEF-123-fix-the-race";
+    const taskLockId = createHash("sha256").update(`${repo}\0${branch}`).digest("hex");
+    const taskLock = join(work, "task-locks", `${taskLockId}.json`);
+    const url = "https://github.com/example/repo/pull/15";
+
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      execFile: async (command: string, args: string[]) => {
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+        if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+        if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
+        if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
+        if (command === "gh") {
+          await writeFile(taskLock, "{invalid-json");
+          return { stdout: `${url}\n`, stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      },
+      spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+    });
+
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    expect(outcome.results[0]?.url).toBe(url);
+    expect(outcome.results[0]?.message).toContain(`Pull request ${url} was opened`);
+    expect(outcome.results[0]?.message).toMatch(/Task lock release failed/);
+  });
+
   it("reuses its own leftover worktree on a retry and refuses a foreign one", async () => {
     const { root, repo, work } = await tempDirs();
     const repoIdentity = createHash("sha256").update(repo).digest("hex");

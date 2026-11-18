@@ -1358,7 +1358,9 @@ export function defaultSpawn(command, args, options) {
 function failureResult(error) {
   const message = redactSecrets(error instanceof Error ? error.message : String(error));
   const exitCode = error instanceof WorkerError ? error.exitCode : EXIT.FAILED;
-  return { exitCode, message };
+  const result = { exitCode, message };
+  if (typeof error?.url === "string") result.url = error.url;
+  return result;
 }
 
 async function locateCheckout(task, ctx, env) {
@@ -1659,6 +1661,8 @@ async function executeTask(task, ctx) {
     await releaseTask.setProcessGroupId(processGroupId);
     await ctx.setLaneProcessGroupId?.(processGroupId);
   };
+  let publishedResult;
+  let operationError;
   try {
     // Resolve and fetch the base before any work starts: the worktree must branch
     // off origin/<base>, and the pull request needs the same base later.
@@ -1696,10 +1700,27 @@ async function executeTask(task, ctx) {
     if (ctx.shutdownSignal?.()) {
       throw new WorkerError(`Worker stopping after ${ctx.shutdownSignal()}.`, EXIT.FAILED);
     }
-    return await publishPullRequest(task, { ...ctx, repo, base }, paths, env);
-  } finally {
-    await releaseTask();
+    publishedResult = await publishPullRequest(task, { ...ctx, repo, base }, paths, env);
+  } catch (error) {
+    operationError = error;
   }
+  try {
+    await releaseTask();
+  } catch (error) {
+    const releaseMessage = redactSecrets(error instanceof Error ? error.message : String(error));
+    const previousMessage = operationError instanceof Error ? operationError.message : String(operationError ?? "");
+    const message = publishedResult?.url
+      ? `${previousMessage ? `${previousMessage} ` : ""}Pull request ${publishedResult.url} was opened. Task lock release failed: ${releaseMessage}.`
+      : previousMessage
+        ? `${previousMessage} Task lock release failed: ${releaseMessage}.`
+        : `Task lock release failed: ${releaseMessage}.`;
+    const exitCode = operationError instanceof WorkerError ? operationError.exitCode : EXIT.FAILED;
+    const combinedError = new WorkerError(message, exitCode);
+    if (publishedResult?.url) combinedError.url = publishedResult.url;
+    operationError = combinedError;
+  }
+  if (operationError) throw operationError;
+  return publishedResult;
 }
 
 async function resolveBaseBranch(repo, execFile, env) {
