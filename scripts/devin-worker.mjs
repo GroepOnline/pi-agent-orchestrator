@@ -696,7 +696,21 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
       return await claim(file);
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
-      const owner = Number(String(await readFileImpl(file, "utf8").catch(() => "")).trim().split(/\s+/)[0]);
+      let current;
+      try {
+        current = await readFileImpl(file, "utf8");
+      } catch (readError) {
+        if (readError?.code !== "ENOENT") {
+          throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
+        }
+        try {
+          return await claim(file);
+        } catch (retryError) {
+          if (retryError?.code === "EEXIST") return null;
+          throw retryError;
+        }
+      }
+      const owner = Number(String(current).trim().split(/\s+/)[0]);
       if (!Number.isInteger(owner) || owner <= 0) {
         throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
       }

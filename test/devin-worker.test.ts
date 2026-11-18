@@ -5,7 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -271,6 +271,38 @@ describe("lanes and timeout", () => {
     expect(await readFile(laneFile, "utf8")).toBe("222\n");
     await expect(acquireLane(work, 1, { waitMs: 0, isPidAlive: () => true })).rejects.toThrow(/busy/);
     expect(await readFile(laneFile, "utf8")).toBe("222\n");
+  });
+
+  it("retries a lane whose previous owner released it before the claim read", async () => {
+    const { work } = await tempDirs();
+    const laneFile = join(work, "lanes", "0");
+    let firstClaim = true;
+    let released = false;
+    const linkImpl = async (source: string, destination: string) => {
+      if (firstClaim) {
+        firstClaim = false;
+        await writeFile(destination, "424242\n");
+        throw Object.assign(new Error("lane was claimed"), { code: "EEXIST" });
+      }
+      return link(source, destination);
+    };
+    const readFileImpl = async (path: string, encoding: BufferEncoding) => {
+      if (path === laneFile && !released) {
+        released = true;
+        await rm(path, { force: true });
+        throw Object.assign(new Error("lane was released"), { code: "ENOENT" });
+      }
+      return readFile(path, encoding);
+    };
+
+    const lane = await acquireLane(work, 1, {
+      waitMs: 0,
+      link: linkImpl,
+      readFile: readFileImpl,
+    });
+    await lane.release();
+    expect(released).toBe(true);
+    expect(await readdir(join(work, "lanes"))).toEqual([]);
   });
 
   it("serializes competing stale-lane reclamation", async () => {
