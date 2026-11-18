@@ -710,6 +710,8 @@ describe("devin command construction", () => {
     expect(humanReadableRename.some(isSensitivePath)).toBe(true);
     expect(nulSeparatedRename.some(isSensitivePath)).toBe(true);
     expect(isSensitivePath("server.key")).toBe(true);
+    expect(isSensitivePath(".envrc")).toBe(true);
+    expect(isSensitivePath(".envrc.local")).toBe(true);
   });
 
   it("refuses a sensitive path added and removed in real Git history", async () => {

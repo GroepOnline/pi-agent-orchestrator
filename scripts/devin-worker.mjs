@@ -534,7 +534,7 @@ export function porcelainPaths(status) {
 
 export function isSensitivePath(filePath) {
   const normalized = String(filePath).replace(/\\/g, "/");
-  return /(^|\/)\.env($|\.)|(^|\/)credentials(\.[^/]+)?$|(^|\/)[^/]+\.(pem|key)$|(^|\/)id_(rsa|ed25519|ecdsa|dsa)($|\.)|(^|\/)\.npmrc$|(^|\/)\.netrc$/i.test(normalized);
+  return /(^|\/)\.env(rc)?($|\.)|(^|\/)credentials(\.[^/]+)?$|(^|\/)[^/]+\.(pem|key)$|(^|\/)id_(rsa|ed25519|ecdsa|dsa)($|\.)|(^|\/)\.npmrc$|(^|\/)\.netrc$/i.test(normalized);
 }
 
 export function isPathInside(parent, child) {
