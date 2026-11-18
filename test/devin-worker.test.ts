@@ -256,6 +256,46 @@ describe("lanes and timeout", () => {
     await stolen.release();
   });
 
+  it("stops waiting for a lane when termination arrives", async () => {
+    const { repo, work } = await tempDirs();
+    const occupied = await acquireLane(work, 1, { waitMs: 0, pid: 111 });
+    const signalTarget = new EventEmitter();
+    const calls: string[][] = [];
+
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work, { DEVIN_WORKER_LANE_WAIT_MS: "1000" }),
+      signalTarget,
+      isPidAlive: () => true,
+      sleep: async () => {
+        signalTarget.emit("SIGTERM");
+      },
+      execFile: async (command: string, args: string[]) => {
+        calls.push([command, ...args]);
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        throw new Error("Repository work must not start after shutdown.");
+      },
+      spawnCommand: async () => {
+        throw new Error("Devin must not start after shutdown.");
+      },
+    });
+
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    expect(outcome.results[0]?.message).toMatch(/stopping after SIGTERM/);
+    expect(calls).toEqual([["devin", "models", "list", "--format", "json"]]);
+    await occupied.release();
+  });
+
+  it("releases a lane if termination arrives while its claim completes", async () => {
+    const { work } = await tempDirs();
+    let checks = 0;
+
+    await expect(acquireLane(work, 1, {
+      waitMs: 0,
+      shutdownSignal: () => (++checks === 1 ? null : "SIGINT"),
+    })).rejects.toThrow(/stopping after SIGINT/);
+    expect(await readdir(join(work, "lanes"))).toEqual([]);
+  });
+
   it("publishes the lane file in one step and leaves another owner's lane alone", async () => {
     const { work } = await tempDirs();
     const laneFile = join(work, "lanes", "0");

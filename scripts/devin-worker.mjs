@@ -662,6 +662,10 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
   const alive = options.isPidAlive ?? isPidAlive;
   const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
   const now = options.now ?? Date.now;
+  const assertRunning = () => {
+    const signal = options.shutdownSignal?.();
+    if (signal) throw new WorkerError(`Worker stopping after ${signal}.`, EXIT.FAILED);
+  };
   const waitMs = options.waitMs ?? 0;
   const pid = options.pid ?? process.pid;
   const lanesDir = join(workDir, "lanes");
@@ -739,9 +743,18 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
   }
 
   for (;;) {
+    assertRunning();
     for (let slot = 0; slot < maxLanes; slot += 1) {
       const acquired = await trySlot(slot);
-      if (acquired) return { slot, release: acquired.release };
+      if (acquired) {
+        try {
+          assertRunning();
+        } catch (error) {
+          await acquired.release();
+          throw error;
+        }
+        return { slot, release: acquired.release };
+      }
     }
     if (now() >= deadline) {
       throw new WorkerError(`All ${maxLanes} devin-worker lanes are busy.`, EXIT.FAILED);
@@ -1590,6 +1603,7 @@ async function runOne(task, ctx) {
       waitMs: ctx.laneWaitMs,
       sleep: ctx.sleep,
       isPidAlive: ctx.isPidAlive,
+      shutdownSignal: ctx.shutdownSignal,
     });
     release = lane.release;
     result = await executeTask({ ...task, model }, ctx);
