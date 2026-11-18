@@ -1050,12 +1050,8 @@ export function installSignalForwarding(signalTarget = process, children = activ
 }
 
 async function closeStream(stream) {
-  if (!stream.closed) stream.end();
-  try {
-    await finished(stream);
-  } catch {
-    // The log file is best-effort once the child has exited.
-  }
+  if (!stream.writableEnded && !stream.destroyed) stream.end();
+  await finished(stream);
 }
 
 export function defaultExecFile(command, args, options = {}) {
@@ -1084,9 +1080,11 @@ async function runCancelable(ctx, command, args, options) {
 
 export function defaultSpawn(command, args, options) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const stdoutStream = createWriteStream(options.stdoutPath, { flags: "w", mode: 0o600 });
-    const stderrStream = createWriteStream(options.stderrPath, { flags: "w", mode: 0o600 });
+    const createStream = options.createWriteStreamImpl ?? createWriteStream;
+    const stdoutStream = createStream(options.stdoutPath, { flags: "w", mode: 0o600 });
+    const stderrStream = createStream(options.stderrPath, { flags: "w", mode: 0o600 });
     let settled = false;
+    let finishing = false;
     let failure = null;
     let timer;
     let killTimer;
@@ -1130,12 +1128,26 @@ export function defaultSpawn(command, args, options) {
       stop("SIGTERM");
     }, options.timeoutMs);
     const finish = async (code, signal) => {
-      if (settled) return;
-      settled = true;
+      if (settled || finishing) return;
+      finishing = true;
       clearTimeout(timer);
+      const logStreams = [
+        ["stdout", stdoutStream],
+        ["stderr", stderrStream],
+      ];
+      await Promise.all(logStreams.map(async ([name, stream]) => {
+        try {
+          await closeStream(stream);
+        } catch (error) {
+          fail(new WorkerError(
+            `Could not write Devin ${name} log (${error?.code ?? "I/O error"}).`,
+            EXIT.FAILED,
+          ));
+        }
+      }));
+      settled = true;
       clearTimeout(killTimer);
       activeChildren.delete(child);
-      await Promise.all([closeStream(stdoutStream), closeStream(stderrStream)]);
       if (failure) rejectPromise(failure);
       else resolvePromise({ code: code ?? 1, signal, timedOut });
     };

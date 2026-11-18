@@ -8,7 +8,7 @@ import { EventEmitter } from "node:events";
 import { link, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   acquireLane,
@@ -459,6 +459,31 @@ describe("child output", () => {
     stdout.emit("error", Object.assign(new Error("source stream failed"), { code: "EIO" }));
     await expect(outcome).rejects.toThrow(/Could not read Devin stdout stream/);
     expect(signals).toEqual(["SIGTERM"]);
+  });
+
+  it("rejects a log write error that arrives after the child closes", async () => {
+    const { root } = await tempDirs();
+    const stdout = new Writable({
+      write(_chunk, _encoding, callback) {
+        setTimeout(() => {
+          callback(Object.assign(new Error("disk full"), { code: "ENOSPC" }));
+        }, 20);
+      },
+    });
+    await expect(defaultSpawn(
+      process.execPath,
+      ["-e", "process.stdout.write('done')"],
+      {
+        cwd: root,
+        env: process.env,
+        stdoutPath: join(root, "stdout.log"),
+        stderrPath: join(root, "stderr.log"),
+        timeoutMs: 10_000,
+        createWriteStreamImpl: (path: string) => path.endsWith("stdout.log")
+          ? stdout
+          : new Writable({ write(_chunk, _encoding, callback) { callback(); } }),
+      },
+    )).rejects.toThrow(/Could not write Devin stdout log/);
   });
 });
 
