@@ -793,16 +793,29 @@ export async function acquireTaskLock(workDir, repoRoot, branch, options = {}) {
   let released = false;
   return async () => {
     if (released) return;
-    released = true;
     await withMutationLock(workDir, async () => {
-      const current = await readFileImpl(file, "utf8").catch(() => null);
+      let current;
+      try {
+        current = await readFileImpl(file, "utf8");
+      } catch (error) {
+        if (error?.code === "ENOENT") {
+          released = true;
+          return;
+        }
+        throw error;
+      }
       let owner;
       try {
-        owner = current ? JSON.parse(current) : null;
+        owner = JSON.parse(current);
       } catch {
-        owner = null;
+        throw new WorkerError(`Task lock at ${file} is unreadable; refusing to release it.`, EXIT.FAILED);
       }
-      if (owner?.token === token) await rmImpl(file, { force: true });
+      if (owner?.token !== token) {
+        released = true;
+        return;
+      }
+      await rmImpl(file, { force: true });
+      released = true;
     }, options);
   };
 }

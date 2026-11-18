@@ -364,6 +364,29 @@ describe("task identity locks", () => {
     await releaseAgain();
   });
 
+  it("keeps a task release retryable after a transient owner read failure", async () => {
+    const { work } = await tempDirs();
+    const branch = "devin/CHEF-123-fix-the-race";
+    const lockId = createHash("sha256").update(`/repos/one\0${branch}`).digest("hex");
+    const taskLock = join(work, "task-locks", `${lockId}.json`);
+    let taskLockReads = 0;
+    const readFileImpl = async (path: string, encoding: BufferEncoding) => {
+      if (path === taskLock && ++taskLockReads === 2) {
+        throw Object.assign(new Error("temporary read failure"), { code: "EIO" });
+      }
+      return readFile(path, encoding);
+    };
+    const release = await acquireTaskLock(work, "/repos/one", branch, {
+      pid: 111,
+      isPidAlive: () => false,
+      readFile: readFileImpl,
+    });
+
+    await expect(release()).rejects.toThrow(/temporary read failure/);
+    await release();
+    await expect(readFile(taskLock, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("namespaces worktree and artifact paths by repository", async () => {
     const { work } = await tempDirs();
     const task = { issue: "CHEF-123", task: "Fix the race" };
