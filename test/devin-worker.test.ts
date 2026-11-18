@@ -2,6 +2,7 @@
  * devin-worker policy and command construction. The devin binary is mocked.
  */
 
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -22,14 +23,17 @@ import {
   DEFAULT_PILOT_UNTIL_FLASH,
   DEFAULT_PILOT_UNTIL_SWE2,
   DEFAULT_TIMEOUT_MS,
+  defaultExecFile,
   defaultSpawn,
   EXIT,
   HERDR_CORE_LANE_ROUTE,
   installSignalForwarding,
   isAllowlistedModelId,
+  isSensitivePath,
   LOCAL_CLI_ROUTE,
   main,
   parseModelCatalog,
+  porcelainPaths,
   redactSecrets,
   resolveExecutionRoute,
   resolveLaneWaitMs,
@@ -259,7 +263,7 @@ describe("lanes and timeout", () => {
     // The claim is visible with its full content: no zero-byte window that reads
     // as pid 0, and the temp file used for the atomic link is gone.
     expect((await readFile(laneFile, "utf8")).split("\n")[0]).toBe("111");
-    expect((await readdir(join(work, "lanes"))).filter((name) => name === "0")).toEqual(["0"]);
+    expect(await readdir(join(work, "lanes"))).toEqual(["0"]);
 
     // Another worker reclaimed the lane after this pid "died".
     await writeFile(laneFile, "222\n");
@@ -401,8 +405,7 @@ describe("argument parsing", () => {
       },
     );
     expect(outcome.exitCode).toBe(EXIT.OK);
-    expect(spawnArgs[0]).toContain("-p");
-    expect(spawnArgs[0]).toContain("--fix the race");
+    expect(spawnArgs[0]).toContain("--print=--fix the race");
   });
 
   it("refuses a bare flag with no operand and an unknown key", async () => {
@@ -463,12 +466,16 @@ describe("devin command construction", () => {
     })).toEqual([
       "--model",
       "swe-2-high",
-      "-p",
-      task,
+      `--print=${task}`,
       "--sandbox",
       "--export",
       "/var/lib/devin-worker/exports/CHEF-9-say-hi.json",
     ]);
+    expect(buildDevinArgv({
+      model: "swe-2-high",
+      task: "--fix the race",
+      exportPath: "/var/lib/devin-worker/exports/CHEF-9-fix-the-race.json",
+    })).toContain("--print=--fix the race");
   });
 
   it("asks the mocked devin binary for the catalog, then runs that exact argv", async () => {
@@ -527,7 +534,7 @@ describe("devin command construction", () => {
     expect(body).toContain("swe-2-medium");
     expect(body).toContain(exportPath);
     expect(outcome.results[0]?.url).toBe("https://github.com/example/repo/pull/7");
-    expect(spawnCalls[0]?.args).toContain("-p");
+    expect(spawnCalls[0]?.args.some((arg) => arg.startsWith("--print="))).toBe(true);
     expect(spawnCalls[0]?.args).not.toContain("--cloud");
   });
 
@@ -636,6 +643,20 @@ describe("devin command construction", () => {
         exitCode: EXIT.FAILED,
         forbid: ["add", "pr"],
       },
+      {
+        name: "renamed secret",
+        status: "R  public.txt -> .env\n",
+        spawn: { code: 0, signal: null, timedOut: false },
+        exitCode: EXIT.FAILED,
+        forbid: ["add", "pr"],
+      },
+      {
+        name: "private key",
+        status: "?? server.key\n",
+        spawn: { code: 0, signal: null, timedOut: false },
+        exitCode: EXIT.FAILED,
+        forbid: ["add", "pr"],
+      },
     ];
     for (const item of cases) {
       const { repo, work } = await tempDirs();
@@ -681,6 +702,88 @@ describe("devin command construction", () => {
     expect(outcome.results[0]?.message).toContain("[redacted]");
     expect(redactSecrets("token=sk-live-secret-value")).toBe("token=[redacted]");
     expect(combineExitCodes([EXIT.OK, EXIT.TIMEOUT, EXIT.USAGE])).toBe(EXIT.TIMEOUT);
+  });
+
+  it("checks both rename paths and recognizes private-key filenames", () => {
+    const humanReadableRename = porcelainPaths("R  public.txt -> .env\n");
+    const nulSeparatedRename = porcelainPaths("R  public.txt\0.env\0");
+    expect(humanReadableRename.some(isSensitivePath)).toBe(true);
+    expect(nulSeparatedRename.some(isSensitivePath)).toBe(true);
+    expect(isSensitivePath("server.key")).toBe(true);
+  });
+
+  it("refuses a sensitive path added and removed in real Git history", async () => {
+    const { root, repo, work } = await tempDirs();
+    const origin = join(root, "origin.git");
+    execFileSync("git", ["init", "--bare", "--initial-branch=main", origin], { encoding: "utf8" });
+    execFileSync("git", ["init", "--initial-branch=main", repo], { encoding: "utf8" });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+    git("config", "user.name", "Worker Test");
+    git("config", "user.email", "worker-test@example.invalid");
+    git("config", "commit.gpgsign", "false");
+    await mkdir(join(repo, "src"), { recursive: true });
+    await writeFile(join(repo, "src", "app.ts"), "export const value = 1;\n");
+    git("add", "src/app.ts");
+    git("commit", "-m", "test: create safe base");
+    git("remote", "add", "origin", origin);
+    git("push", "-u", "origin", "main");
+    git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+
+    await writeFile(join(repo, ".env"), "not-a-real-secret\n");
+    git("add", ".env");
+    git("commit", "-m", "test: add sensitive path");
+    await rm(join(repo, ".env"));
+    git("add", "-u", "--", ".env");
+    git("commit", "-m", "test: remove sensitive path");
+    git("branch", "devin/CHEF-123-remove-env-history");
+
+    const commands: string[][] = [];
+    const outcome = await runWorker(taskArgs(repo, "swe-2-medium", "Remove env history"), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      execFile: async (command: string, args: string[], options: { cwd: string }) => {
+        commands.push([command, ...args]);
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (command === "git" && args[0] === "push") throw new Error("test blocks remote writes");
+        if (command === "gh") throw new Error("test blocks GitHub writes");
+        return defaultExecFile(command, args, options);
+      },
+      spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+    });
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    expect(outcome.results[0]?.message).toMatch(/likely secret file "\.env"/);
+    expect(commands.some(([command, ...args]) => command === "git" && args[0] === "push")).toBe(false);
+    expect(commands.some(([command]) => command === "gh")).toBe(false);
+
+    await writeFile(join(repo, ".env"), "not-a-real-secret\n");
+    git("add", ".env");
+    git("commit", "-m", "test: add sensitive file to base");
+    git("push", "origin", "main");
+    git("branch", "devin/CHEF-124-rename-env");
+
+    const renameCommands: string[][] = [];
+    const renameOutcome = await runWorker(
+      ["--issue", "CHEF-124", "--repo", repo, "--model", "swe-2-medium", "--task", "Rename env"],
+      {
+        env: enabledEnv(work),
+        now: () => new Date("2026-11-12T12:00:00.000Z"),
+        execFile: async (command: string, args: string[], options: { cwd: string }) => {
+          renameCommands.push([command, ...args]);
+          if (command === "devin") return { stdout: CATALOG, stderr: "" };
+          if (command === "git" && args[0] === "push") throw new Error("test blocks remote writes");
+          if (command === "gh") throw new Error("test blocks GitHub writes");
+          return defaultExecFile(command, args, options);
+        },
+        spawnCommand: async (_command: string, _args: string[], options: { cwd: string }) => {
+          execFileSync("git", ["mv", ".env", "public.txt"], { cwd: options.cwd, encoding: "utf8" });
+          return { code: 0, signal: null, timedOut: false };
+        },
+      },
+    );
+    expect(renameOutcome.exitCode).toBe(EXIT.FAILED);
+    expect(renameOutcome.results[0]?.message).toMatch(/likely secret file "\.env"/);
+    expect(renameCommands.some(([command, ...args]) => command === "git" && args[0] === "push")).toBe(false);
+    expect(renameCommands.some(([command]) => command === "gh")).toBe(false);
   });
 
   it("refuses a sensitive path introduced only by merge history", async () => {
@@ -788,9 +891,9 @@ describe("local CLI only", () => {
     expect(() => assertNoCloudRoute({ DEVIN_API_KEY: secret })).not.toThrow(new RegExp(secret));
     expect(() => assertNoCloudRoute({ DEVIN_WORKER_ROUTE: "cloud" })).toThrow(/cloud\/remote/);
     expect(() => assertNoCloudRoute({ COMPOSIO_DEVIN_MCP: "1" })).toThrow(/COMPOSIO_DEVIN_MCP/);
-    expect(() => assertLocalCliArgv(["--cloud", "-p", "fix tests"])).toThrow(/--cloud/);
+    expect(() => assertLocalCliArgv(["--cloud", "--print=fix tests"])).toThrow(/--cloud/);
     expect(() => assertLocalCliArgv(["cloud", "drs", "whoami"])).toThrow(/headless -p/);
-    expect(() => assertLocalCliArgv(["--model", "swe-2-medium", "-p", "mention api.devin.ai in the notes", "--sandbox", "--export", "/tmp/out.json"])).not.toThrow();
+    expect(() => assertLocalCliArgv(["--model", "swe-2-medium", "--print=mention api.devin.ai in the notes", "--sandbox", "--export", "/tmp/out.json"])).not.toThrow();
 
     const { repo, work } = await tempDirs();
     const calls: string[] = [];
@@ -856,7 +959,7 @@ describe("local CLI only", () => {
     const cli = await run({});
     expect(cli.outcome.route).toBe(LOCAL_CLI_ROUTE);
     expect(cli.outcome.exitCode).toBe(EXIT.OK);
-    expect(cli.spawnArgs[0]).toContain("-p");
+    expect(cli.spawnArgs[0]?.some((arg) => arg.startsWith("--print="))).toBe(true);
     expect(cli.spawnArgs[0]).not.toContain("--cloud");
     expect(logs).toContain(routeLogLine(LOCAL_CLI_ROUTE));
 
@@ -865,7 +968,7 @@ describe("local CLI only", () => {
     expect(resolveExecutionRoute({ HERDR_CORE: "1" })).toBe(HERDR_CORE_LANE_ROUTE);
     expect(herdr.spawnArgs[0]?.slice(0, -1)).toEqual(cli.spawnArgs[0]?.slice(0, -1));
     expect(herdr.spawnArgs[0]?.slice(0, 2)).toEqual(["--model", "swe-2-medium"]);
-    expect(herdr.spawnArgs[0]).toContain("-p");
+    expect(herdr.spawnArgs[0]?.some((arg) => arg.startsWith("--print="))).toBe(true);
     expect(herdr.spawnArgs[0]).not.toContain("--cloud");
     expect(logs).toContain(routeLogLine(HERDR_CORE_LANE_ROUTE));
     for (const env of seenEnv) {

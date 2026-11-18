@@ -367,7 +367,7 @@ export function resolveExecutionRoute(env) {
 }
 
 export function routeLogLine(route) {
-  return `devin-worker: route ${route} (local Devin CLI, headless devin -p; not Devin cloud)`;
+  return `devin-worker: route ${route} (local Devin CLI, headless devin --print; not Devin cloud)`;
 }
 
 const PRINT_FLAGS = new Set(["-p", "--print"]);
@@ -382,6 +382,10 @@ export function assertLocalCliArgv(argv) {
   const checked = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = String(argv[index]);
+    if (arg.startsWith("--print=")) {
+      sawPrint = true;
+      continue;
+    }
     if (PRINT_FLAGS.has(arg)) {
       sawPrint = true;
       const next = argv[index + 1];
@@ -424,7 +428,7 @@ export function assertCatalogArgv(argv) {
 }
 
 export function buildDevinArgv({ model, task, exportPath }) {
-  return assertLocalCliArgv(["--model", model, "-p", task, "--sandbox", "--export", exportPath]);
+  return assertLocalCliArgv(["--model", model, `--print=${task}`, "--sandbox", "--export", exportPath]);
 }
 
 export function cliChildEnv(base) {
@@ -498,20 +502,39 @@ export function buildPrBody({ issue, task, modelId, transcriptPath }) {
 }
 
 export function porcelainPaths(status) {
+  const text = String(status);
+  if (text.includes("\0")) {
+    const fields = text.split("\0");
+    const paths = [];
+    for (let index = 0; index < fields.length; index += 1) {
+      const record = fields[index];
+      if (record.length < 4) continue;
+      const statusCode = record.slice(0, 2);
+      paths.push(record.slice(3));
+      if (statusCode.includes("R") || statusCode.includes("C")) {
+        const otherPath = fields[index + 1];
+        if (otherPath) paths.push(otherPath);
+        index += 1;
+      }
+    }
+    return paths;
+  }
+
   const paths = [];
-  for (const line of String(status).split("\n")) {
+  for (const line of text.split("\n")) {
     if (line.length < 4) continue;
     const body = line.slice(3).trim();
     if (!body) continue;
-    const arrow = body.lastIndexOf(" -> ");
-    paths.push(arrow === -1 ? body : body.slice(arrow + 4).trim());
+    const arrow = body.indexOf(" -> ");
+    if (arrow === -1) paths.push(body);
+    else paths.push(body.slice(0, arrow).trim(), body.slice(arrow + 4).trim());
   }
   return paths;
 }
 
 export function isSensitivePath(filePath) {
   const normalized = String(filePath).replace(/\\/g, "/");
-  return /(^|\/)\.env($|\.)|(^|\/)credentials(\.[^/]+)?$|(^|\/)[^/]+\.pem$|(^|\/)id_(rsa|ed25519|ecdsa|dsa)($|\.)|(^|\/)\.npmrc$|(^|\/)\.netrc$/i.test(normalized);
+  return /(^|\/)\.env($|\.)|(^|\/)credentials(\.[^/]+)?$|(^|\/)[^/]+\.(pem|key)$|(^|\/)id_(rsa|ed25519|ecdsa|dsa)($|\.)|(^|\/)\.npmrc$|(^|\/)\.netrc$/i.test(normalized);
 }
 
 export function isPathInside(parent, child) {
@@ -1332,7 +1355,7 @@ async function executeTask(task, ctx) {
     await ensureWorktree({ repo, repoRoot, paths, base, execFile: ctx.execFile, env });
     await runDevinSession({ ...ctx, model: task.model, taskText: task.task }, paths, env);
     await refuseSensitiveCommits({ ctx, paths, task, base, env });
-    const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall"], {
+    const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall", "-z"], {
       cwd: paths.worktreePath,
       timeoutMs: 30_000,
       env,
