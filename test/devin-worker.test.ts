@@ -1376,6 +1376,7 @@ describe("devin command construction", () => {
   it("opens a pull request for work Devin already committed", async () => {
     const { repo, work } = await tempDirs();
     const calls: string[][] = [];
+    const committedHead = "a".repeat(40);
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
@@ -1384,6 +1385,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${committedHead}\n`, stderr: "" };
+        }
         if (args[0] === "diff" && args[1] === "--cached") return { stdout: "", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "status") return { stdout: "", stderr: "" };
@@ -1394,8 +1398,48 @@ describe("devin command construction", () => {
     });
     expect(outcome.exitCode).toBe(EXIT.OK);
     expect(calls.some(([command, ...args]) => command === "git" && args[0] === "commit")).toBe(false);
-    expect(calls.some(([command, ...args]) => command === "git" && args[0] === "push")).toBe(true);
+    const branch = taskPaths(work, { issue: "CHEF-123", task: "Fix the race" }, repo).branch;
+    expect(calls.some((call) => (
+      call[0] === "git"
+      && call[1] === "push"
+      && call[4] === `${committedHead}:refs/heads/${branch}`
+    ))).toBe(true);
     expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(true);
+  });
+
+  it("reports the pushed branch when the pull request body cannot be written", async () => {
+    const { repo, work } = await tempDirs();
+    const calls: string[][] = [];
+    const branch = taskPaths(work, { issue: "CHEF-123", task: "Fix the race" }, repo).branch;
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      writeFile: async (filePath: string, contents: string, options?: { mode?: number }) => {
+        if (filePath.includes("/pr-bodies/")) {
+          throw Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+        }
+        return writeFile(filePath, contents, options);
+      },
+      execFile: async (command: string, args: string[]) => {
+        calls.push([command, ...args]);
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+        if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+        if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
+        if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
+        return { stdout: "", stderr: "" };
+      },
+      spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+    });
+
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    expect(outcome.results[0]?.pushedBranch).toBe(branch);
+    expect(outcome.results[0]?.message).toContain(
+      `Branch ${branch} was pushed; the pull request body could not be written.`,
+    );
+    expect(calls.some(([command, ...args]) => command === "git" && args[0] === "push")).toBe(true);
+    expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(false);
   });
 
   it("refuses to publish a branch containing only an empty commit", async () => {
@@ -1493,7 +1537,7 @@ describe("devin command construction", () => {
     expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(false);
   });
 
-  it("reports the pushed branch if shutdown interrupts PR creation", async () => {
+  it("retains the pushed branch when PR creation and lock release fail", async () => {
     const { repo, work } = await tempDirs();
     const signalTarget = new EventEmitter();
     const calls: string[][] = [];
@@ -1501,6 +1545,16 @@ describe("devin command construction", () => {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
       signalTarget,
+      acquireTaskLock: async (...args: Parameters<typeof acquireTaskLock>) => {
+        const release = await acquireTaskLock(...args);
+        return Object.assign(async () => {
+          await release();
+          throw new Error("simulated task lock release failure");
+        }, {
+          markProcessGroupStarting: release.markProcessGroupStarting,
+          setProcessGroupId: release.setProcessGroupId,
+        });
+      },
       execFile: async (command: string, args: string[]) => {
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
@@ -1525,6 +1579,7 @@ describe("devin command construction", () => {
     expect(outcome.exitCode).toBe(EXIT.FAILED);
     expect(outcome.results[0]?.pushedBranch).toBe(branch);
     expect(outcome.results[0]?.message).toContain(`Branch ${branch} was pushed; check whether a pull request was opened before retrying.`);
+    expect(outcome.results[0]?.message).toContain("Task lock release failed: simulated task lock release failure.");
     expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(true);
   });
 

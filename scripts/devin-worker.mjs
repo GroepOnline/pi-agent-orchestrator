@@ -1550,6 +1550,7 @@ async function refuseSensitiveCommits({ ctx, paths, task, base, env, headRef }) 
 async function publishPullRequest(task, ctx, paths, env) {
   const slug = slugFromTask(task.task);
   const base = ctx.base;
+  const writeFileImpl = ctx.writeFile ?? writeFile;
   let pushed = false;
   const assertRunning = () => {
     const signal = ctx.shutdownSignal?.();
@@ -1565,7 +1566,7 @@ async function publishPullRequest(task, ctx, paths, env) {
     }
   };
   assertRunning();
-  await writeFile(paths.messagePath, `devin(${task.issue}): ${slug}\n\nModel: ${task.model}\n`, { mode: 0o600 });
+  await writeFileImpl(paths.messagePath, `devin(${task.issue}): ${slug}\n\nModel: ${task.model}\n`, { mode: 0o600 });
   await run(ctx.execFile, "git", ["add", "-A"], { cwd: paths.worktreePath, timeoutMs: 30_000, env });
   const staged = await run(ctx.execFile, "git", ["diff", "--cached", "--name-only", "--no-renames"], {
     cwd: paths.worktreePath,
@@ -1612,7 +1613,16 @@ async function publishPullRequest(task, ctx, paths, env) {
     modelId: task.model,
     transcriptPath: paths.exportPath,
   });
-  await writeFile(paths.bodyPath, body, { mode: 0o600 });
+  try {
+    await writeFileImpl(paths.bodyPath, body, { mode: 0o600 });
+  } catch (error) {
+    const failure = error instanceof Error
+      ? error
+      : new WorkerError(String(error), EXIT.FAILED);
+    failure.pushedBranch = paths.branch;
+    failure.message = `${failure.message} Branch ${paths.branch} was pushed; the pull request body could not be written. Check for an existing pull request before retrying.`;
+    throw failure;
+  }
   assertRunning();
   let created;
   try {
@@ -1626,10 +1636,8 @@ async function publishPullRequest(task, ctx, paths, env) {
     const failure = error instanceof Error
       ? error
       : new WorkerError(String(error), EXIT.FAILED);
-    if (pushed) {
-      failure.pushedBranch = paths.branch;
-      failure.message = `${failure.message} Branch ${paths.branch} was pushed; check whether a pull request was opened before retrying.`;
-    }
+    failure.pushedBranch = paths.branch;
+    failure.message = `${failure.message} Branch ${paths.branch} was pushed; check whether a pull request was opened before retrying.`;
     throw failure;
   }
   const url = created.stdout.trim().split("\n").filter(Boolean).at(-1) ?? "";
@@ -1723,7 +1731,8 @@ async function executeTask(task, ctx) {
   const paths = taskPaths(workRoot, task, repoRoot);
   await ensureLayout(workRoot);
   await run(ctx.execFile, "git", ["check-ref-format", "--branch", paths.branch], { cwd: repo, timeoutMs: 15_000, env });
-  const releaseTask = await acquireTaskLock(workRoot, repoRoot, paths.branch, {
+  const acquireTaskLockImpl = ctx.acquireTaskLock ?? acquireTaskLock;
+  const releaseTask = await acquireTaskLockImpl(workRoot, repoRoot, paths.branch, {
     pid: ctx.pid,
     isPidAlive: ctx.isPidAlive,
     sleep: ctx.sleep,
@@ -1801,6 +1810,9 @@ async function executeTask(task, ctx) {
       const exitCode = operationError instanceof WorkerError ? operationError.exitCode : EXIT.FAILED;
       const combinedError = new WorkerError(message, exitCode);
       if (publishedResult?.url) combinedError.url = publishedResult.url;
+      if (typeof operationError?.pushedBranch === "string") {
+        combinedError.pushedBranch = operationError.pushedBranch;
+      }
       operationError = combinedError;
     }
   }
@@ -1926,6 +1938,8 @@ export async function runWorker(argv, deps = {}) {
         childEnv,
         execFile,
         spawnCommand: deps.spawnCommand ?? defaultSpawn,
+        acquireTaskLock: deps.acquireTaskLock,
+        writeFile: deps.writeFile,
         sleep: deps.sleep,
         isPidAlive: deps.isPidAlive,
         acquireLane: deps.acquireLane,
