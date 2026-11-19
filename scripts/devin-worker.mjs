@@ -622,7 +622,7 @@ function parseLockOwner(raw) {
 }
 
 async function waitForMutationLock(lockDir, ownerPath, deadline, options) {
-  const raw = await options.readFileImpl(ownerPath, "utf8").catch(() => null);
+  const raw = await readOptionalFile(ownerPath, options.readFileImpl);
   const owner = parseLockOwner(raw);
   if (Number.isInteger(owner?.pid) && owner.pid > 0 && !options.alive(owner.pid)) {
     throw new WorkerError(
@@ -652,7 +652,7 @@ async function acquireMutationLock({ lockDir, ownerPath, token, deadline, option
 }
 
 async function releaseMutationLock(lockDir, ownerPath, token, options) {
-  const raw = await options.readFileImpl(ownerPath, "utf8").catch(() => null);
+  const raw = await readOptionalFile(ownerPath, options.readFileImpl);
   const owner = parseLockOwner(raw);
   if (owner?.token === token) {
     const releasedDir = join(parse(lockDir).dir, `.mutation-release-${token}`);
@@ -689,7 +689,7 @@ async function withMutationLock(workDir, operation, options = {}) {
   }
 }
 
-async function laneLockIsActive(file, raw, pid, readFileImpl, alive, processGroupAlive) {
+async function laneLockIsActive(file, raw, pid, { readFileImpl, alive, processGroupAlive }) {
   const [ownerText, token] = String(raw).trim().split(/\s+/);
   const owner = Number(ownerText);
   if (!Number.isInteger(owner) || owner <= 0) {
@@ -708,7 +708,7 @@ async function reclaimStaleLaneLock(workDir, file, pid, options) {
   await withMutationLock(workDir, async () => {
     const current = await readFileImpl(file, "utf8").catch(() => null);
     if (current === null) return;
-    if (await laneLockIsActive(file, current, pid, readFileImpl, alive, processGroupAlive)) return;
+    if (await laneLockIsActive(file, current, pid, { readFileImpl, alive, processGroupAlive })) return;
     const [, token] = String(current).trim().split(/\s+/);
     await rmImpl(file, { force: true });
     if (token) await clearProcessGroupMarkers(file, token, rmImpl);
@@ -796,7 +796,7 @@ async function tryLaneSlot({
     }
     return claimLaneOrNull(file, claim);
   }
-  if (await laneLockIsActive(file, current, pid, readFileImpl, alive, processGroupAlive)) return null;
+  if (await laneLockIsActive(file, current, pid, { readFileImpl, alive, processGroupAlive })) return null;
   await reclaimStaleLaneLock(workDir, file, pid, options);
   return claimLaneOrNull(file, claim);
 }
@@ -1255,6 +1255,7 @@ async function runCancelable(ctx, command, args, options) {
 export function defaultSpawn(command, args, options) {
   return new Promise((resolvePromise, rejectPromise) => {
     const createStream = options.createWriteStreamImpl ?? createWriteStream;
+    const waitForProcessGroupImpl = options.waitForProcessGroupImpl ?? waitForProcessGroup;
     const stdoutStream = createStream(options.stdoutPath, { flags: "w", mode: 0o600 });
     const stderrStream = createStream(options.stderrPath, { flags: "w", mode: 0o600 });
     let settled = false;
@@ -1329,8 +1330,10 @@ export function defaultSpawn(command, args, options) {
       if (settled || finishing) return;
       finishing = true;
       clearTimeout(timer);
-      if (!(await waitForProcessGroup(child?.pid, stop))) {
-        fail(new WorkerError("Devin process group did not stop after termination.", EXIT.FAILED));
+      if (!(await waitForProcessGroupImpl(child?.pid, stop))) {
+        const error = failure ?? new WorkerError("Devin process group did not stop after termination.", EXIT.FAILED);
+        error.preserveProcessGroupClaims = true;
+        fail(error);
       }
       await processGroupRegistration;
       const logStreams = [
@@ -1434,6 +1437,8 @@ async function runDevinSession(ctx, paths, env) {
   let spawned;
   try {
     await ctx.markProcessGroupStarting?.();
+    const signal = ctx.shutdownSignal?.();
+    if (signal) throw new WorkerError(`Worker stopping after ${signal}.`, EXIT.FAILED);
     spawned = await ctx.spawnCommand(ctx.devinBin, argv, {
       cwd: paths.worktreePath,
       timeoutMs: ctx.timeoutMs,
@@ -1726,20 +1731,22 @@ async function executeTask(task, ctx) {
   } catch (error) {
     operationError = error;
   }
-  try {
-    await releaseTask();
-  } catch (error) {
-    const releaseMessage = redactSecrets(error instanceof Error ? error.message : String(error));
-    const previousMessage = operationError instanceof Error ? operationError.message : String(operationError ?? "");
-    const message = publishedResult?.url
-      ? `${previousMessage ? `${previousMessage} ` : ""}Pull request ${publishedResult.url} was opened. Task lock release failed: ${releaseMessage}.`
-      : previousMessage
-        ? `${previousMessage} Task lock release failed: ${releaseMessage}.`
-        : `Task lock release failed: ${releaseMessage}.`;
-    const exitCode = operationError instanceof WorkerError ? operationError.exitCode : EXIT.FAILED;
-    const combinedError = new WorkerError(message, exitCode);
-    if (publishedResult?.url) combinedError.url = publishedResult.url;
-    operationError = combinedError;
+  if (operationError?.preserveProcessGroupClaims !== true) {
+    try {
+      await releaseTask();
+    } catch (error) {
+      const releaseMessage = redactSecrets(error instanceof Error ? error.message : String(error));
+      const previousMessage = operationError instanceof Error ? operationError.message : String(operationError ?? "");
+      const message = publishedResult?.url
+        ? `${previousMessage ? `${previousMessage} ` : ""}Pull request ${publishedResult.url} was opened. Task lock release failed: ${releaseMessage}.`
+        : previousMessage
+          ? `${previousMessage} Task lock release failed: ${releaseMessage}.`
+          : `Task lock release failed: ${releaseMessage}.`;
+      const exitCode = operationError instanceof WorkerError ? operationError.exitCode : EXIT.FAILED;
+      const combinedError = new WorkerError(message, exitCode);
+      if (publishedResult?.url) combinedError.url = publishedResult.url;
+      operationError = combinedError;
+    }
   }
   if (operationError) throw operationError;
   return publishedResult;
@@ -1791,10 +1798,13 @@ async function runOne(task, ctx) {
     result = await executeTask({
       ...task,
       model,
+    }, {
+      ...ctx,
       markLaneProcessGroupStarting: lane.markProcessGroupStarting,
       setLaneProcessGroupId: lane.setProcessGroupId,
-    }, ctx);
+    });
   } catch (error) {
+    if (error?.preserveProcessGroupClaims === true) release = async () => {};
     result = failureResult(error);
   }
   try {

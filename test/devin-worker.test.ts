@@ -45,6 +45,7 @@ import {
   runWithLanes,
   runWorker,
   taskPaths,
+  WorkerError,
 } from "../scripts/devin-worker.mjs";
 
 const CATALOG = JSON.stringify({
@@ -286,7 +287,7 @@ describe("lanes and timeout", () => {
   });
 
   it("rechecks shutdown before fetching and creating a task worktree", async () => {
-    for (const stopPoint of ["after-lane", "after-base", "after-fetch"] as const) {
+    for (const stopPoint of ["after-lane", "after-base", "after-fetch", "during-lane-marker"] as const) {
       const { root, repo, work } = await tempDirs();
       const origin = join(root, "origin.git");
       execFileSync("git", ["init", "--bare", "--initial-branch=main", origin], { encoding: "utf8" });
@@ -309,7 +310,14 @@ describe("lanes and timeout", () => {
         signalTarget,
         acquireLane: async () => {
           if (stopPoint === "after-lane") signalTarget.emit("SIGTERM");
-          return { slot: 0, release: async () => {} };
+          return {
+            slot: 0,
+            release: async () => {},
+            markProcessGroupStarting: async () => {
+              if (stopPoint === "during-lane-marker") signalTarget.emit("SIGTERM");
+            },
+            setProcessGroupId: async () => {},
+          };
         },
         execFile: async (command: string, args: string[], options: { cwd: string }) => {
           calls.push([command, ...args]);
@@ -337,10 +345,46 @@ describe("lanes and timeout", () => {
       expect(outcome.exitCode, stopPoint).toBe(EXIT.FAILED);
       expect(outcome.results[0]?.message, stopPoint).toMatch(/stopping after SIGTERM/);
       expect(gitCalls.some(([subcommand]) => subcommand === "fetch"), stopPoint)
-        .toBe(stopPoint === "after-fetch");
+        .toBe(["after-fetch", "during-lane-marker"].includes(stopPoint));
       expect(gitCalls.some(([subcommand, action]) => subcommand === "worktree" && action === "add"), stopPoint)
-        .toBe(false);
+        .toBe(stopPoint === "during-lane-marker");
     }
+  });
+
+  it("retains task and lane claims when Devin's process group may still be active", async () => {
+    const { repo, work } = await tempDirs();
+    const processGroupId = 424242;
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      execFile: async (command: string, args: string[]) => {
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+        if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        return { stdout: "", stderr: "" };
+      },
+      spawnCommand: async (
+        _command: string,
+        _args: string[],
+        options: { onProcessGroup?: (pid: number) => Promise<void> },
+      ) => {
+        await options.onProcessGroup?.(processGroupId);
+        const error = new WorkerError("Devin process group did not stop after termination.");
+        error.preserveProcessGroupClaims = true;
+        throw error;
+      },
+    });
+
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    const laneFile = join(work, "lanes", "0");
+    const [, laneToken] = (await readFile(laneFile, "utf8")).trim().split(/\s+/);
+    expect(await readFile(`${laneFile}.process-group-${laneToken}`, "utf8")).toBe(`${processGroupId}\n`);
+
+    const branch = taskPaths(work, { issue: "CHEF-123", task: "Fix the race" }, repo).branch;
+    const lockId = createHash("sha256").update(`${repo}\0${branch}`).digest("hex");
+    const taskLockPath = join(work, "task-locks", `${lockId}.json`);
+    const taskLock = JSON.parse(await readFile(taskLockPath, "utf8"));
+    expect(await readFile(`${taskLockPath}.process-group-${taskLock.token}`, "utf8")).toBe(`${processGroupId}\n`);
   });
 
   it("releases a lane if termination arrives while its claim completes", async () => {
@@ -476,6 +520,28 @@ describe("lanes and timeout", () => {
 
     const recovered = await acquireLane(work, 1, { waitMs: 0, isPidAlive: () => false });
     await recovered.release();
+  });
+
+  it("surfaces mutation-lock owner read errors during release", async () => {
+    const { work } = await tempDirs();
+    const ownerPath = join(work, "locks", "mutation", "owner.json");
+    await mkdir(join(work, "lanes"), { recursive: true });
+    await writeFile(join(work, "lanes", "0"), "424242\nstale-token\n");
+    let failedRead = false;
+    const readFileImpl = async (path: string, encoding: BufferEncoding) => {
+      if (path === ownerPath && !failedRead) {
+        failedRead = true;
+        throw Object.assign(new Error("temporary mutation owner read failure"), { code: "EIO" });
+      }
+      return readFile(path, encoding);
+    };
+
+    await expect(acquireLane(work, 1, {
+      waitMs: 0,
+      isPidAlive: () => false,
+      readFile: readFileImpl,
+    })).rejects.toThrow(/temporary mutation owner read failure/);
+    expect(failedRead).toBe(true);
   });
 });
 
@@ -807,6 +873,26 @@ describe("child output", () => {
     expect(result).toMatchObject({ code: 0, timedOut: false });
     expect(processGroupIds).toHaveLength(1);
     expect(processGroupIds[0]).toBeGreaterThan(0);
+  });
+
+  it("marks process-group claims to retain when shutdown cannot be confirmed", async () => {
+    const { root } = await tempDirs();
+
+    await expect(defaultSpawn(
+      process.execPath,
+      ["-e", "setTimeout(() => process.exit(0), 25)"],
+      {
+        cwd: root,
+        env: process.env,
+        stdoutPath: join(root, "stdout.log"),
+        stderrPath: join(root, "stderr.log"),
+        timeoutMs: 1_000,
+        waitForProcessGroupImpl: async () => false,
+      },
+    )).rejects.toMatchObject({
+      message: "Devin process group did not stop after termination.",
+      preserveProcessGroupClaims: true,
+    });
   });
 });
 
