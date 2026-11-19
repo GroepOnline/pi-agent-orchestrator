@@ -1400,6 +1400,7 @@ function failureResult(error) {
   const exitCode = error instanceof WorkerError ? error.exitCode : EXIT.FAILED;
   const result = { exitCode, message };
   if (typeof error?.url === "string") result.url = error.url;
+  if (typeof error?.pushedBranch === "string") result.pushedBranch = error.pushedBranch;
   return result;
 }
 
@@ -1549,9 +1550,19 @@ async function refuseSensitiveCommits({ ctx, paths, task, base, env, headRef }) 
 async function publishPullRequest(task, ctx, paths, env) {
   const slug = slugFromTask(task.task);
   const base = ctx.base;
+  let pushed = false;
   const assertRunning = () => {
     const signal = ctx.shutdownSignal?.();
-    if (signal) throw new WorkerError(`Worker stopping after ${signal}.`, EXIT.FAILED);
+    if (signal) {
+      const error = new WorkerError(
+        pushed
+          ? `Worker stopping after ${signal}. Branch ${paths.branch} was pushed, but no pull request was opened.`
+          : `Worker stopping after ${signal}.`,
+        EXIT.FAILED,
+      );
+      if (pushed) error.pushedBranch = paths.branch;
+      throw error;
+    }
   };
   assertRunning();
   await writeFile(paths.messagePath, `devin(${task.issue}): ${slug}\n\nModel: ${task.model}\n`, { mode: 0o600 });
@@ -1584,6 +1595,7 @@ async function publishPullRequest(task, ctx, paths, env) {
     timeoutMs: 60_000,
     env,
   });
+  pushed = true;
   assertRunning();
   const body = buildPrBody({
     issue: task.issue,

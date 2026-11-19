@@ -1462,6 +1462,37 @@ describe("devin command construction", () => {
     expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(false);
   });
 
+  it("reports a confirmed branch push if shutdown prevents PR creation", async () => {
+    const { repo, work } = await tempDirs();
+    const signalTarget = new EventEmitter();
+    const calls: string[][] = [];
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      signalTarget,
+      execFile: async (command: string, args: string[]) => {
+        calls.push([command, ...args]);
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+        if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+        if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
+        if (args[0] === "push") {
+          signalTarget.emit("SIGTERM");
+          return { stdout: "", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      },
+      spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+    });
+    const branch = taskPaths(work, { issue: "CHEF-123", task: "Fix the race" }, repo).branch;
+
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    expect(outcome.results[0]?.pushedBranch).toBe(branch);
+    expect(outcome.results[0]?.message).toContain(`Branch ${branch} was pushed, but no pull request was opened.`);
+    expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(false);
+  });
+
   it("returns the opened PR if lane cleanup fails", async () => {
     const { repo, work } = await tempDirs();
     const outcome = await runWorker(taskArgs(repo), {
