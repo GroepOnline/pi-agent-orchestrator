@@ -1228,6 +1228,21 @@ async function closeStream(stream) {
   }
 }
 
+async function waitForChildClose(childClosed) {
+  let timer;
+  try {
+    return await Promise.race([
+      childClosed.then(() => true),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), LOG_STREAM_CLOSE_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function defaultExecFile(command, args, options = {}) {
   return execFileAsync(command, args, options);
 }
@@ -1264,6 +1279,10 @@ export function defaultSpawn(command, args, options) {
     let timer;
     let killTimer;
     let child;
+    let resolveChildClosed;
+    const childClosed = new Promise((resolve) => {
+      resolveChildClosed = resolve;
+    });
     let processGroupRegistration = Promise.resolve();
     const stop = (signal) => {
       if (!child?.pid || settled) return;
@@ -1336,6 +1355,9 @@ export function defaultSpawn(command, args, options) {
         fail(error);
       }
       await processGroupRegistration;
+      if (!(await waitForChildClose(childClosed))) {
+        fail(failure ?? new WorkerError("Timed out waiting for Devin output streams to close.", EXIT.FAILED));
+      }
       const logStreams = [
         ["stdout", stdoutStream],
         ["stderr", stderrStream],
@@ -1367,6 +1389,7 @@ export function defaultSpawn(command, args, options) {
       void finish(code, signal).catch(rejectPromise);
     });
     child.once("close", (code, signal) => {
+      resolveChildClosed();
       void finish(code, signal).catch(rejectPromise);
     });
   });

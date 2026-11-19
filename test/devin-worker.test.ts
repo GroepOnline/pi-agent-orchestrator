@@ -875,6 +875,36 @@ describe("child output", () => {
     expect(processGroupIds[0]).toBeGreaterThan(0);
   });
 
+  it("drains child output before closing the log stream", async () => {
+    const { root } = await tempDirs();
+    const expectedBytes = 512 * 1024;
+    let writtenBytes = 0;
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        writtenBytes += chunk.length;
+        setTimeout(callback, 2);
+      },
+    });
+
+    const result = await defaultSpawn(
+      process.execPath,
+      ["-e", `process.stdout.write(Buffer.alloc(${expectedBytes}, 120), () => process.exit(0))`],
+      {
+        cwd: root,
+        env: process.env,
+        stdoutPath: join(root, "stdout.log"),
+        stderrPath: join(root, "stderr.log"),
+        timeoutMs: 10_000,
+        createWriteStreamImpl: (path: string) => path.endsWith("stdout.log")
+          ? stdout
+          : new Writable({ write(_chunk, _encoding, callback) { callback(); } }),
+      },
+    );
+
+    expect(result).toMatchObject({ code: 0, timedOut: false });
+    expect(writtenBytes).toBe(expectedBytes);
+  });
+
   it("marks process-group claims to retain when shutdown cannot be confirmed", async () => {
     const { root } = await tempDirs();
 
