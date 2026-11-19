@@ -1810,9 +1810,7 @@ async function executeTask(task, ctx) {
       const exitCode = operationError instanceof WorkerError ? operationError.exitCode : EXIT.FAILED;
       const combinedError = new WorkerError(message, exitCode);
       if (publishedResult?.url) combinedError.url = publishedResult.url;
-      if (typeof operationError?.pushedBranch === "string") {
-        combinedError.pushedBranch = operationError.pushedBranch;
-      }
+      combinedError.pushedBranch = operationError?.pushedBranch;
       operationError = combinedError;
     }
   }
