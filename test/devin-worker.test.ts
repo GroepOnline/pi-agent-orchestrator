@@ -265,6 +265,7 @@ describe("lanes and timeout", () => {
 
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work, { DEVIN_WORKER_LANE_WAIT_MS: "1000" }),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
       signalTarget,
       isPidAlive: () => true,
       sleep: async () => {
