@@ -285,6 +285,64 @@ describe("lanes and timeout", () => {
     await occupied.release();
   });
 
+  it("rechecks shutdown before fetching and creating a task worktree", async () => {
+    for (const stopPoint of ["after-lane", "after-base", "after-fetch"] as const) {
+      const { root, repo, work } = await tempDirs();
+      const origin = join(root, "origin.git");
+      execFileSync("git", ["init", "--bare", "--initial-branch=main", origin], { encoding: "utf8" });
+      execFileSync("git", ["init", "--initial-branch=main", repo], { encoding: "utf8" });
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+      git("config", "user.name", "Worker Test");
+      git("config", "user.email", "worker-test@example.invalid");
+      git("config", "commit.gpgsign", "false");
+      await writeFile(join(repo, "README.md"), "test repo\n");
+      git("add", "README.md");
+      git("commit", "-m", "test: create worker base");
+      git("remote", "add", "origin", origin);
+      git("push", "-u", "origin", "main");
+      git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+
+      const signalTarget = new EventEmitter();
+      const calls: string[][] = [];
+      const outcome = await runWorker(taskArgs(repo), {
+        env: enabledEnv(work),
+        signalTarget,
+        acquireLane: async () => {
+          if (stopPoint === "after-lane") signalTarget.emit("SIGTERM");
+          return { slot: 0, release: async () => {} };
+        },
+        execFile: async (command: string, args: string[], options: { cwd: string }) => {
+          calls.push([command, ...args]);
+          if (command === "devin") return { stdout: CATALOG, stderr: "" };
+          const result = await defaultExecFile(command, args, options);
+          if (
+            stopPoint === "after-base"
+            && command === "git"
+            && args.includes("--abbrev-ref")
+            && args.includes("origin/HEAD")
+          ) {
+            signalTarget.emit("SIGTERM");
+          }
+          if (stopPoint === "after-fetch" && command === "git" && args[0] === "fetch") {
+            signalTarget.emit("SIGTERM");
+          }
+          return result;
+        },
+        spawnCommand: async () => {
+          throw new Error("Devin must not start after shutdown.");
+        },
+      });
+
+      const gitCalls = calls.filter(([command]) => command === "git").map(([, ...args]) => args);
+      expect(outcome.exitCode, stopPoint).toBe(EXIT.FAILED);
+      expect(outcome.results[0]?.message, stopPoint).toMatch(/stopping after SIGTERM/);
+      expect(gitCalls.some(([subcommand]) => subcommand === "fetch"), stopPoint)
+        .toBe(stopPoint === "after-fetch");
+      expect(gitCalls.some(([subcommand, action]) => subcommand === "worktree" && action === "add"), stopPoint)
+        .toBe(false);
+    }
+  });
+
   it("releases a lane if termination arrives while its claim completes", async () => {
     const { work } = await tempDirs();
     let checks = 0;

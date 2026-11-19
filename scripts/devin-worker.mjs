@@ -1663,16 +1663,24 @@ async function executeTask(task, ctx) {
   };
   let publishedResult;
   let operationError;
+  const assertRunning = () => {
+    const signal = ctx.shutdownSignal?.();
+    if (signal) throw new WorkerError(`Worker stopping after ${signal}.`, EXIT.FAILED);
+  };
   try {
     // Resolve and fetch the base before any work starts: the worktree must branch
     // off origin/<base>, and the pull request needs the same base later.
+    assertRunning();
     const base = await resolveBaseBranch(repo, ctx.execFile, env);
+    assertRunning();
     await run(ctx.execFile, "git", ["fetch", "--no-tags", "origin", base], {
       cwd: repo,
       timeoutMs: 120_000,
       env,
     });
+    assertRunning();
     await ensureWorktree({ repo, repoRoot, paths, base, execFile: ctx.execFile, env });
+    assertRunning();
     await runDevinSession({
       ...ctx,
       model: task.model,
