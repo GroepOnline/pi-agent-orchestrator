@@ -370,8 +370,10 @@ describe("lanes and timeout", () => {
         options: { onProcessGroup?: (pid: number) => Promise<void> },
       ) => {
         await options.onProcessGroup?.(processGroupId);
-        const error = new WorkerError("Devin process group did not stop after termination.");
-        error.preserveProcessGroupClaims = true;
+        const error = Object.assign(
+          new Error("Devin process group did not stop after termination."),
+          { preserveProcessGroupClaims: true },
+        );
         throw error;
       },
     });

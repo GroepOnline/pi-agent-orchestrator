@@ -1474,10 +1474,14 @@ async function runDevinSession(ctx, paths, env) {
     });
   } catch (error) {
     if (error instanceof WorkerError) throw error;
-    throw new WorkerError(
+    const failure = new WorkerError(
       `Devin failed to start: ${redactSecrets(error instanceof Error ? error.message : String(error))}. Worktree kept at ${paths.worktreePath}.`,
       EXIT.FAILED,
     );
+    if (error?.preserveProcessGroupClaims === true) {
+      failure.preserveProcessGroupClaims = true;
+    }
+    throw failure;
   }
   if (spawned?.timedOut) {
     throw new WorkerError(
