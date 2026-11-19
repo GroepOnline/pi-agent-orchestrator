@@ -1585,17 +1585,26 @@ async function publishPullRequest(task, ctx, paths, env) {
   });
   const pinnedHead = branchHead.stdout.trim();
   await refuseSensitiveCommits({ ctx, paths, task, base, env, headRef: pinnedHead });
-  await runCancelable(ctx, "git", [
-    "push",
-    "--set-upstream",
-    "origin",
-    `${pinnedHead}:refs/heads/${paths.branch}`,
-  ], {
-    cwd: paths.worktreePath,
-    timeoutMs: 60_000,
-    env,
-  });
-  pushed = true;
+  try {
+    await runCancelable(ctx, "git", [
+      "push",
+      "--set-upstream",
+      "origin",
+      `${pinnedHead}:refs/heads/${paths.branch}`,
+    ], {
+      cwd: paths.worktreePath,
+      timeoutMs: 60_000,
+      env,
+    });
+    pushed = true;
+  } catch (error) {
+    const failure = error instanceof Error
+      ? error
+      : new WorkerError(String(error), EXIT.FAILED);
+    failure.pushedBranch = paths.branch;
+    failure.message = `${failure.message} Push outcome for branch ${paths.branch} is unknown; check the remote branch before retrying.`;
+    throw failure;
+  }
   assertRunning();
   const body = buildPrBody({
     issue: task.issue,
