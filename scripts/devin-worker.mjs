@@ -715,12 +715,95 @@ async function reclaimStaleLaneLock(workDir, file, pid, options) {
   }, options);
 }
 
-export async function acquireLane(workDir, maxLanes, options = {}) {
-  const mkdirImpl = options.mkdir ?? mkdir;
+/**
+ * Atomically claim a lane by linking a complete owner record into place.
+ * Readers never observe an empty or partially written lane lock.
+ */
+async function claimLane(workDir, file, pid, now, options) {
   const rmImpl = options.rm ?? rm;
   const writeFileImpl = options.writeFile ?? writeFile;
-  const readFileImpl = options.readFile ?? readFile;
   const linkImpl = options.link ?? link;
+  const readFileImpl = options.readFile ?? readFile;
+  const token = `${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
+  const temp = `${file}.claim-${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
+  await writeFileImpl(temp, `${pid}\n${token}\n`, { mode: 0o600 });
+  try {
+    await linkImpl(temp, file);
+  } finally {
+    await rmImpl(temp, { force: true });
+  }
+  return {
+    release: () => withMutationLock(workDir, async () => {
+      const current = await readFileImpl(file, "utf8").catch(() => null);
+      const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
+      if (owner !== String(pid) || ownerToken !== token) return;
+      await rmImpl(file, { force: true });
+      await clearProcessGroupMarkers(file, token, rmImpl);
+    }, options),
+    markProcessGroupStarting: () => withMutationLock(workDir, async () => {
+      const current = await readOptionalFile(file, readFileImpl);
+      const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
+      if (owner !== String(pid) || ownerToken !== token) {
+        throw new WorkerError(`Lane lock at ${file} changed before Devin started.`, EXIT.FAILED);
+      }
+      const marker = processGroupMarkerPaths(file, token).starting;
+      await writeFileImpl(marker, "starting\n", { mode: 0o600, flag: "wx" });
+    }, options),
+    setProcessGroupId: (processGroupId) => withMutationLock(workDir, async () => {
+      if (!Number.isInteger(processGroupId) || processGroupId <= 0) {
+        throw new WorkerError("Devin did not provide a valid process-group id.", EXIT.FAILED);
+      }
+      const current = await readOptionalFile(file, readFileImpl);
+      const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
+      if (owner !== String(pid) || ownerToken !== token) {
+        throw new WorkerError(`Lane lock at ${file} changed before Devin started.`, EXIT.FAILED);
+      }
+      const markers = processGroupMarkerPaths(file, token);
+      await writeFileImpl(markers.processGroup, `${processGroupId}\n`, { mode: 0o600, flag: "wx" });
+      await rmImpl(markers.starting, { force: true });
+    }, options),
+  };
+}
+
+async function claimLaneOrNull(file, claim) {
+  try {
+    return await claim(file);
+  } catch (error) {
+    if (error?.code === "EEXIST") return null;
+    throw error;
+  }
+}
+
+async function tryLaneSlot({
+  workDir,
+  slot,
+  pid,
+  options,
+  readFileImpl,
+  alive,
+  processGroupAlive,
+  claim,
+}) {
+  const file = join(workDir, "lanes", String(slot));
+  const acquired = await claimLaneOrNull(file, claim);
+  if (acquired) return acquired;
+  let current;
+  try {
+    current = await readFileImpl(file, "utf8");
+  } catch (readError) {
+    if (readError?.code !== "ENOENT") {
+      throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
+    }
+    return claimLaneOrNull(file, claim);
+  }
+  if (await laneLockIsActive(file, current, pid, readFileImpl, alive, processGroupAlive)) return null;
+  await reclaimStaleLaneLock(workDir, file, pid, options);
+  return claimLaneOrNull(file, claim);
+}
+
+export async function acquireLane(workDir, maxLanes, options = {}) {
+  const mkdirImpl = options.mkdir ?? mkdir;
+  const readFileImpl = options.readFile ?? readFile;
   const alive = options.isPidAlive ?? isPidAlive;
   const processGroupAlive = options.isProcessGroupAlive ?? isProcessGroupAlive;
   const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
@@ -731,94 +814,23 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
   };
   const waitMs = options.waitMs ?? 0;
   const pid = options.pid ?? process.pid;
-  const lanesDir = join(workDir, "lanes");
-  await mkdirImpl(lanesDir, { recursive: true });
+  await mkdirImpl(join(workDir, "lanes"), { recursive: true });
   const deadline = now() + waitMs;
-
-  /**
-   * Atomic claim: write the owner pid to a unique temp file, hard-link it to
-   * the lane name, then drop the temp file. link() fails with EEXIST when the
-   * lane is taken, and the lane file is never observable empty or half-written
-   * - the whole content appears in one step, so a reader can never mistake a
-   * claim in progress for pid 0 and steal a live lane.
-   */
-  async function claim(file) {
-    const token = `${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
-    const temp = `${file}.claim-${pid}-${now()}-${Math.random().toString(36).slice(2)}`;
-    await writeFileImpl(temp, `${pid}\n${token}\n`, { mode: 0o600 });
-    try {
-      await linkImpl(temp, file);
-    } finally {
-      await rmImpl(temp, { force: true });
-    }
-    return {
-      release: () => withMutationLock(workDir, async () => {
-        const current = await readFileImpl(file, "utf8").catch(() => null);
-        const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
-        if (owner !== String(pid) || ownerToken !== token) return;
-        await rmImpl(file, { force: true });
-        await clearProcessGroupMarkers(file, token, rmImpl);
-      }, options),
-      markProcessGroupStarting: () => withMutationLock(workDir, async () => {
-        const current = await readOptionalFile(file, readFileImpl);
-        const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
-        if (owner !== String(pid) || ownerToken !== token) {
-          throw new WorkerError(`Lane lock at ${file} changed before Devin started.`, EXIT.FAILED);
-        }
-        const marker = processGroupMarkerPaths(file, token).starting;
-        await writeFileImpl(marker, "starting\n", { mode: 0o600, flag: "wx" });
-      }, options),
-      setProcessGroupId: (processGroupId) => withMutationLock(workDir, async () => {
-        if (!Number.isInteger(processGroupId) || processGroupId <= 0) {
-          throw new WorkerError("Devin did not provide a valid process-group id.", EXIT.FAILED);
-        }
-        const current = await readOptionalFile(file, readFileImpl);
-        const [owner, ownerToken] = String(current ?? "").trim().split(/\s+/);
-        if (owner !== String(pid) || ownerToken !== token) {
-          throw new WorkerError(`Lane lock at ${file} changed before Devin started.`, EXIT.FAILED);
-        }
-        const markers = processGroupMarkerPaths(file, token);
-        await writeFileImpl(markers.processGroup, `${processGroupId}\n`, { mode: 0o600, flag: "wx" });
-        await rmImpl(markers.starting, { force: true });
-      }, options),
-    };
-  }
-
-  async function trySlot(slot) {
-    const file = join(lanesDir, String(slot));
-    try {
-      return await claim(file);
-    } catch (error) {
-      if (error?.code !== "EEXIST") throw error;
-      let current;
-      try {
-        current = await readFileImpl(file, "utf8");
-      } catch (readError) {
-        if (readError?.code !== "ENOENT") {
-          throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
-        }
-        try {
-          return await claim(file);
-        } catch (retryError) {
-          if (retryError?.code === "EEXIST") return null;
-          throw retryError;
-        }
-      }
-      if (await laneLockIsActive(file, current, pid, readFileImpl, alive, processGroupAlive)) return null;
-      await reclaimStaleLaneLock(workDir, file, pid, options);
-      try {
-        return await claim(file);
-      } catch (retryError) {
-        if (retryError?.code === "EEXIST") return null;
-        throw retryError;
-      }
-    }
-  }
+  const claim = (file) => claimLane(workDir, file, pid, now, options);
 
   for (;;) {
     assertRunning();
     for (let slot = 0; slot < maxLanes; slot += 1) {
-      const acquired = await trySlot(slot);
+      const acquired = await tryLaneSlot({
+        workDir,
+        slot,
+        pid,
+        options,
+        readFileImpl,
+        alive,
+        processGroupAlive,
+        claim,
+      });
       if (acquired) {
         try {
           assertRunning();
