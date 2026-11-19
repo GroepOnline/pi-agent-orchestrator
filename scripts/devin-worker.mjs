@@ -1605,12 +1605,24 @@ async function publishPullRequest(task, ctx, paths, env) {
   });
   await writeFile(paths.bodyPath, body, { mode: 0o600 });
   assertRunning();
-  const created = await runCancelable(
-    ctx,
-    "gh",
-    ["pr", "create", "--base", base, "--head", paths.branch, "--title", buildPrTitle(task.issue, slug), "--body-file", paths.bodyPath],
-    { cwd: paths.worktreePath, timeoutMs: 60_000, env },
-  );
+  let created;
+  try {
+    created = await runCancelable(
+      ctx,
+      "gh",
+      ["pr", "create", "--base", base, "--head", paths.branch, "--title", buildPrTitle(task.issue, slug), "--body-file", paths.bodyPath],
+      { cwd: paths.worktreePath, timeoutMs: 60_000, env },
+    );
+  } catch (error) {
+    const failure = error instanceof Error
+      ? error
+      : new WorkerError(String(error), EXIT.FAILED);
+    if (pushed) {
+      failure.pushedBranch = paths.branch;
+      failure.message = `${failure.message} Branch ${paths.branch} was pushed; check whether a pull request was opened before retrying.`;
+    }
+    throw failure;
+  }
   const url = created.stdout.trim().split("\n").filter(Boolean).at(-1) ?? "";
   if (!/^https:\/\/\S+$/.test(url)) {
     throw new WorkerError(
