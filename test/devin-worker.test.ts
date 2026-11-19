@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { link, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -402,7 +402,7 @@ describe("lanes and timeout", () => {
       contents: string,
       options?: { mode?: number },
     ) => {
-      if (filePath.endsWith("/owner.json") && failOwnerWrite) {
+      if (basename(filePath) === "owner.json" && failOwnerWrite) {
         failOwnerWrite = false;
         throw Object.assign(new Error("simulated metadata write failure"), { code: "EIO" });
       }
