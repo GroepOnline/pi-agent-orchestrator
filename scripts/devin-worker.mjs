@@ -1589,6 +1589,9 @@ async function publishPullRequest(task, ctx, paths, env) {
     env,
   });
   const pinnedHead = branchHead.stdout.trim();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(pinnedHead)) {
+    throw new WorkerError("Refusing to push: branch head is not a valid Git commit ID.", EXIT.FAILED);
+  }
   await refuseSensitiveCommits({ ctx, paths, task, base, env, headRef: pinnedHead });
   try {
     await runCancelable(ctx, "git", [

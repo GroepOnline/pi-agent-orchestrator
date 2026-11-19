@@ -45,7 +45,6 @@ import {
   runWithLanes,
   runWorker,
   taskPaths,
-  WorkerError,
 } from "../scripts/devin-worker.mjs";
 
 const CATALOG = JSON.stringify({
@@ -76,6 +75,7 @@ const CATALOG = JSON.stringify({
   ],
 });
 
+const COMMIT_SHA = "a".repeat(40);
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -945,6 +945,9 @@ describe("argument parsing", () => {
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
           if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+          if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+            return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+          }
           if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
           if (command === "gh") return { stdout: "https://github.com/example/repo/pull/12\n", stderr: "" };
           return { stdout: "", stderr: "" };
@@ -1044,6 +1047,9 @@ describe("devin command construction", () => {
         if (command === "devin" && args[0] === "models") return { stdout: CATALOG, stderr: "" };
         if (command === "git" && args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (command === "git" && args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (command === "git" && args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (command === "git" && args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (command === "gh" && args[0] === "pr") return { stdout: "https://github.com/example/repo/pull/7\n", stderr: "" };
         return { stdout: "", stderr: "" };
@@ -1238,6 +1244,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "push") {
           const error = new Error("push failed") as Error & { stderr?: string };
@@ -1410,6 +1419,35 @@ describe("devin command construction", () => {
     expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(true);
   });
 
+  it("refuses to push when Git returns an invalid branch head", async () => {
+    const { repo, work } = await tempDirs();
+    const calls: string[][] = [];
+    const outcome = await runWorker(taskArgs(repo), {
+      env: enabledEnv(work),
+      now: () => new Date("2026-11-12T12:00:00.000Z"),
+      execFile: async (command: string, args: string[]) => {
+        calls.push([command, ...args]);
+        if (command === "devin") return { stdout: CATALOG, stderr: "" };
+        if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+        if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: "\n", stderr: "" };
+        }
+        if (args[0] === "diff" && args[1] === "--cached") return { stdout: "", stderr: "" };
+        if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
+        if (args[0] === "status") return { stdout: "", stderr: "" };
+        if (command === "gh") return { stdout: "https://github.com/example/repo/pull/13\n", stderr: "" };
+        return { stdout: "", stderr: "" };
+      },
+      spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+    });
+
+    expect(outcome.exitCode).toBe(EXIT.FAILED);
+    expect(outcome.results[0]?.message).toContain("branch head is not a valid Git commit ID");
+    expect(calls.some(([command, ...args]) => command === "git" && args[0] === "push")).toBe(false);
+    expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(false);
+  });
+
   it("reports the pushed branch when the pull request body cannot be written", async () => {
     const { repo, work } = await tempDirs();
     const calls: string[][] = [];
@@ -1428,6 +1466,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
@@ -1484,6 +1525,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
@@ -1522,6 +1566,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "push") {
@@ -1563,6 +1610,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
@@ -1599,6 +1649,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
@@ -1637,6 +1690,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
@@ -1665,6 +1721,9 @@ describe("devin command construction", () => {
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+        if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+          return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+        }
         if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
         if (args[0] === "diff" && args[1] === "--cached") return { stdout: "src/app.ts\n", stderr: "" };
         if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
@@ -1705,6 +1764,9 @@ describe("devin command construction", () => {
           if (args[0] === "rev-parse" && args[1] === "--git-common-dir") {
             const gitRoot = options.cwd === worktreePath ? worktreeRepo : repo;
             return { stdout: `${gitRoot}/.git\n`, stderr: "" };
+          }
+          if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+            return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
           }
           if (args.includes("--abbrev-ref") && args.includes("origin/HEAD")) return { stdout: "origin/main\n", stderr: "" };
           if (args[0] === "rev-parse" && args.includes("HEAD")) return { stdout: `${headBranch}\n`, stderr: "" };
@@ -1791,6 +1853,9 @@ describe("local CLI only", () => {
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
           if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+          if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+            return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+          }
           if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
           if (command === "gh") return { stdout: "https://github.com/example/repo/pull/9\n", stderr: "" };
           return { stdout: "", stderr: "" };
