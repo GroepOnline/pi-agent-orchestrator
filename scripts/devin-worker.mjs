@@ -689,6 +689,32 @@ async function withMutationLock(workDir, operation, options = {}) {
   }
 }
 
+async function laneLockIsActive(file, raw, pid, readFileImpl, alive, processGroupAlive) {
+  const [ownerText, token] = String(raw).trim().split(/\s+/);
+  const owner = Number(ownerText);
+  if (!Number.isInteger(owner) || owner <= 0) {
+    throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
+  }
+  return owner === pid
+    || alive(owner)
+    || (token && await processGroupIsActive(file, token, readFileImpl, processGroupAlive));
+}
+
+async function reclaimStaleLaneLock(workDir, file, pid, options) {
+  const readFileImpl = options.readFile ?? readFile;
+  const rmImpl = options.rm ?? rm;
+  const alive = options.isPidAlive ?? isPidAlive;
+  const processGroupAlive = options.isProcessGroupAlive ?? isProcessGroupAlive;
+  await withMutationLock(workDir, async () => {
+    const current = await readFileImpl(file, "utf8").catch(() => null);
+    if (current === null) return;
+    if (await laneLockIsActive(file, current, pid, readFileImpl, alive, processGroupAlive)) return;
+    const [, token] = String(current).trim().split(/\s+/);
+    await rmImpl(file, { force: true });
+    if (token) await clearProcessGroupMarkers(file, token, rmImpl);
+  }, options);
+}
+
 export async function acquireLane(workDir, maxLanes, options = {}) {
   const mkdirImpl = options.mkdir ?? mkdir;
   const rmImpl = options.rm ?? rm;
@@ -778,32 +804,8 @@ export async function acquireLane(workDir, maxLanes, options = {}) {
           throw retryError;
         }
       }
-      const owner = Number(String(current).trim().split(/\s+/)[0]);
-      const ownerToken = String(current).trim().split(/\s+/)[1];
-      if (!Number.isInteger(owner) || owner <= 0) {
-        throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
-      }
-      if (
-        owner === pid
-        || alive(owner)
-        || (ownerToken && await processGroupIsActive(file, ownerToken, readFileImpl, processGroupAlive))
-      ) return null;
-      await withMutationLock(workDir, async () => {
-        const current = await readFileImpl(file, "utf8").catch(() => null);
-        const [currentOwnerText, currentToken] = String(current ?? "").trim().split(/\s+/);
-        const currentOwner = Number(currentOwnerText);
-        if (current === null) return;
-        if (!Number.isInteger(currentOwner) || currentOwner <= 0) {
-          throw new WorkerError(`Lane lock at ${file} is unreadable; refusing to replace it.`, EXIT.FAILED);
-        }
-        if (
-          currentOwner === pid
-          || alive(currentOwner)
-          || (currentToken && await processGroupIsActive(file, currentToken, readFileImpl, processGroupAlive))
-        ) return;
-        await rmImpl(file, { force: true });
-        if (currentToken) await clearProcessGroupMarkers(file, currentToken, rmImpl);
-      }, options);
+      if (await laneLockIsActive(file, current, pid, readFileImpl, alive, processGroupAlive)) return null;
+      await reclaimStaleLaneLock(workDir, file, pid, options);
       try {
         return await claim(file);
       } catch (retryError) {
