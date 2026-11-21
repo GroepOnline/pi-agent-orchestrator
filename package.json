@@ -66,9 +66,9 @@
     "CODE_OF_CONDUCT.md"
   ],
   "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-agent-core": "*"
+    "@earendil-works/pi-coding-agent": "*"
   },
   "peerDependenciesMeta": {
     "@groeponline/context-mode": {
@@ -130,7 +130,8 @@
     "showcase:vhs": "bash scripts/render-showcase-vhs.sh",
     "screenshots": "npm run build && node scripts/render-screenshots.mjs",
     "verify:pi-package": "node scripts/verify-pi-package-contract.mjs",
-    "bench:profile": "npm run build && node scripts/benchmark-runtime-profile.mjs"
+    "bench:profile": "npm run build && node scripts/benchmark-runtime-profile.mjs",
+    "prepare": "husky"
   },
   "type": "module",
   "engines": {
@@ -142,9 +143,12 @@
     "@earendil-works/pi-ai": "^1.5.0",
     "@earendil-works/pi-coding-agent": "^1.5.0",
     "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.1.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
-    "@vitest/coverage-v8": "^5.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.1",
+    "prettier": "^3.10.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.4"
   },
