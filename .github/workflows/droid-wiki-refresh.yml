@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   build-showcase:
-    runs-on: ["chefgroep-ci-oci"]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:

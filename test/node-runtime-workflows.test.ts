@@ -61,32 +61,38 @@ describe("runner and concurrency workflow contract", () => {
     "group: $" + "{{ github.workflow }}-$" + "{{ github.ref }}",
     "cancel-in-progress: true",
   ];
-  // Workflows that must run on GitHub-hosted runners: this public repository
-  // cannot reach the group-25 ARC scale set, so a fleet label leaves the job
-  // queued forever (#127, #129). They keep their own concurrency semantics,
-  // so they are exempt from the hosted-CI concurrency contract above.
-  const hostedOnlyWorkflows = new Set(["pages.yml", "contributor-triage.yml"]);
+  // This public repository has no reachable self-hosted lane: group 25 is a
+  // selected list that excludes it, and the retired `heavy` label has no
+  // online runner, so any fleet label leaves the job queued forever
+  // (#127, #129). GitHub-hosted Linux minutes are free for a public repo, so
+  // every job runs on ubuntu-latest. macOS/Windows legs stay out.
+  const fleetLabels = ["self-hosted", "chefgroep-ci-oci", "heavy"];
 
-  it("runs public CI, test, and lint on ubuntu-latest and cancels superseded runs", () => {
+  it("routes every job to GitHub-hosted Linux and never to a fleet label", () => {
     const dir = resolve(root, ".github/workflows");
     const files = readdirSync(dir).filter(name => name.endsWith(".yml") || name.endsWith(".yaml"));
     expect(files.length).toBeGreaterThan(0);
-    const hosted = /\b(ubuntu-latest|macos-latest|windows-latest)\b/;
     for (const name of files) {
       const content = readRoot(`.github/workflows/${name}`);
-      if (hostedCiWorkflows.has(name)) {
-        expect(content, name).toContain("ubuntu-latest");
-        expect(content, name).not.toMatch(/\b(macos-latest|windows-latest|self-hosted|chefgroep-ci-oci)\b/);
-        for (const line of standardConcurrency) {
-          expect(content, name).toContain(line);
+      const routes = content.match(/^\s*runs-on:.*$/gm) ?? [];
+      expect(routes, `${name} must declare a runs-on route`).not.toHaveLength(0);
+      for (const route of routes) {
+        for (const label of fleetLabels) {
+          expect(route, `${name} must not route to the ${label} label`).not.toContain(label);
         }
-        continue;
+        expect(route, `${name} must use GitHub-hosted Linux`).toMatch(
+          /ubuntu-latest|\$\{\{ matrix\.runs-on \}\}/,
+        );
       }
-      if (hostedOnlyWorkflows.has(name)) {
-        expect(content, name).toContain("ubuntu-latest");
-        continue;
+    }
+  });
+
+  it("cancels superseded runs on the required public CI workflows", () => {
+    for (const name of hostedCiWorkflows) {
+      const content = readRoot(`.github/workflows/${name}`);
+      for (const line of standardConcurrency) {
+        expect(content, name).toContain(line);
       }
-      expect(content, name).not.toMatch(hosted);
     }
   });
 });

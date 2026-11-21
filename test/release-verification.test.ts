@@ -30,28 +30,21 @@ function fileExists(file: string): boolean {
 }
 
 /**
- * Release and publish lanes must run on a fleet route, never on a
- * GitHub-hosted image (hosted minutes are billed and the org routes CI to its
- * own runners). The admitted fleet routes are the `[self-hosted, ...]` label
- * sets and the ephemeral OCI label `chefgroep-ci-oci` from
- * GroepOnline/ci-runners `workflow-routing.json`. Asserting the routing
- * *policy* rather than one literal label keeps the guarantee when the fleet
- * migrates a lane to a different admitted runner label.
+ * Release and publish lanes must declare an explicit runner route. This
+ * repository is public and has no reachable self-hosted lane: group 25 is a
+ * selected list that excludes it, and the retired `heavy` label has no online
+ * runner. A fleet label would therefore queue the job forever, so every lane
+ * runs on GitHub-hosted Linux, which is free for public repositories.
  */
-const GITHUB_HOSTED_RUNNER = /\b(?:ubuntu|windows|macos)-[a-z0-9.]+\b/;
-const ADMITTED_FLEET_RUNNER = /^\s*\[(?:[^\]]*\bself-hosted\b[^\]]*|"chefgroep-ci-oci")\]\s*$/;
+const FLEET_RUNNER_LABEL = /\b(?:self-hosted|chefgroep-ci-oci|heavy)\b/;
 
-function expectFleetRunner(job: string, where: string): void {
+function expectHostedRunner(job: string, where: string): void {
   const routes = job.match(/^\s+runs-on:.*$/gm) ?? [];
   expect(routes, `${where} must declare an explicit runs-on route`).not.toHaveLength(0);
   for (const route of routes) {
     const value = route.replace(/^\s*runs-on:\s*/, "").trim();
-    expect(value, `${where} must not use a GitHub-hosted runner`).not.toMatch(
-      GITHUB_HOSTED_RUNNER,
-    );
-    expect(value, `${where} must use an admitted fleet runner route`).toMatch(
-      ADMITTED_FLEET_RUNNER,
-    );
+    expect(value, `${where} must not use a fleet runner label`).not.toMatch(FLEET_RUNNER_LABEL);
+    expect(value, `${where} must use ubuntu-latest`).toBe("ubuntu-latest");
   }
 }
 
@@ -523,8 +516,7 @@ describe("transactional release workflow", () => {
     expect(tags).toContain("if: startsWith(github.ref, 'refs/tags/v')");
     expect(tags).toContain("node scripts/verify-release-tag.mjs");
     expect(tags).toContain("SHA256SUMS");
-    expectFleetRunner(tags, "Release tag artifacts workflow");
-    expect(tags).not.toMatch(GITHUB_HOSTED_RUNNER);
+    expectHostedRunner(tags, "Release tag artifacts workflow");
   });
 
   it("legacy publish workflows remain removed", () => {
