@@ -308,6 +308,7 @@ describe("lanes and timeout", () => {
       const calls: string[][] = [];
       const outcome = await runWorker(taskArgs(repo), {
         env: enabledEnv(work),
+        now: () => new Date("2026-11-12T12:00:00.000Z"),
         signalTarget,
         acquireLane: async () => {
           if (stopPoint === "after-lane") signalTarget.emit("SIGTERM");
@@ -991,7 +992,7 @@ describe("argument parsing", () => {
   it("names a refused flag without echoing its value", async () => {
     const value = "cloud-session-value-abc";
     expect(() => assertNoCloudRoute({}, [`--cloud=${value}`])).toThrow(/\(--cloud\)/);
-    expect(() => assertNoCloudRoute({}, [`--cloud=${value}`])).not.toThrow(new RegExp(value));
+    expect(() => assertNoCloudRoute({}, [`--cloud=${value}`])).not.toThrow(/cloud-session-value-abc/);
     expect(() => assertNoCloudRoute({}, ["https://api.devin.ai/sessions?token=abc123"])).toThrow(/a Devin cloud argument/);
     expect(() => assertNoCloudRoute({}, ["https://api.devin.ai/sessions?token=abc123"])).not.toThrow(/token=abc123/);
 
@@ -1798,7 +1799,7 @@ describe("local CLI only", () => {
   it("refuses cloud flags, an API key, and remote routes without starting devin", async () => {
     const secret = "super-secret-key-value";
     expect(() => assertNoCloudRoute({ DEVIN_API_KEY: secret })).toThrow(/DEVIN_API_KEY/);
-    expect(() => assertNoCloudRoute({ DEVIN_API_KEY: secret })).not.toThrow(new RegExp(secret));
+    expect(() => assertNoCloudRoute({ DEVIN_API_KEY: secret })).not.toThrow(/super-secret-key-value/);
     expect(() => assertNoCloudRoute({ DEVIN_WORKER_ROUTE: "cloud" })).toThrow(/cloud\/remote/);
     expect(() => assertNoCloudRoute({ COMPOSIO_DEVIN_MCP: "1" })).toThrow(/COMPOSIO_DEVIN_MCP/);
     expect(() => assertLocalCliArgv(["--cloud", "--print=fix tests"])).toThrow(/--cloud/);

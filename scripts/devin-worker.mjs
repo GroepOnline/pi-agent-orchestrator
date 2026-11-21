@@ -1627,7 +1627,7 @@ async function publishPullRequest(task, ctx, paths, env) {
       ? error
       : new WorkerError(String(error), EXIT.FAILED);
     failure.pushedBranch = paths.branch;
-    failure.message = `${failure.message} Branch ${paths.branch} was pushed; the pull request body could not be written. Check for an existing pull request before retrying.`;
+    failure.message = `${failure.message} Branch ${paths.branch} was pushed; the pull request body could not be written. No pull request was requested.`;
     throw failure;
   }
   assertRunning();
@@ -1649,10 +1649,12 @@ async function publishPullRequest(task, ctx, paths, env) {
   }
   const url = created.stdout.trim().split("\n").filter(Boolean).at(-1) ?? "";
   if (!/^https:\/\/\S+$/.test(url)) {
-    throw new WorkerError(
-      `Pull request command did not return a URL. Branch ${paths.branch} is pushed. Body: ${paths.bodyPath}.`,
+    const failure = new WorkerError(
+      `Pull request command did not return a URL. Branch ${paths.branch} is pushed; check whether a pull request was opened before retrying. Body: ${paths.bodyPath}.`,
       EXIT.FAILED,
     );
+    failure.pushedBranch = paths.branch;
+    throw failure;
   }
   await run(ctx.execFile, "git", ["worktree", "remove", "--force", "--", paths.worktreePath], {
     cwd: ctx.repo,
