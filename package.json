@@ -131,7 +131,7 @@
     "screenshots": "npm run build && node scripts/render-screenshots.mjs",
     "verify:pi-package": "node scripts/verify-pi-package-contract.mjs",
     "bench:profile": "npm run build && node scripts/benchmark-runtime-profile.mjs",
-    "prepare": "husky"
+    "prepare": "command -v husky >/dev/null 2>&1 && husky || true"
   },
   "type": "module",
   "engines": {
