@@ -47,6 +47,14 @@ import {
   taskPaths,
 } from "../scripts/devin-worker.mjs";
 
+// Models `git symbolic-ref HEAD` inside a managed worktree: the session left the
+// task branch checked out (worktree dir name is the branch minus "devin/").
+function managedHead(command: string, args: string[], options?: { cwd?: string }) {
+  if (command !== "git" || args[0] !== "symbolic-ref") return null;
+  const dir = basename(options?.cwd ?? "").replace(/^[0-9a-f]{64}-/, "");
+  return { stdout: `refs/heads/devin/${dir}\n`, stderr: "" };
+}
+
 const CATALOG = JSON.stringify({
   families: [
     {
@@ -271,7 +279,9 @@ describe("lanes and timeout", () => {
       sleep: async () => {
         signalTarget.emit("SIGTERM");
       },
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         throw new Error("Repository work must not start after shutdown.");
@@ -322,6 +332,8 @@ describe("lanes and timeout", () => {
           };
         },
         execFile: async (command: string, args: string[], options: { cwd: string }) => {
+          const head = managedHead(command, args, options);
+          if (head) return head;
           calls.push([command, ...args]);
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           const result = await defaultExecFile(command, args, options);
@@ -359,7 +371,9 @@ describe("lanes and timeout", () => {
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
@@ -942,7 +956,9 @@ describe("argument parsing", () => {
       {
         env: enabledEnv(work),
         now: () => new Date("2026-11-12T12:00:00.000Z"),
-        execFile: async (command: string, args: string[]) => {
+        execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+          const head = managedHead(command, args, options);
+          if (head) return head;
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
           if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
@@ -1043,7 +1059,9 @@ describe("devin command construction", () => {
     const outcome = await runWorker(taskArgs(repo, "swe-2-medium", task), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         execCalls.push({ command, args: [...args] });
         if (command === "devin" && args[0] === "models") return { stdout: CATALOG, stderr: "" };
         if (command === "git" && args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1134,7 +1152,9 @@ describe("devin command construction", () => {
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => currentTime,
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
@@ -1158,7 +1178,9 @@ describe("devin command construction", () => {
     const outcome = await runWorker(taskArgs(repo, "swe-2-medium"), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         if (command === "devin") {
           return {
             stdout: JSON.stringify({ families: [{ variants: [{ model_uid: "swe-2-high" }] }] }),
@@ -1222,7 +1244,9 @@ describe("devin command construction", () => {
       const outcome = await runWorker(taskArgs(repo), {
         env: enabledEnv(work),
         now: () => new Date("2026-11-12T12:00:00.000Z"),
-        execFile: async (command: string, args: string[]) => {
+        execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+          const head = managedHead(command, args, options);
+          if (head) return head;
           commands.push(args[0] ?? command);
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1241,7 +1265,9 @@ describe("devin command construction", () => {
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
@@ -1305,6 +1331,8 @@ describe("devin command construction", () => {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
       execFile: async (command: string, args: string[], options: { cwd: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         commands.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (command === "git" && args[0] === "push") throw new Error("test blocks remote writes");
@@ -1331,6 +1359,8 @@ describe("devin command construction", () => {
         env: enabledEnv(work),
         now: () => new Date("2026-11-12T12:00:00.000Z"),
         execFile: async (command: string, args: string[], options: { cwd: string }) => {
+          const head = managedHead(command, args, options);
+          if (head) return head;
           renameCommands.push([command, ...args]);
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (command === "git" && args[0] === "push") throw new Error("test blocks remote writes");
@@ -1356,7 +1386,9 @@ describe("devin command construction", () => {
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         commands.push(args[0] ?? command);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1393,7 +1425,9 @@ describe("devin command construction", () => {
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1426,7 +1460,9 @@ describe("devin command construction", () => {
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1462,7 +1498,9 @@ describe("devin command construction", () => {
         }
         return writeFile(filePath, contents, options);
       },
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1487,13 +1525,55 @@ describe("devin command construction", () => {
     expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr" && args[1] === "create")).toBe(false);
   });
 
+  it("refuses to publish when the session leaves the managed branch", async () => {
+    for (const head of ["switched", "detached"] as const) {
+      const { repo, work } = await tempDirs();
+      const calls: string[][] = [];
+      const outcome = await runWorker(taskArgs(repo), {
+        env: enabledEnv(work),
+        now: () => new Date("2026-11-12T12:00:00.000Z"),
+        execFile: async (command: string, args: string[]) => {
+          calls.push([command, ...args]);
+          if (command === "git" && args[0] === "symbolic-ref") {
+            if (head === "detached") throw Object.assign(new Error("not a symbolic ref"), { code: 1 });
+            return { stdout: "refs/heads/devin/other-branch\n", stderr: "" };
+          }
+          if (command === "devin") return { stdout: CATALOG, stderr: "" };
+          if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
+          if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
+          if (args[0] === "rev-parse" && args[1]?.startsWith("refs/heads/")) {
+            return { stdout: `${COMMIT_SHA}\n`, stderr: "" };
+          }
+          if (args[0] === "status") return { stdout: " M src/app.ts\n", stderr: "" };
+          if (args[0] === "diff") return { stdout: "src/app.ts\n", stderr: "" };
+          if (command === "gh") return { stdout: "https://github.com/example/repo/pull/16\n", stderr: "" };
+          return { stdout: "", stderr: "" };
+        },
+        spawnCommand: async () => ({ code: 0, signal: null, timedOut: false }),
+      });
+
+      expect(outcome.exitCode, head).toBe(EXIT.FAILED);
+      expect(outcome.results[0]?.message, head).toMatch(
+        head === "detached"
+          ? /left a detached HEAD checked out instead of refs\/heads\/devin\/CHEF-123-fix-the-race/
+          : /left "refs\/heads\/devin\/other-branch" checked out instead of/,
+      );
+      expect(calls.some(([command, ...args]) => command === "git" && args[0] === "commit"), head).toBe(false);
+      expect(calls.some(([command, ...args]) => command === "git" && args[0] === "push"), head).toBe(false);
+      expect(calls.some(([command, ...args]) => command === "gh" && args[0] === "pr"), head).toBe(false);
+      expect(calls).toContainEqual(["git", "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
+    }
+  });
+
   it("refuses to publish a branch containing only an empty commit", async () => {
     const { repo, work } = await tempDirs();
     const calls: string[][] = [];
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1520,8 +1600,10 @@ describe("devin command construction", () => {
       execFile: async (
         command: string,
         args: string[],
-        options: { signal?: AbortSignal },
+        options: { signal?: AbortSignal; cwd?: string },
       ) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1562,7 +1644,9 @@ describe("devin command construction", () => {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
       signalTarget,
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1606,7 +1690,9 @@ describe("devin command construction", () => {
           setProcessGroupId: release.setProcessGroupId,
         });
       },
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1645,7 +1731,9 @@ describe("devin command construction", () => {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
       signalTarget,
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         calls.push([command, ...args]);
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
@@ -1687,7 +1775,9 @@ describe("devin command construction", () => {
           throw new Error("simulated lane cleanup failure");
         },
       }),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
@@ -1718,7 +1808,9 @@ describe("devin command construction", () => {
     const outcome = await runWorker(taskArgs(repo), {
       env: enabledEnv(work),
       now: () => new Date("2026-11-12T12:00:00.000Z"),
-      execFile: async (command: string, args: string[]) => {
+      execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+        const head = managedHead(command, args, options);
+        if (head) return head;
         if (command === "devin") return { stdout: CATALOG, stderr: "" };
         if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
         if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };
@@ -1757,10 +1849,12 @@ describe("devin command construction", () => {
         env: enabledEnv(work),
         now: () => new Date("2026-11-12T12:00:00.000Z"),
         execFile: async (command: string, args: string[], options: { cwd: string }) => {
+          const head = managedHead(command, args, options);
+          if (head) return head;
           commands.push([command, ...args]);
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (args.includes("--show-toplevel")) {
-            return { stdout: `${options.cwd === worktreePath ? worktreeRepo : repo}\n`, stderr: "" };
+            return { stdout: `${options.cwd === worktreePath ? worktreePath : repo}\n`, stderr: "" };
           }
           if (args[0] === "rev-parse" && args[1] === "--git-common-dir") {
             const gitRoot = options.cwd === worktreePath ? worktreeRepo : repo;
@@ -1850,7 +1944,9 @@ describe("local CLI only", () => {
         env: { ...enabledEnv(work), ...routeEnv },
         now: () => new Date("2026-11-12T12:00:00.000Z"),
         log: (line: string) => logs.push(line),
-        execFile: async (command: string, args: string[]) => {
+        execFile: async (command: string, args: string[], options?: { cwd?: string }) => {
+          const head = managedHead(command, args, options);
+          if (head) return head;
           if (command === "devin") return { stdout: CATALOG, stderr: "" };
           if (args.includes("--show-toplevel")) return { stdout: `${repo}\n`, stderr: "" };
           if (args.includes("--abbrev-ref")) return { stdout: "origin/main\n", stderr: "" };

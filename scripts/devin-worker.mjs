@@ -1540,6 +1540,31 @@ export function assertNoSensitiveCommits(diffText, issue, paths) {
   }
 }
 
+/**
+ * Change detection, committing, scanning and pushing all target the managed
+ * branch, so a session that switched branches or detached HEAD must not publish.
+ */
+async function assertManagedBranchCheckedOut({ ctx, paths, task, env }) {
+  const expected = `refs/heads/${paths.branch}`;
+  let current = "";
+  try {
+    const head = await run(ctx.execFile, "git", ["symbolic-ref", "--quiet", "HEAD"], {
+      cwd: paths.worktreePath,
+      timeoutMs: 15_000,
+      env,
+    });
+    current = head.stdout.trim();
+  } catch {
+    // Detached HEAD: symbolic-ref exits non-zero.
+  }
+  if (current !== expected) {
+    throw new WorkerError(
+      `Refusing to publish ${task.issue}: the Devin session left ${current ? JSON.stringify(current) : "a detached HEAD"} checked out instead of ${expected}. Nothing was pushed. Worktree kept at ${paths.worktreePath}.`,
+      EXIT.FAILED,
+    );
+  }
+}
+
 async function refuseSensitiveCommits({ ctx, paths, task, base, env, headRef }) {
   const target = headRef ?? `refs/heads/${paths.branch}`;
   const committed = await run(
@@ -1766,7 +1791,8 @@ async function executeTask(task, ctx) {
     assertRunning();
     const base = await resolveBaseBranch(repo, ctx.execFile, env);
     assertRunning();
-    await run(ctx.execFile, "git", ["fetch", "--no-tags", "origin", base], {
+    // Explicit destination: single-branch clones do not map the base to origin/<base>.
+    await run(ctx.execFile, "git", ["fetch", "--no-tags", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`], {
       cwd: repo,
       timeoutMs: 120_000,
       env,
@@ -1781,6 +1807,7 @@ async function executeTask(task, ctx) {
       markProcessGroupStarting,
       setProcessGroupId,
     }, paths, env);
+    await assertManagedBranchCheckedOut({ ctx, paths, task, env });
     await refuseSensitiveCommits({ ctx, paths, task, base, env });
     const status = await run(ctx.execFile, "git", ["status", "--porcelain=v1", "-uall", "-z"], {
       cwd: paths.worktreePath,
