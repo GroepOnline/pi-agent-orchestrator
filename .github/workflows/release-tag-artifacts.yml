@@ -20,7 +20,7 @@ jobs:
   github-release-from-tag:
     name: Attach immutable GitHub Release artifact
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ["chefgroep-ci-oci"]
     timeout-minutes: 35
     permissions:
       contents: write
