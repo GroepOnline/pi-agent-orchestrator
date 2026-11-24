@@ -108,3 +108,26 @@ describe("CI critical-path workflow contract", () => {
     expect(requiredGate).toContain(`test "$BENCHMARKS_RESULT" = "success"`);
   });
 });
+
+describe("public repository self-hosted runner guard", () => {
+  // This public repo keeps runner group 25 (chefgroep-ci-oci) admitted for
+  // trusted release events only; pull request code must never reach it.
+  const pullRequestTrigger = /^\s*(?:on:\s*\[?[^\n]*\bpull_request(?:_target)?\b|pull_request(?:_target)?\s*:?\s*$)/mu;
+
+  it("keeps pull_request and pull_request_target workflows off chefgroep-ci-oci", () => {
+    const dir = resolve(root, ".github", "workflows");
+    const files = readdirSync(dir).filter(name => name.endsWith(".yml") || name.endsWith(".yaml"));
+    const offenders = files.filter(name => {
+      const content = readFileSync(resolve(dir, name), "utf8");
+      return pullRequestTrigger.test(content) && content.includes("chefgroep-ci-oci");
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("detects pull request triggers in every supported form", () => {
+    for (const sample of ["on: pull_request", "on: [push, pull_request_target]", "on:\n  pull_request:\n", "on:\n  - pull_request\n"]) {
+      expect(pullRequestTrigger.test(sample), sample).toBe(true);
+    }
+    expect(pullRequestTrigger.test("on:\n  push:\n    tags: [v*]\n")).toBe(false);
+  });
+});
