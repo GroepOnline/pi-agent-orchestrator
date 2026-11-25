@@ -1880,7 +1880,7 @@ async function resolveBaseBranch(repo, execFile, env) {
 }
 
 async function runOne(task, ctx) {
-  let release = async () => {};
+  let release = async () => { /* empty */ };
   let result;
   try {
     const model = resolveListedModel(task.model, ctx.catalog);

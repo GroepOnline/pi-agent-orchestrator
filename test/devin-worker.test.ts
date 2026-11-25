@@ -160,8 +160,8 @@ describe("kill switch", () => {
         env,
         execFile: boom,
         spawnCommand: boom,
-        log: () => {},
-        warn: () => {},
+        log: () => { /* empty */ },
+        warn: () => { /* empty */ },
       });
       expect(code).toBe(EXIT.OK);
     }
@@ -987,7 +987,7 @@ describe("argument parsing", () => {
       env: enabledEnv(work),
       execFile: boom,
       spawnCommand: boom,
-      log: () => {},
+      log: () => { /* empty */ },
       warn,
     });
     expect(bare).toBe(EXIT.USAGE);
@@ -998,7 +998,7 @@ describe("argument parsing", () => {
       env: enabledEnv(work),
       execFile: boom,
       spawnCommand: boom,
-      log: () => {},
+      log: () => { /* empty */ },
       warn,
     });
     expect(unknown).toBe(EXIT.USAGE);
@@ -1018,7 +1018,7 @@ describe("argument parsing", () => {
       env: enabledEnv(work),
       execFile: boom,
       spawnCommand: boom,
-      log: () => {},
+      log: () => { /* empty */ },
       warn: (message: string) => warnings.push(message),
     });
     expect(code).toBe(EXIT.USAGE);
@@ -1126,7 +1126,7 @@ describe("devin command construction", () => {
       env: enabledEnv(work),
       execFile: boom,
       spawnCommand: boom,
-      log: () => {},
+      log: () => { /* empty */ },
       warn: (message: string) => warnings.push(message),
     });
     expect(lightning).toBe(EXIT.USAGE);
@@ -1137,7 +1137,7 @@ describe("devin command construction", () => {
       now: () => new Date("2026-11-29T23:30:00.000Z"),
       execFile: boom,
       spawnCommand: boom,
-      log: () => {},
+      log: () => { /* empty */ },
       warn: (message: string) => warnings.push(message),
     });
     expect(expired).toBe(EXIT.USAGE);
@@ -1911,7 +1911,7 @@ describe("local CLI only", () => {
       env: enabledEnv(work),
       execFile: boom,
       spawnCommand: boom,
-      log: () => {},
+      log: () => { /* empty */ },
       warn: (message: string) => warnings.push(message),
     });
     expect(code).toBe(EXIT.USAGE);
@@ -1923,7 +1923,7 @@ describe("local CLI only", () => {
       now: () => new Date("2026-11-12T12:00:00.000Z"),
       execFile: boom,
       spawnCommand: boom,
-      log: () => {},
+      log: () => { /* empty */ },
       warn: (message: string) => warnings.push(message),
     });
     expect(keyed).toBe(EXIT.USAGE);
