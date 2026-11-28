@@ -481,6 +481,66 @@ describe("lanes and timeout", () => {
     }
   });
 
+  it("reclaims a mutation lock whose owner is dead or whose metadata publication was interrupted", async () => {
+    const { work } = await tempDirs();
+    await mkdir(join(work, "lanes"), { recursive: true });
+    await writeFile(join(work, "lanes", "0"), "424242\nstale-token\n");
+    const mutation = join(work, "locks", "mutation");
+    await mkdir(mutation, { recursive: true });
+    await writeFile(join(mutation, "owner.json"), JSON.stringify({ pid: 424242, token: "dead-owner" }));
+
+    const recovered = await acquireLane(work, 1, {
+      waitMs: 100,
+      isPidAlive: () => false,
+    });
+    await recovered.release();
+    expect(await readdir(join(work, "locks"))).not.toContain("mutation");
+
+    await mkdir(mutation, { recursive: true });
+    const recoveredWithoutOwner = await acquireLane(work, 1, {
+      waitMs: 100,
+      isPidAlive: () => false,
+    });
+    await recoveredWithoutOwner.release();
+  });
+
+  it("reclaims a start marker only after the recorded session evidence is absent", async () => {
+    const { work } = await tempDirs();
+    const owner = await acquireLane(work, 1, { waitMs: 0, pid: 111 });
+    await owner.markProcessGroupStarting("/worker-evidence/session-export.json");
+
+    await expect(acquireLane(work, 1, {
+      waitMs: 0,
+      pid: 222,
+      isPidAlive: () => false,
+      isDevinSessionActive: () => true,
+    })).rejects.toThrow(/lanes are busy/);
+
+    const recovered = await acquireLane(work, 1, {
+      waitMs: 0,
+      pid: 222,
+      isPidAlive: () => false,
+      isDevinSessionActive: () => false,
+    });
+    await recovered.release();
+  });
+
+  it("rechecks a preserved lane process group even when the owner pid still belongs to this worker", async () => {
+    const { work } = await tempDirs();
+    const owner = await acquireLane(work, 1, { waitMs: 0, pid: 111 });
+    await owner.markProcessGroupStarting("/worker-evidence/session-export.json");
+    await owner.setProcessGroupId(333);
+    await owner.markProcessGroupPreserved();
+
+    const recovered = await acquireLane(work, 1, {
+      waitMs: 0,
+      pid: 111,
+      isPidAlive: () => true,
+      isProcessGroupAlive: () => false,
+    });
+    await recovered.release();
+  });
+
   it("does not reclaim a dead worker lane while its Devin process group is active", async () => {
     const { work } = await tempDirs();
     const owner = await acquireLane(work, 1, { waitMs: 0, pid: 111 });
@@ -620,6 +680,22 @@ describe("task identity locks", () => {
     });
     await reclaim();
     await release();
+  });
+
+  it("rechecks a preserved task-lock process group even while the worker pid is alive", async () => {
+    const { work } = await tempDirs();
+    const branch = "devin/CHEF-123-fix-the-race";
+    const release = await acquireTaskLock(work, "/repos/one", branch, { pid: 111 });
+    await release.markProcessGroupStarting("/worker-evidence/session-export.json");
+    await release.setProcessGroupId(444);
+    await release.markProcessGroupPreserved();
+
+    const reclaim = await acquireTaskLock(work, "/repos/one", branch, {
+      pid: 111,
+      isPidAlive: () => true,
+      isProcessGroupAlive: () => false,
+    });
+    await reclaim();
   });
 
   it("releases the mutation lock atomically while another task claims it", async () => {
