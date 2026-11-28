@@ -79,17 +79,97 @@ describe("runner and concurrency workflow contract", () => {
     "$" + "{{ matrix.runs-on }}",
   ]);
 
-  function runsOnLabels(line: string): string[] {
-    const value = line
-      .replace(/^\s*runs-on:/u, "")
-      .replace(/\s+#.*$/u, "")
-      .trim();
+  interface RunsOnRoute {
+    source: string;
+    labels: string[];
+  }
+
+  function stripYamlComment(value: string): string {
+    let quote: '"' | "'" | null = null;
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index];
+      if (quote) {
+        if (char === quote) {
+          if (value[index + 1] === quote) index += 1;
+          else quote = null;
+        }
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === "#" && (index === 0 || /\s/u.test(value[index - 1]))) {
+        return value.slice(0, index).trimEnd();
+      }
+    }
+    return value.trim();
+  }
+
+  function unquoteYamlScalar(value: string): string {
+    const trimmed = value.trim();
+    const quote = trimmed[0];
+    if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
+      return trimmed.slice(1, -1).replaceAll(quote + quote, quote);
+    }
+    return trimmed;
+  }
+
+  function splitFlowLabels(value: string): string[] {
+    const labels: string[] = [];
+    let quote: '"' | "'" | null = null;
+    let start = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index];
+      if (quote) {
+        if (char === quote) {
+          if (value[index + 1] === quote) index += 1;
+          else quote = null;
+        }
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === ",") {
+        labels.push(value.slice(start, index));
+        start = index + 1;
+      }
+    }
+    labels.push(value.slice(start));
+    return labels;
+  }
+
+  function parseRunsOnValue(rawValue: string): string[] {
+    const value = stripYamlComment(rawValue).trim();
+    if (!value) return [];
     const list =
-      value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
+      value.startsWith("[") && value.endsWith("]")
+        ? splitFlowLabels(value.slice(1, -1))
+        : [value];
     return list
-      .split(",")
-      .map((label) => label.trim().replace(/^["']|["']$/gu, ""))
+      .map((label) => unquoteYamlScalar(label))
       .filter((label) => label.length > 0);
+  }
+
+  function collectRunsOnRoutes(content: string): RunsOnRoute[] {
+    const lines = content.split(/\r?\n/u);
+    const routes: RunsOnRoute[] = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const match = /^(\s*)runs-on:\s*(.*)$/u.exec(lines[index]);
+      if (!match) continue;
+      const indent = match[1].length;
+      const labels = parseRunsOnValue(match[2]);
+      if (labels.length === 0) {
+        for (let itemIndex = index + 1; itemIndex < lines.length; itemIndex += 1) {
+          const raw = lines[itemIndex];
+          if (!raw.trim()) continue;
+          const itemIndent = raw.match(/^\s*/u)?.[0].length ?? 0;
+          const item = raw.trim();
+          if (itemIndent <= indent || !item.startsWith("-")) break;
+          labels.push(...parseRunsOnValue(item.slice(1).trim()));
+        }
+      }
+      routes.push({ source: lines[index].trim(), labels });
+    }
+    return routes;
+  }
+
+  function runsOnLabels(snippet: string): string[] {
+    return collectRunsOnRoutes(snippet)[0]?.labels ?? [];
   }
 
   function isHostedLinuxRoute(line: string): boolean {
@@ -113,17 +193,23 @@ describe("runner and concurrency workflow contract", () => {
     expect(files.length).toBeGreaterThan(0);
     for (const name of files) {
       const content = readRoot(`.github/workflows/${name}`);
-      const routes = content.match(/^\s*runs-on:.*$/gm) ?? [];
+      const routes = collectRunsOnRoutes(content);
       expect(routes, `${name} must declare a runs-on route`).not.toHaveLength(
         0
       );
       for (const route of routes) {
         expect(
-          usesFleetLabel(route),
+          route.labels.length,
+          `${name} must declare runs-on labels`
+        ).toBeGreaterThan(0);
+        expect(
+          route.labels.some((label) =>
+            fleetLabels.some((fleet) => label.includes(fleet))
+          ),
           `${name} must not route to a fleet label`
         ).toBe(false);
         expect(
-          isHostedLinuxRoute(route),
+          route.labels.every((label) => hostedLinuxLabels.has(label)),
           `${name} must use GitHub-hosted Linux`
         ).toBe(true);
       }
@@ -138,6 +224,8 @@ describe("runner and concurrency workflow contract", () => {
       `    runs-on: ${matrixLabel}`,
       `    runs-on: ["ubuntu-latest", "${matrixLabel}"]`,
       "    runs-on: ubuntu-latest # hosted Linux minutes are free here",
+      "    runs-on:\n      - ubuntu-latest",
+      `    runs-on:\n      - ubuntu-latest\n      - "${matrixLabel}"`,
     ]) {
       expect(isHostedLinuxRoute(route), route).toBe(true);
       expect(usesFleetLabel(route), route).toBe(false);
@@ -147,6 +235,8 @@ describe("runner and concurrency workflow contract", () => {
       `    runs-on: windows-latest # ${matrixLabel}`,
       "    runs-on: [self-hosted, Linux, X64, heavy]",
       '    runs-on: ["chefgroep-ci-oci"]',
+      '    runs-on: "ubuntu-latest # geen commentaar"',
+      "    runs-on:\n      - ubuntu-latest\n      - chefgroep-ci-oci",
     ]) {
       expect(isHostedLinuxRoute(route), route).toBe(false);
     }
