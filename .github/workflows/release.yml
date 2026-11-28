@@ -27,7 +27,7 @@ jobs:
   detect:
     name: Detect reviewed release commit
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, Linux, X64, heavy]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
@@ -90,7 +90,7 @@ jobs:
     name: Verify and build immutable npm artifact
     needs: detect
     if: needs.detect.outputs.should_release == 'true'
-    runs-on: [self-hosted, Linux, X64, heavy]
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
       contents: read
@@ -170,7 +170,7 @@ jobs:
   publish:
     name: Publish and verify npm registry artifact
     needs: [detect, verify]
-    runs-on: [self-hosted, Linux, X64, heavy]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -233,7 +233,7 @@ jobs:
   finalize:
     name: Tag exact source and create GitHub Release
     needs: [detect, publish]
-    runs-on: [self-hosted, Linux, X64, heavy]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       actions: write

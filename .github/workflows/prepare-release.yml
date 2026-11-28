@@ -25,7 +25,7 @@ concurrency:
 jobs:
   prepare:
     if: ${{ inputs.confirmation == format('RELEASE {0}', inputs.version) }}
-    runs-on: ["chefgroep-ci-oci"]
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
       RELEASE_VERSION: ${{ inputs.version }}
